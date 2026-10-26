@@ -4,7 +4,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import pytest
-from pydantic import SecretStr, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
 
 from cvestream.errors import CvestreamError
 from cvestream.settings import Settings, SettingsError, _load, load_settings
@@ -14,6 +14,18 @@ class _SettingsWithSecret(Settings):
     """Test-only subclass: no `SecretStr` field exists in the real settings yet."""
 
     api_key: SecretStr | None = None
+
+
+class _NestedSecret(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    password: SecretStr | None = None
+
+
+class _SettingsWithNestedSecret(Settings):
+    """Test-only subclass shaped like the future `valkey.password` (story 3.1)."""
+
+    valkey: _NestedSecret = Field(default_factory=_NestedSecret)
 
 
 @pytest.fixture(autouse=True)
@@ -36,6 +48,13 @@ def test_defaults() -> None:
     assert settings.sources.euvd.enabled is True
     assert settings.sources.euvd.interval == timedelta(minutes=15)
     assert settings.sources.cisa_kev.interval == timedelta(minutes=15)
+
+
+def test_empty_environ_does_not_fall_back_to_process_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CVESTREAM_LOG__LEVEL", "debug")
+    assert load_settings({}).log.level == "info"
 
 
 def test_load_settings_defaults_to_process_environment(
@@ -125,6 +144,24 @@ def test_explicit_missing_settings_file_raises(tmp_path: Path) -> None:
     assert isinstance(excinfo.value, CvestreamError)
 
 
+@pytest.mark.parametrize(
+    ("content", "reason"),
+    [("log: [\n", "cannot parse YAML"), ("- a\n", "must be a mapping")],
+)
+def test_malformed_yaml_raises_settings_error(
+    tmp_path: Path, content: str, reason: str
+) -> None:
+    path = _write_yaml(tmp_path, content)
+    with pytest.raises(SettingsError, match=reason) as excinfo:
+        load_settings(_env(CVESTREAM_SETTINGS_FILE=str(path)))
+    assert str(path) in str(excinfo.value)
+
+
+def test_empty_yaml_file_gives_defaults(tmp_path: Path) -> None:
+    path = _write_yaml(tmp_path, "")
+    assert load_settings(_env(CVESTREAM_SETTINGS_FILE=str(path))).log.level == "info"
+
+
 def test_unknown_yaml_key_is_rejected(tmp_path: Path) -> None:
     path = _write_yaml(tmp_path, "bogus: 1\n")
     with pytest.raises(ValidationError):
@@ -145,6 +182,30 @@ def test_file_secret_is_read_and_trailing_newline_stripped(tmp_path: Path) -> No
     assert settings.api_key is not None
     assert settings.api_key.get_secret_value() == "s3cret"
     assert "s3cret" not in repr(settings)
+
+
+def test_nested_file_secret_is_read(tmp_path: Path) -> None:
+    secret = tmp_path / "password"
+    secret.write_text("pw\n", encoding="utf-8")
+    settings = _load(
+        _SettingsWithNestedSecret, _env(CVESTREAM_VALKEY__PASSWORD_FILE=str(secret))
+    )
+    assert isinstance(settings, _SettingsWithNestedSecret)
+    assert settings.valkey.password is not None
+    assert settings.valkey.password.get_secret_value() == "pw"
+
+
+def test_nested_secret_and_secret_file_together_is_an_error(tmp_path: Path) -> None:
+    secret = tmp_path / "password"
+    secret.write_text("pw", encoding="utf-8")
+    with pytest.raises(SettingsError, match="CVESTREAM_VALKEY__PASSWORD"):
+        _load(
+            _SettingsWithNestedSecret,
+            _env(
+                CVESTREAM_VALKEY__PASSWORD="plain",  # noqa: S106
+                CVESTREAM_VALKEY__PASSWORD_FILE=str(secret),
+            ),
+        )
 
 
 def test_secret_and_secret_file_together_is_an_error(tmp_path: Path) -> None:
