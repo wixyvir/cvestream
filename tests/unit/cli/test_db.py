@@ -140,3 +140,23 @@ def test_backup_to_an_unwritable_target_is_a_user_error(tmp_path: Path) -> None:
     assert result.exit_code == 2
     assert "cannot write backup" in result.output
     assert "Traceback" not in result.output
+
+
+def test_migrate_reports_an_invalid_url_without_quoting_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CVESTREAM_STATE__URL", "postgresql://u:hunter2@h:port/x")
+    result = runner.invoke(app, ["db", "migrate"])
+    assert result.exit_code == 2
+    assert "not a valid database URL" in result.output
+    assert "hunter2" not in result.output
+
+
+def test_migrate_reports_a_file_that_is_not_a_database(tmp_path: Path) -> None:
+    database = _database(tmp_path)
+    database.parent.mkdir(parents=True)
+    database.write_bytes(b"this is not a SQLite database, only some text" * 4)
+    result = runner.invoke(app, ["db", "migrate"])
+    assert result.exit_code == 2
+    assert "cannot open database" in result.output
+    assert "Traceback" not in result.output

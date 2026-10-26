@@ -18,7 +18,7 @@ from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from sqlalchemy import Engine, create_engine, event, make_url
-from sqlalchemy.exc import NoSuchModuleError, OperationalError
+from sqlalchemy.exc import ArgumentError, DatabaseError, NoSuchModuleError
 from sqlalchemy.pool import ConnectionPoolEntry
 
 from cvestream.state.repository import Repository
@@ -52,7 +52,12 @@ class State:
     """The state database. The engine is created on first use."""
 
     def __init__(self, url: str) -> None:
-        self._url = make_url(url)
+        try:
+            self._url = make_url(url)
+        # ValueError: a non-numeric port. The URL may carry a password: never
+        # quote it, and drop the parser's exception from the chain.
+        except ArgumentError, ValueError:
+            raise StateError("state.url is not a valid database URL") from None
         self._engine: Engine | None = None
 
     @property
@@ -101,7 +106,9 @@ class State:
             with self._get_engine().begin() as connection:
                 config.attributes["connection"] = connection
                 command.upgrade(config, "head")
-        except OperationalError as exc:
+        # DatabaseError covers OperationalError (cannot open) and a file that is
+        # not a SQLite database.
+        except DatabaseError as exc:
             # The message of the driver error can echo the URL: name the type only.
             msg = f"{self.display_url}: cannot open database: {type(exc.orig).__name__}"
             raise StateError(msg) from exc
