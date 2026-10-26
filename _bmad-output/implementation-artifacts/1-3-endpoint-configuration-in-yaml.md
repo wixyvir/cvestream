@@ -4,7 +4,7 @@ baseline_commit: eb22a4d35f7122bec2ac4b7be2139261acc65ab1
 
 # Story 1.3: Endpoint configuration in YAML
 
-Status: review
+Status: in-progress
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -67,6 +67,22 @@ so that I can configure the trial without any extra service and other tools can 
   - [x] 11.1 `uv sync --locked && uv run ruff check && uv run ruff format --check && uv run ty check && uv run lint-imports && uv run pytest && uv run cvestream config schema --check && uv run cvestream config validate endpoints.example.yaml`: all green.
   - [x] 11.2 Manual checks from `epic-1-stack-plan.md` §3.3: exit code 2 and one stderr line for an unknown field, `My_Team`, and `min_cvss: "high"`. Schema freshness: edit a `description=` without regenerating, check that `--check` fails, then revert.
   - [x] 11.3 `docker build --target runtime -t cvestream:local .` still succeeds. The image is unchanged by this story, but the gate requires the build. If Docker is unavailable, write that in the Completion Notes and do not claim the build ran.
+
+### Review Findings
+
+Code review 2026-10-26 (bmad-code-review: Blind Hunter, Edge Case Hunter, Acceptance Auditor; run sequentially, no subagent tool available). 2 decision-needed, 8 patch (applied), 1 defer, 5 dismissed.
+
+- [ ] [Review][Decision] Shape of the YAML token field (flagged by the stack plan) — each endpoint carries its feed `token` inline in `endpoints.yaml` (pattern `^[A-Za-z0-9_-]{32,128}$`, unique). The file is gitignored and operator-only, and the architecture already stores tokens in plaintext (Valkey `cvestream:v1:token:{id}`, retrievable with `endpoint show`). Options: (1) keep the inline token as implemented; (2) keep `token` and add an optional `token_file` (exactly one of the two), so a Kubernetes/Docker secret mount can hold the token; (3) move tokens out of `endpoints.yaml` into a separate tokens file or `CVESTREAM_*` variables keyed by endpoint id. Recommendation: (1) for v1; (2) can be added later without breaking the v1 contract (a new optional field), and `docs/configuration.md` could advise `chmod 600 endpoints.yaml`. [src/cvestream/config/models.py:172]
+- [ ] [Review][Decision] Placeholder tokens in the example pass validation — `REPLACE-ME-with-secrets-token-urlsafe-32-team-php` matches the token pattern (AC 6 requires the example to validate in CI), so an operator who copies the example without editing it serves feeds at guessable URLs. Options: (1) keep the contract as is and have story 1.6 refuse to serve (or warn loudly at startup about) an endpoint whose token starts with `REPLACE-ME`; (2) reject the `REPLACE-ME` prefix in the v1 contract, and validate the example in CI with an explicit `--allow-placeholders` flag; (3) documentation only (already in the example header and README). Recommendation: (1), it keeps the contract free of a special case and puts the guard where the URL becomes reachable. [endpoints.example.yaml:38]
+- [x] [Review][Patch] Bad YAML scalars crash `load()` with a bare `ValueError` (traceback, exit 1, value quoted) — `name: 2026-13-45` (impossible date) or `token: !!int <token>` raised `ValueError` from PyYAML's constructors, which is not a `YAMLError`: `config validate` crashed with a traceback and the daemon (1.6) would not get a `ConfigError` to keep the last snapshot; the message could quote a token. The loader now turns it into a `ConstructorError` with the position and the tag only (`4:11: invalid timestamp value`). [src/cvestream/config/yaml_provider.py:35]
+- [x] [Review][Patch] Deeply nested YAML raises `RecursionError` out of `load()` — now `ConfigValidationError("nesting is too deep")`. [src/cvestream/config/yaml_provider.py:105]
+- [x] [Review][Patch] Merge keys (`<<: *anchor`) were rejected by the duplicate-key check — it constructed the `<<` key, which has no constructor (`could not determine a constructor for the tag 'tag:yaml.org,2002:merge'`). Merge keys are now skipped by the check and flattened by the base class; a key next to them still overrides the merged one, and real duplicates are still rejected. [src/cvestream/config/yaml_provider.py:49]
+- [x] [Review][Patch] `version: true` was accepted (`Literal[1]` accepts `True` even in strict mode) — rejected now with `version: must be the integer 1`, as the contract and the JSON Schema (`const: 1`) say. [src/cvestream/config/models.py:210]
+- [x] [Review][Patch] Tag segments were dropped from every error path — an endpoint key named `entry` or a product key named `shorthand` lost its name (`endpoints[0]: Extra inputs are not permitted`). Only the segment right after `products[<i>]` is a tag now. [src/cvestream/config/provider.py:79]
+- [x] [Review][Patch] `invalid version` messages interpolated the raw value — `min_version: "8.2\nfoo"` printed a two-line error, breaking AC 5's single stderr line. The value is now `repr()`-quoted (`'8.x'` is unchanged). [src/cvestream/config/models.py:69]
+- [x] [Review][Patch] `config schema --check --output -` printed the schema and exited 0 without checking anything — now a one-line usage error, exit 2. [src/cvestream/cli/config.py:64]
+- [x] [Review][Patch] Docs overstated what the JSON Schema checks, and the stack plan's manual check 2 could not name the field — `docs/configuration.md` now says the schema covers the structure only (uniqueness, version strings and duplicate keys need `cvestream config validate`) and that anchors/merge keys work; `epic-1-stack-plan.md` §3.3 appends `unknown_field` with 4 spaces so it lands in the last endpoint (`endpoints[1].unknown_field: Extra inputs are not permitted`) instead of producing a YAML syntax error. [docs/configuration.md:88]
+- [x] [Review][Defer] `settings.yaml` loader has the same bare-`ValueError` leak [src/cvestream/settings.py:179] — deferred, pre-existing (story 1.1): `_YamlSource._read_file` catches `yaml.YAMLError` only, so `log: {level: 2026-13-45}` in `settings.yaml` crashes `load_settings()` with a `ValueError` traceback instead of a `SettingsError`.
 
 ## Dev Notes
 
@@ -453,3 +469,4 @@ Modified:
 ### Change Log
 
 - 2026-10-26: Implemented story 1.3 (endpoint configuration in YAML); status set to review.
+- 2026-10-26: Code review: 8 patches applied (YAML scalar/recursion errors, merge keys, boolean version, error paths and messages, `schema --check -o -`, docs), 1 item deferred, 2 decisions pending; status set to in-progress.
