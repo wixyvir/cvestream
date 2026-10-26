@@ -1,6 +1,10 @@
+---
+baseline_commit: eb22a4d35f7122bec2ac4b7be2139261acc65ab1
+---
+
 # Story 1.3: Endpoint configuration in YAML
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -22,47 +26,47 @@ so that I can configure the trial without any extra service and other tools can 
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: `config/models.py`, the v1 contract (AC: 1)**. See "Contract design".
-  - [ ] 1.1 Shared annotated types: `Term` (stripped, 1–200 chars), `EndpointId` (slug), `FeedToken`, `Shorthand` (with the grammar regex in its JSON Schema), plus the `min_version` validator built on `domain.version.parse_version`.
-  - [ ] 1.2 `ProductEntryConfig`, `EndpointConfig`, `ConfigDocument` (`version: Literal[1]`, `endpoints: list[EndpointConfig]`), all `extra="forbid", strict=True`, every field with a `description=`.
-  - [ ] 1.3 Cross-field rules on `ConfigDocument`: unique endpoint IDs and unique tokens. The error message names the field path and must never contain the token value.
-  - [ ] 1.4 `EndpointConfig.to_domain() -> Endpoint` (shorthand expanded, `min_version` parsed to `Version`, lists turned into tuples, `Rules(min_cvss, kev_only)`).
-- [ ] **Task 2: `config/provider.py` (AC: 3, 4)**. See "Provider design".
-  - [ ] 2.1 `ConfigError(CvestreamError)`, `ConfigUnavailableError(ConfigError)`, `ConfigValidationError(ConfigError)` (one-line `str()`, `errors` tuple).
-  - [ ] 2.2 `ConfigSnapshot` (frozen, slotted: `revision`, `endpoints`, token map with `repr=False`, `endpoint_for_token()`).
-  - [ ] 2.3 `ConfigProvider` protocol (`revision() -> str`, `load() -> ConfigSnapshot`).
-  - [ ] 2.4 `build_snapshot(data, *, revision, source) -> ConfigSnapshot`: validates with `ConfigDocument`, formats the Pydantic errors into field paths, converts to domain objects. Story 3.1 reuses it for Valkey.
-- [ ] **Task 3: `config/yaml_provider.py` (AC: 3, 4)**. See "YAML loading rules".
-  - [ ] 3.1 `YamlConfigProvider(path: Path)` with `revision()` and `load()`. Read the bytes once, hash those bytes and parse those same bytes.
-  - [ ] 3.2 Safe YAML loading with a duplicate-key check, without `yaml.load` (ruff `S506`). YAML errors become `ConfigValidationError` with `line:column` and the problem text, never the source snippet.
-- [ ] **Task 4: `config/schema.py` (AC: 2)**
-  - [ ] 4.1 `config_schema() -> dict[str, Any]` (`$schema` 2020-12 + `ConfigDocument.model_json_schema()`) and `render_schema() -> str` (deterministic JSON, `indent=2`, trailing newline).
-- [ ] **Task 5: CLI `cvestream config` (AC: 2, 5)**. See "CLI design".
-  - [ ] 5.1 `cli/config.py`: Typer sub-app with `validate [FILE]` and `schema [--output PATH] [--check]`.
-  - [ ] 5.2 `cli/main.py`: register it with `app.add_typer(..., name="config")`. Change nothing else in that file.
-- [ ] **Task 6: Settings (AC: 7)**
-  - [ ] 6.1 `settings.py`: add `config_provider: Literal["yaml"] = "yaml"` and `endpoints_file: Path = Path("endpoints.yaml")` to `Settings`. Add no other field.
-  - [ ] 6.2 `settings.example.yaml`: document both keys (env names `CVESTREAM_CONFIG_PROVIDER`, `CVESTREAM_ENDPOINTS_FILE`).
-- [ ] **Task 7: Generated and example files (AC: 2, 6)**
-  - [ ] 7.1 Run `uv run cvestream config schema` and commit `schemas/config-v1.json`.
-  - [ ] 7.2 Write `endpoints.example.yaml` (see "Example file"). It must pass `cvestream config validate`.
-- [ ] **Task 8: CI (AC: 2, 6)**
-  - [ ] 8.1 In `.github/workflows/ci.yml`, job `ci`, after `uv run pytest`: add `uv run cvestream config schema --check` and `uv run cvestream config validate endpoints.example.yaml`. Leave the triggers, permissions and other jobs as they are (see "Delivery").
-- [ ] **Task 9: Tests (all ACs)**. See "Testing requirements".
-  - [ ] 9.1 `tests/unit/config/__init__.py`, `test_models.py`, `test_provider.py`, `test_yaml_provider.py`, `test_schema.py`.
-  - [ ] 9.2 `tests/unit/cli/test_config.py`.
-  - [ ] 9.3 `tests/unit/test_settings.py`: new fields, defaults, `CVESTREAM_ENDPOINTS_FILE` from the environment (not mistaken for a secret), `config_provider: valkey` rejected.
-  - [ ] 9.4 `pyproject.toml`: add `per-file-ignores` entries (`S105`, `S106`) for the new test files that hold fake tokens, following the existing `tests/unit/test_log.py` entry. Change nothing else in `pyproject.toml`.
-- [ ] **Task 10: Docs (AC: 7, same PR)**
-  - [ ] 10.1 New `docs/configuration.md` (see "Docs content").
-  - [ ] 10.2 `README.md`: status line, a link to `docs/configuration.md`, and `cvestream config validate` in the quick start.
-  - [ ] 10.3 `CLAUDE.md`: add `uv run cvestream config schema --check` to the gate commands, and one key rule: "`config/models.py` is a public contract: regenerate `schemas/config-v1.json` (`uv run cvestream config schema`) in the same commit".
-  - [ ] 10.4 `architecture.md`: in the tree, set the `provider.py` comment to `ConfigProvider protocol, ConfigSnapshot, ConfigError family, build_snapshot()`. Under Data Architecture "Schema", add one sentence on the YAML document shape (`version: 1`, `endpoints: [...]` with an inline `token`, product shorthand `name >= version`).
-  - [ ] 10.5 `deferred-work.md`: mark the 1.2 item "Blank terms match almost everything" as resolved by story 1.3 (whitespace-only terms are rejected at the config boundary).
-- [ ] **Task 11: Gates**
-  - [ ] 11.1 `uv sync --locked && uv run ruff check && uv run ruff format --check && uv run ty check && uv run lint-imports && uv run pytest && uv run cvestream config schema --check && uv run cvestream config validate endpoints.example.yaml`: all green.
-  - [ ] 11.2 Manual checks from `epic-1-stack-plan.md` §3.3: exit code 2 and one stderr line for an unknown field, `My_Team`, and `min_cvss: "high"`. Schema freshness: edit a `description=` without regenerating, check that `--check` fails, then revert.
-  - [ ] 11.3 `docker build --target runtime -t cvestream:local .` still succeeds. The image is unchanged by this story, but the gate requires the build. If Docker is unavailable, write that in the Completion Notes and do not claim the build ran.
+- [x] **Task 1: `config/models.py`, the v1 contract (AC: 1)**. See "Contract design".
+  - [x] 1.1 Shared annotated types: `Term` (stripped, 1–200 chars), `EndpointId` (slug), `FeedToken`, `Shorthand` (with the grammar regex in its JSON Schema), plus the `min_version` validator built on `domain.version.parse_version`.
+  - [x] 1.2 `ProductEntryConfig`, `EndpointConfig`, `ConfigDocument` (`version: Literal[1]`, `endpoints: list[EndpointConfig]`), all `extra="forbid", strict=True`, every field with a `description=`.
+  - [x] 1.3 Cross-field rules on `ConfigDocument`: unique endpoint IDs and unique tokens. The error message names the field path and must never contain the token value.
+  - [x] 1.4 `EndpointConfig.to_domain() -> Endpoint` (shorthand expanded, `min_version` parsed to `Version`, lists turned into tuples, `Rules(min_cvss, kev_only)`).
+- [x] **Task 2: `config/provider.py` (AC: 3, 4)**. See "Provider design".
+  - [x] 2.1 `ConfigError(CvestreamError)`, `ConfigUnavailableError(ConfigError)`, `ConfigValidationError(ConfigError)` (one-line `str()`, `errors` tuple).
+  - [x] 2.2 `ConfigSnapshot` (frozen, slotted: `revision`, `endpoints`, token map with `repr=False`, `endpoint_for_token()`).
+  - [x] 2.3 `ConfigProvider` protocol (`revision() -> str`, `load() -> ConfigSnapshot`).
+  - [x] 2.4 `build_snapshot(data, *, revision, source) -> ConfigSnapshot`: validates with `ConfigDocument`, formats the Pydantic errors into field paths, converts to domain objects. Story 3.1 reuses it for Valkey.
+- [x] **Task 3: `config/yaml_provider.py` (AC: 3, 4)**. See "YAML loading rules".
+  - [x] 3.1 `YamlConfigProvider(path: Path)` with `revision()` and `load()`. Read the bytes once, hash those bytes and parse those same bytes.
+  - [x] 3.2 Safe YAML loading with a duplicate-key check, without `yaml.load` (ruff `S506`). YAML errors become `ConfigValidationError` with `line:column` and the problem text, never the source snippet.
+- [x] **Task 4: `config/schema.py` (AC: 2)**
+  - [x] 4.1 `config_schema() -> dict[str, Any]` (`$schema` 2020-12 + `ConfigDocument.model_json_schema()`) and `render_schema() -> str` (deterministic JSON, `indent=2`, trailing newline).
+- [x] **Task 5: CLI `cvestream config` (AC: 2, 5)**. See "CLI design".
+  - [x] 5.1 `cli/config.py`: Typer sub-app with `validate [FILE]` and `schema [--output PATH] [--check]`.
+  - [x] 5.2 `cli/main.py`: register it with `app.add_typer(..., name="config")`. Change nothing else in that file.
+- [x] **Task 6: Settings (AC: 7)**
+  - [x] 6.1 `settings.py`: add `config_provider: Literal["yaml"] = "yaml"` and `endpoints_file: Path = Path("endpoints.yaml")` to `Settings`. Add no other field.
+  - [x] 6.2 `settings.example.yaml`: document both keys (env names `CVESTREAM_CONFIG_PROVIDER`, `CVESTREAM_ENDPOINTS_FILE`).
+- [x] **Task 7: Generated and example files (AC: 2, 6)**
+  - [x] 7.1 Run `uv run cvestream config schema` and commit `schemas/config-v1.json`.
+  - [x] 7.2 Write `endpoints.example.yaml` (see "Example file"). It must pass `cvestream config validate`.
+- [x] **Task 8: CI (AC: 2, 6)**
+  - [x] 8.1 In `.github/workflows/ci.yml`, job `ci`, after `uv run pytest`: add `uv run cvestream config schema --check` and `uv run cvestream config validate endpoints.example.yaml`. Leave the triggers, permissions and other jobs as they are (see "Delivery").
+- [x] **Task 9: Tests (all ACs)**. See "Testing requirements".
+  - [x] 9.1 `tests/unit/config/__init__.py`, `test_models.py`, `test_provider.py`, `test_yaml_provider.py`, `test_schema.py`.
+  - [x] 9.2 `tests/unit/cli/test_config.py`.
+  - [x] 9.3 `tests/unit/test_settings.py`: new fields, defaults, `CVESTREAM_ENDPOINTS_FILE` from the environment (not mistaken for a secret), `config_provider: valkey` rejected.
+  - [x] 9.4 `pyproject.toml`: add `per-file-ignores` entries (`S105`, `S106`) for the new test files that hold fake tokens, following the existing `tests/unit/test_log.py` entry. Change nothing else in `pyproject.toml`.
+- [x] **Task 10: Docs (AC: 7, same PR)**
+  - [x] 10.1 New `docs/configuration.md` (see "Docs content").
+  - [x] 10.2 `README.md`: status line, a link to `docs/configuration.md`, and `cvestream config validate` in the quick start.
+  - [x] 10.3 `CLAUDE.md`: add `uv run cvestream config schema --check` to the gate commands, and one key rule: "`config/models.py` is a public contract: regenerate `schemas/config-v1.json` (`uv run cvestream config schema`) in the same commit".
+  - [x] 10.4 `architecture.md`: in the tree, set the `provider.py` comment to `ConfigProvider protocol, ConfigSnapshot, ConfigError family, build_snapshot()`. Under Data Architecture "Schema", add one sentence on the YAML document shape (`version: 1`, `endpoints: [...]` with an inline `token`, product shorthand `name >= version`).
+  - [x] 10.5 `deferred-work.md`: mark the 1.2 item "Blank terms match almost everything" as resolved by story 1.3 (whitespace-only terms are rejected at the config boundary).
+- [x] **Task 11: Gates**
+  - [x] 11.1 `uv sync --locked && uv run ruff check && uv run ruff format --check && uv run ty check && uv run lint-imports && uv run pytest && uv run cvestream config schema --check && uv run cvestream config validate endpoints.example.yaml`: all green.
+  - [x] 11.2 Manual checks from `epic-1-stack-plan.md` §3.3: exit code 2 and one stderr line for an unknown field, `My_Team`, and `min_cvss: "high"`. Schema freshness: edit a `description=` without regenerating, check that `--check` fails, then revert.
+  - [x] 11.3 `docker build --target runtime -t cvestream:local .` still succeeds. The image is unchanged by this story, but the gate requires the build. If Docker is unavailable, write that in the Completion Notes and do not claim the build ran.
 
 ## Dev Notes
 
@@ -391,10 +395,61 @@ Last commits on the base branch: `chore(story-1.2): record code review`, `chore(
 
 ### Agent Model Used
 
+Claude Sonnet 5.5 (claude-sonnet-5-5), run through the `bmad-dev-story` workflow.
+
 ### Debug Log References
+
+- Red phase: tests for each module were written before the module (models, provider, YAML provider, schema, settings); the settings tests were run and seen failing (5 failed) before the two fields were added.
+- `str(ValidationError)` embeds `input_value`, so the duplicate-token test reads messages through `errors(include_input=False)`; the provider does the same.
+- Callable-discriminator error locations carry the tag (`...products.0.shorthand` / `.entry`); the formatter drops it, tests on raw Pydantic locations keep it.
+- Empty `loc` for a non-mapping document reads `Input should be a valid dictionary or instance of ConfigDocument`.
 
 ### Completion Notes List
 
-- Ultimate context engine analysis completed - comprehensive developer guide created.
+- Built the v1 contract (`config/models.py`), provider protocol, snapshot and error family (`config/provider.py`), the YAML provider with a duplicate-key-rejecting safe loader (`config/yaml_provider.py`), the schema export (`config/schema.py`), the `cvestream config validate|schema` commands and the two settings fields. Generated and committed `schemas/config-v1.json`; added `endpoints.example.yaml`, the CI steps and `docs/configuration.md`.
+- Quality gates all green locally: `uv sync --locked`, ruff check and format, ty, lint-imports (7 contracts kept), pytest (365 passed), `config schema --check`, `config validate endpoints.example.yaml`, and `docker build --target runtime` succeeded.
+- Manual checks (stack plan 3.3): unknown field, `My_Team` and `min_cvss: "high"` each exit 2 with exactly one stderr line naming the field. Editing a `description=` without regenerating makes `config schema --check` exit 2; reverted afterwards.
+- Deviation 1: the generated `schemas/config-v1.json` is committed together with `config/schema.py` (not in a separate `chore` commit), so that the freshness test is green in every commit.
+- Deviation 2: the reviewer's check "append `  unknown_field: 1` to a copy of the example" produces a YAML syntax error (the last line is a nested product, not an endpoint key), reported as `<file>: 66:3: expected <block end>...`. That is still one stderr line and exit 2. An unknown field inside an endpoint reports `endpoints[0].unknown_field: Extra inputs are not permitted`, covered by tests.
+- Deviation 3: `S105`/`S106` per-file ignores were added as the story asks, although ruff does not currently flag the new tests (fake tokens are built with `"a" * 43`); they protect later literal tokens.
+- Not done on purpose (out of scope per the story): logging `config.rejected`, the keep-last-snapshot loop, the daemon, Valkey provider, CRUD commands.
+- `ConfigSnapshot.endpoint_for_token` looks the token up in a dict, then finds the endpoint by id with a linear scan over a small tuple.
+- Open question left for review: inline `token` in YAML versus a `token_file` reference; example placeholders pass validation, so a copied example serves guessable URLs until tokens are replaced.
 
 ### File List
+
+New:
+
+- `src/cvestream/config/models.py`
+- `src/cvestream/config/provider.py`
+- `src/cvestream/config/yaml_provider.py`
+- `src/cvestream/config/schema.py`
+- `src/cvestream/cli/config.py`
+- `schemas/config-v1.json`
+- `endpoints.example.yaml`
+- `docs/configuration.md`
+- `tests/unit/config/__init__.py`
+- `tests/unit/config/test_models.py`
+- `tests/unit/config/test_provider.py`
+- `tests/unit/config/test_yaml_provider.py`
+- `tests/unit/config/test_schema.py`
+- `tests/unit/cli/test_config.py`
+
+Modified:
+
+- `src/cvestream/settings.py`
+- `src/cvestream/cli/main.py`
+- `settings.example.yaml`
+- `.github/workflows/ci.yml`
+- `pyproject.toml` (per-file ignores only)
+- `tests/unit/test_settings.py`
+- `README.md`
+- `CLAUDE.md`
+- `_bmad-output/planning-artifacts/architecture.md`
+- `_bmad-output/implementation-artifacts/deferred-work.md`
+- `_bmad-output/implementation-artifacts/1-3-endpoint-configuration-in-yaml.md`
+- `_bmad-output/implementation-artifacts/sprint-status.yaml`
+
+### Change Log
+
+- 2026-10-26: Implemented story 1.3 (endpoint configuration in YAML); status set to review.
