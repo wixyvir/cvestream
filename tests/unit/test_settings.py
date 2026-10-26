@@ -7,7 +7,13 @@ import pytest
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
 
 from cvestream.errors import CvestreamError
-from cvestream.settings import Settings, SettingsError, _load, load_settings
+from cvestream.settings import (
+    Settings,
+    SettingsError,
+    _load,
+    load_settings,
+    state_url,
+)
 
 
 class _SettingsWithSecret(Settings):
@@ -269,6 +275,51 @@ def test_config_provider_from_environment() -> None:
 def test_valkey_config_provider_is_rejected_until_it_exists() -> None:
     with pytest.raises(ValidationError):
         load_settings(_env(CVESTREAM_CONFIG_PROVIDER="valkey"))
+
+
+def test_state_defaults() -> None:
+    settings = load_settings({})
+    assert settings.data_dir == Path("data")
+    assert settings.state.url is None
+    assert state_url(settings) == "sqlite:///data/cvestream.db"
+
+
+def test_data_dir_from_environment() -> None:
+    settings = load_settings(_env(CVESTREAM_DATA_DIR="/data"))
+    assert settings.data_dir == Path("/data")
+    assert state_url(settings) == "sqlite:////data/cvestream.db"
+
+
+def test_state_url_from_environment() -> None:
+    settings = load_settings(_env(CVESTREAM_STATE__URL="sqlite:////x/y.db"))
+    assert state_url(settings) == "sqlite:////x/y.db"
+
+
+def test_state_url_from_secret_file(tmp_path: Path) -> None:
+    secret = tmp_path / "state_url"
+    secret.write_text("postgresql+psycopg://u:pw@h/db\n", encoding="utf-8")
+    settings = load_settings(_env(CVESTREAM_STATE__URL_FILE=str(secret)))
+    assert state_url(settings) == "postgresql+psycopg://u:pw@h/db"
+
+
+def test_state_url_never_appears_in_repr() -> None:
+    settings = load_settings(
+        _env(CVESTREAM_STATE__URL="postgresql+psycopg://u:hunter2@h/db")
+    )
+    assert "hunter2" not in repr(settings)
+    assert "hunter2" not in str(settings)
+
+
+def test_state_url_and_state_url_file_together_is_an_error(tmp_path: Path) -> None:
+    secret = tmp_path / "state_url"
+    secret.write_text("sqlite://", encoding="utf-8")
+    with pytest.raises(SettingsError, match="CVESTREAM_STATE__URL"):
+        load_settings(
+            _env(
+                CVESTREAM_STATE__URL="sqlite:///x.db",
+                CVESTREAM_STATE__URL_FILE=str(secret),
+            )
+        )
 
 
 @pytest.mark.parametrize(
