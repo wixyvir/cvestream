@@ -1,7 +1,8 @@
 # cvestream settings. Copy to settings.yaml (gitignored) and adjust.
 #
 # Lookup: the file named by CVESTREAM_SETTINGS_FILE, else ./settings.yaml.
-# A missing default file is fine; a missing explicit file is an error.
+# A missing default file is fine; a missing explicit file, invalid YAML or a
+# top level that is not a mapping is an error.
 #
 # Every key can also be set through the environment: prefix CVESTREAM_, with
 # a double underscore for nesting (log.level -> CVESTREAM_LOG__LEVEL).
@@ -12,8 +13,8 @@
 # ISO 8601 (PT30M) or a number of seconds (1800).
 #
 # Secrets (none yet) are read from CVESTREAM_<NAME>_FILE variables pointing
-# to a file; setting both CVESTREAM_<NAME> and CVESTREAM_<NAME>_FILE is an
-# error.
+# to a file, nested names included (CVESTREAM_<SECTION>__<NAME>_FILE); setting
+# both CVESTREAM_<NAME> and CVESTREAM_<NAME>_FILE is an error.
 
 log:
   # Minimum level. One of: debug, info, warning, error.

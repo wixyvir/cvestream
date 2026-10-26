@@ -13,9 +13,11 @@ import typing
 from collections.abc import Mapping
 from contextvars import ContextVar
 from datetime import timedelta
+from importlib.resources.abc import Traversable
 from pathlib import Path
 from typing import Any, Literal
 
+import yaml
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 from pydantic.fields import FieldInfo
 from pydantic_settings import (
@@ -78,7 +80,13 @@ class _EnvironSource(EnvSettingsSource):
         super().__init__(settings_cls)
 
     def _load_env_vars(self) -> Mapping[str, str | None]:
-        return {key.lower(): value for key, value in self._environ.items()}
+        # `*_FILE` variables of secret fields belong to `_FileSecretsSource`;
+        # left here, a nested one (`A__B_FILE`) would be an unknown `b_file` key.
+        return {
+            key.lower(): value
+            for key, value in self._environ.items()
+            if _secret_file_path(self.settings_cls, key) is None
+        }
 
 
 def _unwrap_optional(annotation: Any) -> Any:
@@ -103,6 +111,19 @@ def _is_secret_field(model: type[BaseModel], path: list[str]) -> bool:
     return False
 
 
+def _secret_file_path(settings_cls: type[BaseSettings], name: str) -> list[str] | None:
+    """Field path of a `<PREFIX><PATH>_FILE` variable naming a `SecretStr` field."""
+    prefix = (settings_cls.model_config.get("env_prefix") or "").upper()
+    upper_name = name.upper()
+    if not (upper_name.startswith(prefix) and upper_name.endswith("_FILE")):
+        return None
+    stem = upper_name[len(prefix) : -len("_FILE")]
+    path = [part.lower() for part in stem.split("__")]
+    if not stem or not _is_secret_field(settings_cls, path):
+        return None  # not a secret: leave the variable alone
+    return path
+
+
 class _FileSecretsSource(PydanticBaseSettingsSource):
     """Reads `CVESTREAM_<PATH>_FILE` into `SecretStr` fields only."""
 
@@ -111,7 +132,6 @@ class _FileSecretsSource(PydanticBaseSettingsSource):
     ) -> None:
         super().__init__(settings_cls)
         self._environ = environ
-        self._prefix = settings_cls.model_config.get("env_prefix") or ""
 
     def get_field_value(
         self, field: FieldInfo, field_name: str
@@ -122,16 +142,10 @@ class _FileSecretsSource(PydanticBaseSettingsSource):
         result: dict[str, Any] = {}
         upper = {key.upper(): key for key in self._environ}
         for upper_name, name in upper.items():
-            if not (
-                upper_name.startswith(self._prefix.upper())
-                and upper_name.endswith("_FILE")
-            ):
+            path = _secret_file_path(self.settings_cls, name)
+            if path is None:
                 continue
-            stem = upper_name[len(self._prefix) : -len("_FILE")]
-            path = [part.lower() for part in stem.split("__")]
-            if not stem or not _is_secret_field(self.settings_cls, path):
-                continue  # not a secret: leave the variable alone
-            plain = f"{self._prefix}{stem}".upper()
+            plain = upper_name.removesuffix("_FILE")
             if plain in upper:
                 msg = f"{upper[plain]} and {name} are both set; set only one"
                 raise SettingsError(msg)
@@ -154,6 +168,21 @@ def _assign(target: dict[str, Any], path: list[str], value: Any) -> None:
     for part in path[:-1]:
         target = target.setdefault(part, {})
     target[path[-1]] = value
+
+
+class _YamlSource(YamlConfigSettingsSource):
+    """YAML source turning unreadable or malformed files into `SettingsError`."""
+
+    def _read_file(self, file_path: Path | Traversable) -> dict[str, Any]:
+        try:
+            data = super()._read_file(file_path)
+        except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+            msg = f"settings file {file_path}: cannot parse YAML: {type(exc).__name__}"
+            raise SettingsError(msg) from exc
+        if not isinstance(data, dict):
+            msg = f"settings file {file_path}: top level must be a mapping"
+            raise SettingsError(msg)
+        return data
 
 
 def _yaml_file(environ: Mapping[str, str]) -> Path:
@@ -185,12 +214,13 @@ class Settings(BaseSettings):
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
         # No .env and no secrets directory: both defaults are dropped.
-        environ = _environ.get() or os.environ
+        injected = _environ.get()
+        environ = os.environ if injected is None else injected
         return (
             init_settings,
             _EnvironSource(settings_cls, environ),
             _FileSecretsSource(settings_cls, environ),
-            YamlConfigSettingsSource(settings_cls, yaml_file=_yaml_file(environ)),
+            _YamlSource(settings_cls, yaml_file=_yaml_file(environ)),
         )
 
 
