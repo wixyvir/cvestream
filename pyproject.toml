@@ -122,6 +122,8 @@ forbidden_modules = [
 # counterpart: import-linter can only deny a list, never allow one.
 
 # Library ownership, one forbidden contract per library family.
+# Ownership means "imports directly": a higher layer may import the owner
+# (pipeline -> state -> sqlalchemy), hence allow_indirect_imports = true.
 
 [[tool.importlinter.contracts]]
 name = "httpx only in sources and http"
@@ -139,6 +141,7 @@ source_modules = [
     "cvestream.errors",
 ]
 forbidden_modules = ["httpx"]
+allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
 name = "sqlalchemy and alembic only in state"
@@ -157,6 +160,7 @@ source_modules = [
     "cvestream.errors",
 ]
 forbidden_modules = ["sqlalchemy", "alembic"]
+allow_indirect_imports = true
 
 # valkey: only cvestream.config.valkey_provider. That module does not exist
 # yet, so for now only cvestream.config as a whole may import it; story 3.1
@@ -178,6 +182,7 @@ source_modules = [
     "cvestream.errors",
 ]
 forbidden_modules = ["valkey"]
+allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
 name = "starlette and uvicorn only in app"
@@ -196,6 +201,7 @@ source_modules = [
     "cvestream.errors",
 ]
 forbidden_modules = ["starlette", "uvicorn"]
+allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
 name = "typer only in cli"
@@ -214,3 +220,4 @@ source_modules = [
     "cvestream.errors",
 ]
 forbidden_modules = ["typer"]
+allow_indirect_imports = true
