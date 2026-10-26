@@ -87,7 +87,9 @@ async def get_json(
         raise SourceTransportError(source, str(exc)) from exc
     try:
         return json.loads(body)
-    except ValueError as exc:  # JSONDecodeError and UnicodeDecodeError
+    # ValueError covers JSONDecodeError and UnicodeDecodeError; RecursionError is
+    # a deeply nested document.
+    except (ValueError, RecursionError) as exc:
         msg = f"GET {url}: response is not valid JSON ({type(exc).__name__})"
         raise SourcePayloadError(source, msg) from exc
 
