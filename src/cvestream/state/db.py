@@ -18,6 +18,7 @@ from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from sqlalchemy import Engine, create_engine, event, make_url
+from sqlalchemy.exc import NoSuchModuleError, OperationalError
 from sqlalchemy.pool import ConnectionPoolEntry
 
 from cvestream.state.repository import Repository
@@ -76,7 +77,11 @@ class State:
 
     def _get_engine(self) -> Engine:
         if self._engine is None:
-            self._engine = create_engine(self._url)
+            try:
+                self._engine = create_engine(self._url)
+            except (ImportError, NoSuchModuleError) as exc:
+                msg = f"no database driver for {self._url.drivername}"
+                raise StateError(msg) from exc
             if self._engine.dialect.name == "sqlite":
                 event.listen(self._engine, "connect", _configure_sqlite)
         return self._engine
@@ -85,12 +90,21 @@ class State:
         """Upgrade to the head revision (a no-op when there) and return it."""
         path = self.sqlite_path
         if path is not None:
-            path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                msg = f"{path.parent}: cannot create directory: {type(exc).__name__}"
+                raise StateError(msg) from exc
         config = Config()
         config.set_main_option("script_location", MIGRATIONS)
-        with self._get_engine().begin() as connection:
-            config.attributes["connection"] = connection
-            command.upgrade(config, "head")
+        try:
+            with self._get_engine().begin() as connection:
+                config.attributes["connection"] = connection
+                command.upgrade(config, "head")
+        except OperationalError as exc:
+            # The message of the driver error can echo the URL: name the type only.
+            msg = f"{self.display_url}: cannot open database: {type(exc.orig).__name__}"
+            raise StateError(msg) from exc
         head = ScriptDirectory.from_config(config).get_current_head()
         if head is None:
             raise StateError("the migrations have no head revision")
