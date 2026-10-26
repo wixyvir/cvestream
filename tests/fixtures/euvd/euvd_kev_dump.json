@@ -1,0 +1,65 @@
+[
+  {
+    "cveId": "CVE-2021-22555",
+    "euvdId": "EUVD-2021-9696",
+    "dateAdded": "2025-10-06",
+    "sources": [
+      "cisa_kev"
+    ]
+  },
+  {
+    "cveId": "CVE-2023-3519",
+    "euvdId": "EUVD-2023-44176",
+    "vendorProject": "Citrix",
+    "product": "Citrix ADC and Citrix Gateway",
+    "dateAdded": "2023-07-19",
+    "sources": [
+      "cisa_kev",
+      "eukev_kev"
+    ]
+  },
+  {
+    "cveId": "CVE-2020-1472",
+    "euvdId": "EUVD-2020-12346",
+    "vendorProject": "Microsoft",
+    "product": "Netlogon (ZeroLogon)",
+    "dateAdded": "2021-11-03",
+    "sources": [
+      "cisa_kev",
+      "eukev_kev"
+    ]
+  },
+  {
+    "cveId": "CVE-2025-25231",
+    "euvdId": "EUVD-2025-24160",
+    "vendorProject": "Omnissa",
+    "product": "Omnissa Workspace ONE UEM",
+    "dateAdded": "2025-09-09",
+    "sources": [
+      "eukev_kev"
+    ]
+  },
+  {
+    "cveId": "CVE-2026-67277",
+    "euvdId": "EUVD-2026-72025",
+    "vendorProject": "MikroTik",
+    "product": "RouterOS",
+    "vulnerabilityName": "MikroTrick",
+    "dateAdded": "2026-09-05",
+    "sources": [
+      "cisa_kev",
+      "eukev_kev"
+    ]
+  },
+  {
+    "cveId": "CVE-2026-67276",
+    "euvdId": "EUVD-2026-72024",
+    "vendorProject": "MikroTik",
+    "product": "RouterOS",
+    "vulnerabilityName": "MikroTrick",
+    "dateAdded": "2026-09-05",
+    "sources": [
+      "eukev_kev"
+    ]
+  }
+]

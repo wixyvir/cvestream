@@ -1,0 +1,73 @@
+{
+  "items": [
+    {
+      "id": "EUVD-2026-95399",
+      "enisaUuid": "e22e5b2c-71f4-3d70-bd13-364888402f80",
+      "description": "Improper certificate validation in Microsoft Partner Center allows an unauthorized attacker to elevate privileges over a network.",
+      "datePublished": "Oct 8, 2026, 10:15:33 PM",
+      "dateUpdated": "Oct 26, 2026, 7:16:10 PM",
+      "baseScore": 10.0,
+      "baseScoreVersion": "3.1",
+      "baseScoreVector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:N/E:U/RL:O/RC:C",
+      "references": "https://msrc.microsoft.com/update-guide/vulnerability/CVE-2026-96207\n",
+      "aliases": "CVE-2026-96207\nGHSA-j9rc-2948-ff9r\n",
+      "assigner": "microsoft",
+      "epss": 0.67,
+      "enisaIdProduct": [
+        {
+          "id": "7763a405-e6d6-3ae3-8996-cc6853582830",
+          "product": {
+            "name": "Microsoft Partner Center",
+            "vendor": {
+              "name": "Microsoft"
+            }
+          },
+          "product_version": "-"
+        }
+      ],
+      "enisaIdVendor": [
+        {
+          "id": "d10dfcb2-3395-34e4-9ed3-57eb1cb16694",
+          "vendor": {
+            "name": "Microsoft"
+          }
+        }
+      ]
+    },
+    {
+      "id": "EUVD-2026-95398",
+      "enisaUuid": "239c5fe4-d6ef-3183-8685-2cfeb31f30a7",
+      "description": "Authorization bypass through user-controlled key in Microsoft Bookings allows an unauthorized attacker to elevate privileges over a network.",
+      "datePublished": "Oct 8, 2026, 10:15:32 PM",
+      "dateUpdated": "Oct 26, 2026, 7:16:09 PM",
+      "baseScore": 9.9,
+      "baseScoreVersion": "3.1",
+      "baseScoreVector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:L/I:H/A:L/E:U/RL:O/RC:C",
+      "references": "https://msrc.microsoft.com/update-guide/vulnerability/CVE-2026-94510\n",
+      "aliases": "CVE-2026-94510\nGHSA-cww8-4fq2-2hhj\n",
+      "assigner": "microsoft",
+      "epss": 0.57,
+      "enisaIdProduct": [
+        {
+          "id": "4793909b-6b9b-3c0b-b37b-92e986edd944",
+          "product": {
+            "name": "Microsoft Bookings",
+            "vendor": {
+              "name": "Microsoft"
+            }
+          },
+          "product_version": "-"
+        }
+      ],
+      "enisaIdVendor": [
+        {
+          "id": "674b996d-bc38-3628-bdd9-0ebdbd707f1b",
+          "vendor": {
+            "name": "Microsoft"
+          }
+        }
+      ]
+    }
+  ],
+  "total": 2167
+}
