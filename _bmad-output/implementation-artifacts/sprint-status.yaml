@@ -33,6 +33,33 @@
 # - Stories can be worked in parallel if team capacity allows
 # - Developer typically creates next story after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+#
+# PARALLEL WAVES:
+# ===============
+# Stories in the same wave can be developed in parallel (one branch + PR each).
+# A wave starts when every story of the previous wave is 'done'.
+#   Wave 1: 1-1
+#   Wave 2: 1-2                     (every later story builds on domain/model.py)
+#   Wave 3: 1-3 | 1-4
+#   Wave 4: 1-5 | 2-1 | 2-2 | 3-1
+#   Wave 5: 1-6 | 3-2
+#   Wave 6: 3-3
+# Critical path: 1-1 → 1-2 → 1-4 → 1-5 → 1-6 → 3-3
+#
+# Dependencies (story: needs):
+#   1-2: 1-1 · 1-3: 1-2 · 1-4: 1-2 · 1-5: 1-2, 1-3, 1-4 · 1-6: 1-5
+#   2-1: 1-4 · 2-2: 1-4
+#   3-1: 1-3 · 3-2: 1-3, 3-1 · 3-3: 1-6
+#
+# Caveats when running in parallel:
+#   - Two ACs cross waves: 2-1 "merges with the EUVD record" needs 1-5, and
+#     3-1 "exit code 3 when Valkey is unavailable at startup" needs app/runtime.py
+#     from 1-6. Either defer those ACs or move them into 1-5 / 1-6.
+#   - Expect conflicts on files shared by 1-4, 2-1 and 2-2: uv.lock, settings.py,
+#     sources/registry.py, settings.example.yaml, docs/sources.md. Resolve uv.lock
+#     by rebasing and re-running `uv lock`, never by merging it by hand.
+#   - Story files written for a parallel wave carry fewer learnings from the
+#     previous stories than the default "create next after done" flow.
 
 generated: 2026-10-26
 last_updated: 2026-10-26
