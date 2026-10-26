@@ -10,7 +10,8 @@ and the `live` contract tests check them against the real APIs.
 - **One HTTP client.** Every outbound call goes through `cvestream.http`. It
   ignores proxy variables (`trust_env=False`), verifies TLS against the system
   trust store (never disabled), uses explicit timeouts (connect 10 s, read 30 s)
-  and refuses responses larger than 16 MiB.
+  and refuses responses larger than 16 MiB. Redirects are followed, but a
+  redirect from HTTPS to plain HTTP is refused (transport error, not retried).
 - **Retries live there and nowhere else.** A request is tried up to 4 times, and
   only on a timeout, a 5xx or a 429. The wait is a full-jitter exponential
   backoff capped at 30 s, or `Retry-After` (seconds or HTTP date) when the server
@@ -50,17 +51,21 @@ Public record page: `https://euvd.enisa.europa.eu/vulnerability/{EUVD-ID}`.
   on it to stop early (a page whose oldest item is older than the cursor is the last
   one) and checks it on every item: any item newer than the one before it is a
   `SourceContractError`. A silent switch to ascending order would otherwise drop
-  almost everything.
+  almost everything. Items already seen earlier in the same fetch are skipped
+  before the check: records inserted on top while paging push older items onto
+  the next page, which is not an ordering change.
 - **Stop conditions.** An empty page, a page shorter than `size`, reaching
   `total`, or an item older than the cursor.
 - **First run.** With no cursor, the fetch starts at now minus 14 days (the feed
   window), from the injected clock.
 - **Cursor.** The newest `dateUpdated` seen, as ISO 8601 UTC with second precision
-  (`2026-10-26T18:36:49Z`). Records equal to the cursor are delivered again on
-  purpose: downstream is idempotent, a duplicate costs nothing and a miss is a lost
-  alert. With no new record the cursor does not move. A stored cursor that cannot be
-  parsed (or has no timezone) is logged (`source.cursor_invalid`) and replaced by the
-  first-run window.
+  (`2026-10-26T18:36:49Z`), capped at the fetch time: a `dateUpdated` in the future
+  (bad source data) must not park the cursor ahead of every real record. The cap
+  can only deliver records again, never skip one. Records equal to the cursor are
+  delivered again on purpose: downstream is idempotent, a duplicate costs nothing
+  and a miss is a lost alert. With no new record the cursor does not move. A stored
+  cursor that cannot be parsed, has no timezone or lies in the future is logged
+  (`source.cursor_invalid`) and replaced by the first-run window.
 - **Timezone.** Dates look like `Oct 26, 2026, 6:36:49 PM` and carry no timezone.
   They are UTC. Evidence: EUVD-2026-99256 shows `datePublished` `Oct 13, 2026,
   6:50:03 PM` and `dateUpdated` `Oct 26, 2026, 6:36:49 PM`, and CVE.org's record for
@@ -99,7 +104,8 @@ Public record page: `https://euvd.enisa.europa.eu/vulnerability/{EUVD-ID}`.
   KEV addition does not change `dateUpdated`: EUVD-2026-23571 was added to EU KEV on
   2026-10-10 (`exploitedSince` `Oct 10, 2026, 12:00:00 AM`) while its `dateUpdated`
   is still `Aug 17, 2026`. Incremental search alone would never see it. An empty or
-  non-list dump is a contract error.
+  non-list dump is a contract error, and so is a dump where every EU KEV entry is
+  rejected (renamed fields, not bad records).
 - **Which entries.** Each entry has `sources`, a list that may hold `cisa_kev` and
   `eukev_kev`. Only entries with `eukev_kev` produce records; CISA-only entries are
   left to the `cisa_kev` adapter, which is authoritative for them.
@@ -107,7 +113,8 @@ Public record page: `https://euvd.enisa.europa.eu/vulnerability/{EUVD-ID}`.
   record ID. A KEV-only record under `euvd` would overwrite the full search record
   of the same EUVD ID. The adapter name (registry, cursor, logs) stays `euvd`.
 - **Fields.** Record ID is the EUVD ID (the CVE ID if missing); aliases are the EUVD
-  and CVE IDs; `vulnerabilityName`, when present, is the title; `dateAdded`
+  and CVE IDs, trimmed and upper-cased; an ID that does not look like `EUVD-YYYY-N`
+  or `CVE-YYYY-NNNN...` counts as missing; `vulnerabilityName`, when present, is the title; `dateAdded`
   (`YYYY-MM-DD`) is stored as midnight UTC (display only; an unparseable one is
   unknown and the flag is kept). `known_ransomware_use` is unknown: EU KEV does not
   say. An entry with neither ID is skipped and counted.
@@ -120,7 +127,8 @@ Public record page: `https://euvd.enisa.europa.eu/vulnerability/{EUVD-ID}`.
   `https://www.cisa.gov/known-exploited-vulnerabilities-catalog`.
 - **Full load on every poll.** There is no incremental filter, so the whole
   catalogue is read each time and the cursor argument is ignored. A missing or
-  empty `vulnerabilities` list is a contract error.
+  empty `vulnerabilities` list is a contract error, and so is a list where every
+  entry is rejected (renamed fields, not bad records).
 - **Entries.** `cveID` (note the capital `ID`) is required and must look like
   `CVE-YYYY-NNNN...`; it is trimmed and upper-cased, otherwise the entry is skipped
   and counted. `vulnerabilityName` is the title and `shortDescription` the
