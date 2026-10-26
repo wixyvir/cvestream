@@ -256,6 +256,7 @@ Not applicable: no UI. RSS is the only output contract.
   - Planning artifacts (brief, PRD, architecture, epics) were committed directly to `main` while bootstrapping the repository.
   - From the first story on, **each story is delivered as one pull request** to `main`, from a branch named `story-<epic>-<story>-<slug>` (no `/` in branch names, e.g. `story-1-1-project-init`).
   - PR title: Conventional Commit style with the story ID (`feat(story-1.1): initialize project skeleton`). The PR description links the story file and ends with the Claude Code attribution line.
+  - The stories of an epic may be delivered as a **linear stack of PRs**: each PR's base is the previous story's branch, and it is retargeted to `main` when its parent merges. `ci.yml` runs on every `pull_request`, whatever its base. A change to a lower PR is propagated by rebasing the upper branches in order (`uv.lock` regenerated with `uv lock`, never merged by hand) and pushing them with `git push --force-with-lease`.
   - Commits inside a PR stay separated by concern and are not squashed.
   - A PR is merged only when `ci.yml` is green. Once story 1 has added CI, `main` is protected: PRs only, required `ci` status check.
 - **GitHub Actions** (versions at decision time: checkout v7.0.1, setup-uv v10.3.2, build-push-action v7.4.0, metadata-action v6.2.0, login-action v4.7.0, setup-buildx-action v4.4.1, setup-qemu-action v4.4.0, attest-build-provenance v4.2.2):
@@ -433,7 +434,7 @@ The "Component boundaries (allowed imports)" list in the Project Structure secti
 
 **Commits:** Conventional Commits (`feat:`, `fix:`, `chore:`, `docs:`, `test:`, `refactor:`). One concern per commit.
 
-**Branches and PRs:** one story = one branch `story-<epic>-<story>-<slug>` = one PR to `main` (see "Delivery workflow" under Infrastructure & Deployment). No `/` in branch names. No direct pushes to `main` once story 1 is merged.
+**Branches and PRs:** one story = one branch `story-<epic>-<story>-<slug>` = one PR to `main`, or to the previous story's branch when an epic is delivered as a stack of PRs (see "Delivery workflow" under Infrastructure & Deployment). No `/` in branch names. No direct pushes to `main` once story 1 is merged.
 
 ### Enforcement Guidelines
 
