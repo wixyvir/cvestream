@@ -13,7 +13,9 @@ import structlog
 from structlog.typing import EventDict, WrappedLogger
 
 REDACTED = "[redacted]"
-_FEED_PATH = re.compile(r"/feeds/[^/\s\"']+\.xml")
+# The segment after /feeds/ is always a token (feed tokens never contain a
+# dot), whatever the extension: `/feeds/<token>`, `.xml`, a mistyped `.rss`.
+_FEED_PATH = re.compile(r"/feeds/[^/\s\"'?#.]+")
 _LEVELS = {
     "debug": logging.DEBUG,
     "info": logging.INFO,
@@ -23,26 +25,33 @@ _LEVELS = {
 
 
 def _is_token_key(key: str) -> bool:
-    return key == "token" or key.endswith("_token")
+    lowered = key.lower()
+    return lowered == "token" or lowered.endswith("_token")
 
 
 def _redact_value(value: Any) -> Any:
     if isinstance(value, str):
-        return _FEED_PATH.sub(f"/feeds/{REDACTED}.xml", value)
+        return _FEED_PATH.sub(f"/feeds/{REDACTED}", value)
     if isinstance(value, dict):
         return {
             k: REDACTED if isinstance(k, str) and _is_token_key(k) else _redact_value(v)
             for k, v in value.items()
         }
-    if isinstance(value, list | tuple):
-        return type(value)(_redact_value(v) for v in value)
+    # Rebuild plain containers: subclasses such as named tuples or struct
+    # sequences cannot be built from an iterable.
+    if isinstance(value, list):
+        return [_redact_value(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(_redact_value(v) for v in value)
+    if isinstance(value, set | frozenset):
+        return {_redact_value(v) for v in value}
     return value
 
 
 def redact_tokens(
     logger: WrappedLogger | None, method_name: str, event_dict: EventDict
 ) -> EventDict:
-    """Mask `token` / `*_token` values and `/feeds/<token>.xml` paths."""
+    """Mask `token` / `*_token` values (any case) and `/feeds/<token>` paths."""
     return _redact_value(event_dict)
 
 
