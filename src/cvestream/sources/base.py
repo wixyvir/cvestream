@@ -6,8 +6,10 @@ validation is skipped and counted; a source-level failure raises a
 """
 
 import json
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Protocol
 
 from cvestream.domain.model import SourceRecord
@@ -21,6 +23,10 @@ from cvestream.http import (
 
 # Opaque, owned by the adapter; the state layer stores it as text.
 type Cursor = str
+
+# Strings a source writes when it means "unknown" (compared after strip + lower).
+PLACEHOLDERS = frozenset({"", "n/a", "na", "-", "unknown"})
+_CALENDAR_DATE = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,3 +90,25 @@ async def get_json(
     except ValueError as exc:  # JSONDecodeError and UnicodeDecodeError
         msg = f"GET {url}: response is not valid JSON ({type(exc).__name__})"
         raise SourcePayloadError(source, msg) from exc
+
+
+def clean_text(value: object) -> str | None:
+    """Stripped text, or `None` when the value is not text or is a placeholder."""
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    return None if text.lower() in PLACEHOLDERS else text
+
+
+def parse_calendar_date(value: object) -> datetime | None:
+    """`YYYY-MM-DD` as midnight UTC (display only), or `None` when unusable."""
+    if not isinstance(value, str):
+        return None
+    match = _CALENDAR_DATE.fullmatch(value.strip())
+    if match is None:
+        return None
+    year, month, day = (int(group) for group in match.groups())
+    try:
+        return datetime(year, month, day, tzinfo=UTC)
+    except ValueError:
+        return None
