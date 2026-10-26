@@ -102,7 +102,17 @@ async def test_network_error_becomes_transport_error(
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("body", [b"<html>", b"", b'{"items": [', b"\xff\xfe\x00"])
+@pytest.mark.parametrize(
+    "body",
+    [
+        b"<html>",
+        b"",
+        b'{"items": [',
+        b"\xff\xfe\x00",
+        b"[" * 1_000_000 + b"]" * 1_000_000,
+    ],
+    ids=["html", "empty", "truncated", "bad-utf8", "deeply-nested"],
+)
 async def test_invalid_json_becomes_payload_error(
     respx_mock: respx.MockRouter, body: bytes
 ) -> None:
