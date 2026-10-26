@@ -133,14 +133,14 @@ class PipelineWorker:
                 outcomes,
                 self._clock,
             )
-        except Exception as exc:
-            log.error("pipeline.failed", error_type=type(exc).__name__, exc_info=True)
-            committed = False
-        else:
             self.snapshot = result.snapshot
             self._holder.current = FeedCache.build(
                 result.snapshot, result.run.feeds, self._clock.now()
             )
+        except Exception as exc:
+            log.error("pipeline.failed", error_type=type(exc).__name__, exc_info=True)
+            committed = False
+        else:
             committed = True
         for job in jobs:
             job.resolve(committed)
