@@ -1,6 +1,5 @@
 """`cvestream db`: migrate and back up the state database."""
 
-import sqlite3
 from pathlib import Path
 from typing import Annotated, NoReturn
 
@@ -59,7 +58,9 @@ def backup(
         _fail(f"{file}: is the state database itself")
     try:
         write_backup(state, file)
-    except (OSError, sqlite3.Error) as exc:
+    except StateError as exc:
+        _fail(str(exc))
+    except OSError as exc:
         _fail(f"{file}: cannot write backup: {type(exc).__name__}")
     finally:
         state.dispose()
