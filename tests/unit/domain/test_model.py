@@ -68,6 +68,13 @@ def test_optional_fields_default_to_unknown() -> None:
     assert CvssScore(score=1.0).vector is None
 
 
+def test_source_record_epss_defaults_to_unknown_and_round_trips() -> None:
+    record = SourceRecord(source="euvd", record_id="EUVD-2026-1", observed_at=NOW)
+    assert record.epss is None
+    epss: Sourced[float] = Sourced(0.0981, source="euvd", observed_at=NOW)
+    assert dataclasses.replace(record, epss=epss).epss == epss
+
+
 def test_is_known_exploited(make_vulnerability: VulnerabilityFactory) -> None:
     assert make_vulnerability(kev=True).is_known_exploited
     assert not make_vulnerability(kev=False).is_known_exploited
