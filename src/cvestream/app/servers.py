@@ -108,6 +108,7 @@ class ManagedServer:
         while not self._server.started and not task.done():
             if waited >= STARTUP_TIMEOUT_SECONDS:
                 self._server.should_exit = True
+                await asyncio.gather(task, return_exceptions=True)
                 msg = f"{self.name} listener did not start in time"
                 raise ListenerError(msg)
             await asyncio.sleep(STARTUP_POLL_SECONDS)
