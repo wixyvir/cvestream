@@ -1,3 +1,4 @@
+import xml.etree.ElementTree as ET
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from types import MappingProxyType
@@ -17,11 +18,17 @@ from cvestream.domain.model import (
     SourceRecord,
 )
 from cvestream.domain.publication import PublicationDecision
-from cvestream.pipeline.run import RunResult, SourceBatch, load_cursors, run
+from cvestream.pipeline.run import (
+    RunResult,
+    SourceBatch,
+    load_cursors,
+    load_feeds,
+    run,
+)
 from cvestream.sources.base import FetchResult
 from cvestream.state import schema
 from cvestream.state.db import State
-from cvestream.state.repository import Repository
+from cvestream.state.repository import Repository, StoredFeed
 from tests.conftest import FakeClock
 
 CVE = "CVE-2026-1001"
@@ -419,3 +426,151 @@ def test_decisions_and_completion_are_logged(
     assert completed["count"] == 1
     assert completed["records"] == 1
     assert "duration_ms" in completed
+
+
+def _guids(xml: bytes) -> list[str]:
+    root = ET.fromstring(xml)  # noqa: S314 - our own output
+    return [item.findtext("guid") or "" for item in root.findall("channel/item")]
+
+
+def test_every_enabled_endpoint_gets_a_stored_feed(
+    state: State, fake_clock: FakeClock
+) -> None:
+    snapshot = _snapshot(
+        _endpoint("team-php"),
+        _endpoint("team-go", "go"),
+        _endpoint("off", enabled=False),
+    )
+    result = run(state, snapshot, [_batch(_euvd(fake_clock))], fake_clock)
+    assert list(result.feeds) == ["team-php", "team-go"]
+    with state.transaction() as repo:
+        stored = repo.feeds()
+    assert set(stored) == {"team-php", "team-go"}
+    php = result.feeds["team-php"]
+    assert php.item_count == 1
+    assert _guids(php.xml) == [f"cvestream:team-php:{CVE}:new"]
+    assert stored["team-php"].xml.encode("utf-8") == php.xml
+    assert stored["team-php"].etag == php.etag
+    assert php.rendered_at == fake_clock.now()
+    assert php.changed_at == fake_clock.now()
+    # no publication: a valid empty channel
+    assert result.feeds["team-go"].item_count == 0
+    assert _guids(result.feeds["team-go"].xml) == []
+
+
+def test_an_unchanged_rerun_keeps_the_etag_and_moves_the_render_time(
+    state: State, fake_clock: FakeClock
+) -> None:
+    snapshot = _snapshot(_endpoint())
+    first = run(state, snapshot, [_batch(_euvd(fake_clock))], fake_clock).feeds
+    fake_clock.advance(timedelta(minutes=15))
+    again = run(state, snapshot, [_batch(_euvd(fake_clock))], fake_clock).feeds
+    assert again["team-php"].etag == first["team-php"].etag
+    assert again["team-php"].xml == first["team-php"].xml
+    assert again["team-php"].changed_at == first["team-php"].changed_at
+    assert again["team-php"].rendered_at == fake_clock.now()
+    with state.transaction() as repo:
+        stored = repo.feeds()["team-php"]
+    assert stored.changed_at == first["team-php"].changed_at
+    assert stored.rendered_at == fake_clock.now()
+
+
+def test_a_new_decision_changes_the_etag_and_the_change_time(
+    state: State, fake_clock: FakeClock
+) -> None:
+    snapshot = _snapshot(_endpoint())
+    first = run(state, snapshot, [_batch(_euvd(fake_clock))], fake_clock).feeds
+    fake_clock.advance(timedelta(minutes=15))
+    second = run(state, snapshot, [_batch(_kev(fake_clock))], fake_clock).feeds
+    assert second["team-php"].etag != first["team-php"].etag
+    assert second["team-php"].changed_at == fake_clock.now()
+    assert second["team-php"].item_count == 2
+    # newest first
+    assert _guids(second["team-php"].xml) == [
+        f"cvestream:team-php:{CVE}:kev",
+        f"cvestream:team-php:{CVE}:new",
+    ]
+
+
+def test_the_body_follows_the_current_data_and_the_title_the_decision(
+    state: State, fake_clock: FakeClock
+) -> None:
+    snapshot = _snapshot(_endpoint())
+    run(state, snapshot, [_batch(_euvd(fake_clock, score=7.1))], fake_clock)
+    fake_clock.advance(timedelta(minutes=15))
+    feed = run(
+        state, snapshot, [_batch(_euvd(fake_clock, score=7.4))], fake_clock
+    ).feeds["team-php"]
+    item = ET.fromstring(feed.xml).find("channel/item")  # noqa: S314
+    assert item is not None
+    assert item.findtext("title") == f"{CVE} in php: severity high"
+    assert "highest CVSS 7.4" in (item.findtext("description") or "")
+
+
+def test_a_publication_older_than_fourteen_days_leaves_the_feed(
+    state: State, fake_clock: FakeClock
+) -> None:
+    snapshot = _snapshot(_endpoint())
+    first = run(state, snapshot, [_batch(_euvd(fake_clock))], fake_clock).feeds
+    assert first["team-php"].item_count == 1
+    fake_clock.advance(timedelta(days=14) - timedelta(minutes=1))
+    inside = run(state, snapshot, [_batch()], fake_clock).feeds
+    assert inside["team-php"].item_count == 1
+    assert inside["team-php"].etag == first["team-php"].etag
+    fake_clock.advance(timedelta(minutes=2))
+    outside = run(state, snapshot, [_batch()], fake_clock).feeds
+    assert outside["team-php"].item_count == 0
+    assert outside["team-php"].etag != first["team-php"].etag
+    assert outside["team-php"].changed_at == fake_clock.now()
+
+
+def test_a_renamed_endpoint_changes_its_channel_title(
+    state: State, fake_clock: FakeClock
+) -> None:
+    first = run(state, _snapshot(_endpoint()), [_batch()], fake_clock).feeds
+    renamed = replace(_endpoint(), name="PHP team")
+    fake_clock.advance(timedelta(minutes=1))
+    second = run(state, _snapshot(renamed), [_batch()], fake_clock).feeds
+    assert second["team-php"].etag != first["team-php"].etag
+    assert b"cvestream: PHP team" in second["team-php"].xml
+
+
+def test_a_failure_after_rendering_rolls_the_feeds_back(
+    state: State, fake_clock: FakeClock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    snapshot = _snapshot(_endpoint("a"), _endpoint("b"))
+    original = Repository.save_feed
+    saved: list[str] = []
+
+    def flaky(self: Repository, feed: StoredFeed) -> None:
+        saved.append(feed.endpoint_id)
+        if len(saved) == 2:
+            raise RuntimeError("disk full")
+        original(self, feed)
+
+    monkeypatch.setattr(Repository, "save_feed", flaky)
+    with pytest.raises(RuntimeError, match="disk full"):
+        run(state, snapshot, [_batch(_euvd(fake_clock), cursor="c")], fake_clock)
+    assert saved == ["a", "b"]
+    assert _count(state, schema.feed_cache) == 0
+    assert _count(state, schema.publication) == 0
+    assert _count(state, schema.source_cursor) == 0
+
+
+def test_load_feeds_returns_what_run_stored(
+    state: State, fake_clock: FakeClock
+) -> None:
+    assert load_feeds(state) == {}
+    result = run(state, _snapshot(_endpoint()), [_batch(_euvd(fake_clock))], fake_clock)
+    assert load_feeds(state) == dict(result.feeds)
+
+
+def test_the_feeds_of_a_disabled_endpoint_are_not_rendered_again(
+    state: State, fake_clock: FakeClock
+) -> None:
+    run(state, _snapshot(_endpoint()), [_batch(_euvd(fake_clock))], fake_clock)
+    fake_clock.advance(timedelta(minutes=15))
+    result = run(state, _snapshot(_endpoint(enabled=False)), [_batch()], fake_clock)
+    assert result.feeds == {}
+    # the stored row stays (harmless), with its last render time
+    assert load_feeds(state)["team-php"].rendered_at == START
