@@ -186,6 +186,18 @@ def harness(tmp_path: Path, fake_clock: FakeClock) -> _Harness:
     return _Harness(tmp_path, fake_clock)
 
 
+async def _first_cycle_applied(harness: _Harness) -> None:
+    """Wait until the euvd source succeeded: its run committed and the feed
+    cache was swapped (the loop records the success after both)."""
+    await _until(lambda: "private" in harness.apps and "public" in harness.apps)
+    for _ in range(2000):
+        sources = (await harness.get("private", "/status")).json()["sources"]
+        if sources.get("euvd", {}).get("last_success_at") is not None:
+            return
+        await asyncio.sleep(0.001)
+    raise AssertionError("the first cycle never completed")
+
+
 async def _until(predicate: Callable[[], bool]) -> None:
     for _ in range(2000):
         if predicate():
@@ -248,7 +260,7 @@ async def test_the_feed_is_served_once_the_first_cycle_ran(
     harness.adapters = (_Adapter("euvd", FetchResult((_record(fake_clock),), "c1")),)
     with capture_logs() as logs:
         task = asyncio.ensure_future(harness.serve())
-        await _until(lambda: any(e["event"] == "cycle.summary" for e in logs))
+        await _first_cycle_applied(harness)
         response = await harness.get("public", f"/feeds/{TOKEN}.xml")
         status = (await harness.get("private", "/status")).json()
         harness.stop.set()
@@ -284,7 +296,7 @@ async def test_a_restart_serves_the_stored_feed_before_any_fetch(
     harness.adapters = (_Adapter("euvd", FetchResult((_record(fake_clock),), "c1")),)
     with capture_logs() as logs:
         task = asyncio.ensure_future(harness.serve())
-        await _until(lambda: any(e["event"] == "cycle.summary" for e in logs))
+        await _first_cycle_applied(harness)
         first = (await harness.get("public", f"/feeds/{TOKEN}.xml")).content
         harness.stop.set()
         await task
@@ -476,13 +488,8 @@ async def test_a_failed_source_does_not_stop_the_daemon_or_the_feed(
     )
     with capture_logs() as logs:
         task = asyncio.ensure_future(harness.serve())
-        await _until(
-            lambda: (
-                sum(e["event"] == "cycle.summary" for e in logs) >= 1
-                and any(e["event"] == "source.failed" for e in logs)
-            )
-        )
-        await _until(lambda: harness.listeners["public"].task is not None)
+        await _first_cycle_applied(harness)
+        await _until(lambda: any(e["event"] == "source.failed" for e in logs))
         response = await harness.get("public", f"/feeds/{TOKEN}.xml")
         status = (await harness.get("private", "/status")).json()
         harness.stop.set()
