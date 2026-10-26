@@ -1,17 +1,27 @@
 import ast
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from alembic import command
 from alembic.autogenerate import compare_metadata
+from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from sqlalchemy import insert, inspect, select
 
 import cvestream
 from cvestream.state import schema
-from cvestream.state.db import BUSY_TIMEOUT_MS, State, StateError
+from cvestream.state.db import BUSY_TIMEOUT_MS, MIGRATIONS, State, StateError
 from tests.conftest import FakeClock
 
-TABLES = {"vulnerability", "alias", "source_record", "publication", "source_cursor"}
+TABLES = {
+    "vulnerability",
+    "alias",
+    "source_record",
+    "publication",
+    "source_cursor",
+    "feed_cache",
+}
 
 
 def _raw(state: State, sql: str) -> list[tuple[object, ...]]:
@@ -21,8 +31,8 @@ def _raw(state: State, sql: str) -> list[tuple[object, ...]]:
 
 def test_migrate_creates_the_schema_at_head(tmp_path: Path) -> None:
     state = State(f"sqlite:///{tmp_path / 'a.db'}")
-    assert state.migrate() == "0001"
-    assert state.current_revision() == "0001"
+    assert state.migrate() == "0002"
+    assert state.current_revision() == "0002"
     with state.raw_sqlite_connection() as raw:
         names = {
             row[0]
@@ -33,8 +43,8 @@ def test_migrate_creates_the_schema_at_head(tmp_path: Path) -> None:
 
 
 def test_second_migrate_is_a_no_op(state: State) -> None:
-    assert state.migrate() == "0001"
-    assert state.current_revision() == "0001"
+    assert state.migrate() == "0002"
+    assert state.current_revision() == "0002"
 
 
 def test_migrate_creates_a_missing_parent_directory(tmp_path: Path) -> None:
@@ -182,3 +192,43 @@ def test_pragma_text_is_only_in_the_connect_event() -> None:
         if path.name == "db.py":
             continue
         assert "PRAGMA" not in path.read_text(encoding="utf-8"), path
+
+
+def _upgrade_to(state: State, revision: str) -> None:
+    config = Config()
+    config.set_main_option("script_location", MIGRATIONS)
+    with state._get_engine().begin() as connection:
+        config.attributes["connection"] = connection
+        command.upgrade(config, revision)
+
+
+def test_migrating_from_0001_keeps_the_existing_rows(tmp_path: Path) -> None:
+    state = State(f"sqlite:///{tmp_path / 'old.db'}")
+    _upgrade_to(state, "0001")
+    assert state.current_revision() == "0001"
+    with state.transaction() as repository:
+        repository.set_cursor("euvd", "c1", datetime(2026, 1, 1, tzinfo=UTC))
+    assert state.migrate() == "0002"
+    assert state.current_revision() == "0002"
+    with state.transaction() as repository:
+        assert repository.cursors() == {"euvd": "c1"}
+    assert _raw(state, "SELECT count(*) FROM feed_cache") == [(0,)]
+    state.dispose()
+
+
+def test_the_feed_cache_migration_can_be_downgraded(tmp_path: Path) -> None:
+    state = State(f"sqlite:///{tmp_path / 'down.db'}")
+    state.migrate()
+    config = Config()
+    config.set_main_option("script_location", MIGRATIONS)
+    with state._get_engine().begin() as connection:
+        config.attributes["connection"] = connection
+        command.downgrade(config, "0001")
+    assert state.current_revision() == "0001"
+    with state.raw_sqlite_connection() as raw:
+        names = {
+            row[0]
+            for row in raw.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+    assert "feed_cache" not in names
+    state.dispose()

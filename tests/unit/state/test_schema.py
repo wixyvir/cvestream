@@ -21,13 +21,14 @@ def _names(table: str) -> set[str]:
     return names
 
 
-def test_the_five_tables_exist() -> None:
+def test_the_six_tables_exist() -> None:
     assert set(schema.metadata.tables) == {
         "vulnerability",
         "alias",
         "source_record",
         "publication",
         "source_cursor",
+        "feed_cache",
     }
 
 
@@ -40,6 +41,7 @@ def test_names_follow_the_convention() -> None:
     assert "ix_publication_endpoint_id_vulnerability_id" in _names("publication")
     assert "ux_alias_alias" in _names("alias")
     assert "ux_source_cursor_source" in _names("source_cursor")
+    assert {"pk_feed_cache", "ux_feed_cache_endpoint_id"} <= _names("feed_cache")
 
 
 def test_every_constraint_is_named() -> None:

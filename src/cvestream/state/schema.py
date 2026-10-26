@@ -176,3 +176,21 @@ source_cursor = Table(
     Column("updated_at", UTCDateTime, nullable=False),
     UniqueConstraint("source"),
 )
+
+feed_cache = Table(
+    "feed_cache",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    # Config slug, no foreign key (like `publication.endpoint_id`). Never a token.
+    Column("endpoint_id", Text, nullable=False),
+    # The RSS document, UTF-8 decoded.
+    Column("xml", Text, nullable=False),
+    # Quoted SHA-256 hex of the XML bytes.
+    Column("etag", Text, nullable=False),
+    Column("item_count", Integer, nullable=False),
+    # Last render.
+    Column("rendered_at", UTCDateTime, nullable=False),
+    # Last time the ETag changed: the feed's `Last-Modified`.
+    Column("changed_at", UTCDateTime, nullable=False),
+    UniqueConstraint("endpoint_id"),
+)
