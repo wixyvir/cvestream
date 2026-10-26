@@ -1,4 +1,6 @@
 import json
+import sys
+from collections import namedtuple
 from collections.abc import Iterator
 
 import pytest
@@ -47,6 +49,38 @@ def test_redacts_feed_path_in_string_values() -> None:
     assert result["line"] == (
         "GET /feeds/[redacted].xml HTTP/1.1 and /feeds/[redacted].xml"
     )
+
+
+def test_redacts_feed_path_whatever_the_extension() -> None:
+    result = _redact(
+        {"event": "x", "a": "/feeds/tok123", "b": "GET /feeds/tok123.rss?x=1 HTTP/1.1"}
+    )
+    assert result["a"] == "/feeds/[redacted]"
+    assert result["b"] == "GET /feeds/[redacted].rss?x=1 HTTP/1.1"
+
+
+def test_redaction_is_idempotent() -> None:
+    once = _redact({"event": "x", "path": "/feeds/tok.xml"})
+    assert _redact(once) == once
+
+
+def test_redacts_token_keys_case_insensitively() -> None:
+    result = _redact({"event": "x", "Token": "a", "FEED_TOKEN": "b"})
+    assert result == {"event": "x", "Token": "[redacted]", "FEED_TOKEN": "[redacted]"}
+
+
+def test_named_tuples_and_struct_sequences_do_not_crash() -> None:
+    pair = namedtuple("pair", "left right")
+    result = _redact(
+        {"event": "x", "pair": pair("/feeds/t.xml", 1), "ver": sys.version_info}
+    )
+    assert result["pair"] == ("/feeds/[redacted].xml", 1)
+    assert result["ver"] == tuple(sys.version_info)
+
+
+def test_redacts_inside_sets() -> None:
+    result = _redact({"event": "x", "paths": {"/feeds/t.xml"}})
+    assert result["paths"] == {"/feeds/[redacted].xml"}
 
 
 def test_redacts_inside_nested_structures() -> None:
