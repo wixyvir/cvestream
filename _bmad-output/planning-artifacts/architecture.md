@@ -238,7 +238,7 @@ cvestream:v1:token:{id}               feed token (plaintext; own namespace so co
 | private | `/readyz` | configuration loaded from the provider and state store open; independent of sources |
 | private | `/status` | JSON: per source last success/error/cursor; per endpoint item count, last render |
 
-- **Source adapters:** `SourceAdapter` protocol (`name`, `async fetch(cursor) -> FetchResult(records, next_cursor)`). Built-in: `euvd`, `cert_eu`, `certfr_alerte`, `cisa_kev`. Generic `rss` and `json` adapters (FR-5) configured in static settings (URL, ID path or regex, text fields, CVE regex). Sequential pages, short pauses, exponential backoff.
+- **Source adapters:** `SourceAdapter` protocol (`name`, `async fetch(cursor) -> FetchResult(records, next_cursor)`). Built-in: `euvd`, `cert_eu`, `certfr_alerte`, `cisa_kev`. Generic `rss` and `json` adapters (FR-5) configured in static settings (URL, ID path or regex, text fields, CVE regex). Sequential pages, short pauses, exponential backoff. The cursor is an opaque string owned by the adapter (`next_cursor` comes from source data, never from the local clock). The `euvd` adapter also loads `/api/kev/dump` in full on every fetch and emits `eu_kev` records (an EU KEV addition does not change `dateUpdated`).
 - **Error taxonomy:** `SourceTransportError`, `SourcePayloadError`, `SourceContractError` (source level: logged, cursor not advanced, others continue). Record-level failure: skipped and counted. Invalid config: last valid kept. Unexpected exception in a loop: supervisor logs and restarts the loop with backoff. The process never crashes because of a source.
 - **CLI (Typer):** `run`, `poll --once`, `healthcheck [--ready]`, `endpoint create|list|show|edit|delete`, `product add|remove|list`, `token rotate`, `config validate|schema|export|import`, `db migrate|backup`.
 - **`cvestream healthcheck`:** calls `http://127.0.0.1:9090/healthz` (or `/readyz` with `--ready`) with the standard library (`urllib`, no proxy handler, 2 s timeout) and exits 0 when healthy, 1 otherwise. It is used by the Docker `HEALTHCHECK` and by the Kubernetes `exec` probes, so the image needs no `curl`. It imports neither the app nor the providers, so it stays fast.
@@ -330,7 +330,7 @@ Not applicable: no UI. RSS is the only output contract.
 | Thing | Format | Example |
 |---|---|---|
 | Endpoint ID | slug `[a-z0-9-]{1,40}` | `team-gitlab` |
-| Source name | `snake_case` | `euvd`, `cert_eu`, `certfr_alerte`, `cisa_kev` |
+| Source name | `snake_case` | `euvd`, `cert_eu`, `certfr_alerte`, `cisa_kev`, `eu_kev` (record source of EU KEV entries, emitted by the `euvd` adapter) |
 | Vulnerability aliases | upper-case, normalized | `CVE-2026-109618`, `EUVD-2026-41234`, `CERTFR-2026-ALE-012` |
 | Primary display ID | CVE > EUVD > advisory ID | the first available, in that order |
 | RSS GUID | `cvestream:{endpoint_id}:{primary_id}:{kind}` with `kind` = `new`, `kev`, `band-{band}` | `cvestream:team-gitlab:CVE-2026-109618:kev` |
