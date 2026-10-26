@@ -79,6 +79,31 @@ class StateSettings(BaseModel):
     url: SecretStr | None = None
 
 
+class ListenerSettings(BaseModel):
+    """One HTTP listener. Each listener has its own default port."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # The container's network namespace is the boundary: only 8080 is published.
+    host: str = "0.0.0.0"  # noqa: S104
+    port: int = Field(ge=1, le=65535)
+
+
+class PublicListenerSettings(ListenerSettings):
+    port: int = Field(default=8080, ge=1, le=65535)
+
+
+class PrivateListenerSettings(ListenerSettings):
+    port: int = Field(default=9090, ge=1, le=65535)
+
+
+class HttpSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    public: PublicListenerSettings = Field(default_factory=PublicListenerSettings)
+    private: PrivateListenerSettings = Field(default_factory=PrivateListenerSettings)
+
+
 class _EnvironSource(EnvSettingsSource):
     """Environment source reading an injected mapping instead of `os.environ`."""
 
@@ -224,6 +249,7 @@ class Settings(BaseSettings):
     endpoints_file: Path = Path("endpoints.yaml")
     data_dir: Path = Path("data")
     state: StateSettings = Field(default_factory=StateSettings)
+    http: HttpSettings = Field(default_factory=HttpSettings)
 
     @classmethod
     def settings_customise_sources(
