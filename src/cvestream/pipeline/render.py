@@ -36,8 +36,9 @@ _UPDATE_PREFIX = "[UPDATE] "
 _SOURCE_ORDER = {"euvd": 0, "eu_kev": 1, "cisa_kev": 2}
 _KEV_NAMES = {KevCatalog.CISA_KEV: "CISA KEV", KevCatalog.EU_KEV: "EU KEV"}
 _KEV_ORDER = (KevCatalog.CISA_KEV, KevCatalog.EU_KEV)
-# XML 1.0 `Char` production; also drops lone surrogates.
-_FORBIDDEN = re.compile("[^\t\n\r -퟿-�\U00010000-\U0010ffff]")
+# XML 1.0 `Char` production; also drops lone surrogates. Escapes, not literal
+# characters: U+E000 is invisible and an editor may normalise the others.
+_FORBIDDEN = re.compile("[^\t\n\r\x20-\ud7ff\ue000-\ufffd\U00010000-\U0010ffff]")
 
 
 @dataclass(frozen=True, slots=True)
