@@ -106,6 +106,23 @@ def test_paths_drop_tag_segments_and_use_indexes() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("endpoint", "expected"),
+    [
+        (_endpoint(entry=1), "endpoints[0].entry: Extra inputs are not permitted"),
+        (
+            _endpoint(products=[{"name": "x", "shorthand": 1}]),
+            "endpoints[0].products[0].shorthand: Extra inputs are not permitted",
+        ),
+    ],
+    ids=["endpoint-key", "product-key"],
+)
+def test_keys_named_like_tags_stay_in_paths(
+    endpoint: dict[str, Any], expected: str
+) -> None:
+    assert _errors(_data(endpoint)) == (expected,)
+
+
 def test_shorthand_error_path() -> None:
     errors = _errors(_data(_endpoint(products=["php > 8.2"])))
     assert errors == (
@@ -116,6 +133,13 @@ def test_shorthand_error_path() -> None:
 def test_value_error_prefix_is_stripped() -> None:
     errors = _errors(_data(_endpoint(products=[{"name": "x", "min_version": "8.x"}])))
     assert errors == ("endpoints[0].products[0].min_version: invalid version '8.x'",)
+
+
+def test_invalid_version_message_stays_on_one_line() -> None:
+    product = {"name": "x", "min_version": "8.2\nfoo"}
+    (error,) = _errors(_data(_endpoint(products=[product])))
+    assert error == "endpoints[0].products[0].min_version: invalid version '8.2\\nfoo'"
+    assert "\n" not in error
 
 
 def test_top_level_and_empty_loc() -> None:

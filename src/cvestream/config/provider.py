@@ -76,12 +76,22 @@ class ConfigProvider(Protocol):
         ...
 
 
+def _is_tag(location: tuple[int | str, ...], index: int) -> bool:
+    # A tag only follows `products[<i>]`; elsewhere `entry` is a real key name.
+    return (
+        location[index] in _TAG_SEGMENTS
+        and index >= 2
+        and isinstance(location[index - 1], int)
+        and location[index - 2] == "products"
+    )
+
+
 def _format_location(location: tuple[int | str, ...]) -> str:
     path = ""
-    for part in location:
+    for index, part in enumerate(location):
         if isinstance(part, int):
             path += f"[{part}]"
-        elif part in _TAG_SEGMENTS:
+        elif _is_tag(location, index):
             continue
         else:
             path += f".{part}" if path else part

@@ -58,14 +58,15 @@ def _split_shorthand(value: str) -> tuple[str, str | None]:
 def _check_shorthand(value: str) -> str:
     _, version = _split_shorthand(value)
     if version is not None and parse_version(version) is None:
-        msg = f"invalid version '{version}'"
+        msg = f"invalid version {version!r}"
         raise ValueError(msg)
     return value
 
 
 def _check_version(value: str) -> str:
     if parse_version(value) is None:
-        msg = f"invalid version '{value}'"
+        # `!r` keeps the message on one line when the value holds a newline.
+        msg = f"invalid version {value!r}"
         raise ValueError(msg)
     return value
 
@@ -203,6 +204,15 @@ class ConfigDocument(BaseModel):
     endpoints: list[EndpointConfig] = Field(
         default=[], description="The endpoints, each with its own feed."
     )
+
+    @field_validator("version", mode="before")
+    @classmethod
+    def _integer_version(cls, value: object) -> object:
+        # `Literal[1]` accepts `True` (`True == 1`), even in strict mode.
+        if isinstance(value, bool):
+            msg = "must be the integer 1"
+            raise ValueError(msg)
+        return value
 
     @model_validator(mode="after")
     def _unique(self) -> ConfigDocument:
