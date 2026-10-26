@@ -238,6 +238,7 @@ async def serve(
     CLI reports in one line.
     """
     clock = clock or SystemClock()
+    state = State(state_url(settings))  # a bad URL is a user error: before anything
     # Signals are the runtime's own business unless a test injects `stop`.
     signals = (signal.SIGTERM, signal.SIGINT) if stop is None else ()
     stop = stop or asyncio.Event()
@@ -245,9 +246,7 @@ async def serve(
     for sig in signals:
         loop.add_signal_handler(sig, stop.set)
     running = _Running(
-        state=State(state_url(settings)),
-        status=RuntimeStatus(started_at=clock.now()),
-        stop=stop,
+        state=state, status=RuntimeStatus(started_at=clock.now()), stop=stop
     )
     code = EXIT_OK
     try:
