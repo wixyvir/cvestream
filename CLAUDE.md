@@ -29,6 +29,7 @@ docker build --target runtime -t cvestream:local .
 - Python 3.14: never add `from __future__ import annotations`.
 - Layering is enforced by import-linter (`[tool.importlinter]`); `domain` imports only stdlib and `packaging`. Library ownership: `typer` only in `cli/`, `httpx` only in `sources/` and `http`, `sqlalchemy`/`alembic` only in `state/`, `starlette`/`uvicorn` only in `app/`, `valkey` only in `config/`.
 - Unknown is `None`, never `0`, `""` or `"n/a"`.
+- Free-text versions are parsed only by `domain/version.py`; `packaging` is the only third-party import allowed in `domain`.
 - Time is aware UTC from the injected `Clock`; never call `datetime.now()` elsewhere.
 - Every exception inherits from `CvestreamError` and its name ends in `Error`.
 - All tool configuration lives in `pyproject.toml` (no `ruff.toml`, `pytest.ini`, `.importlinter`).
