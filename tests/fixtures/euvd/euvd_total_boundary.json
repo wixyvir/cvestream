@@ -1,0 +1,161 @@
+{
+  "items": [
+    {
+      "id": "EUVD-2026-104709",
+      "enisaUuid": "0858f4dd-a9fe-3d87-8ad9-2a4bc89be18b",
+      "description": "An authentication issue was addressed with improved state management. This issue is fixed in macOS Golden Gate 27, macOS Sequoia 15.8, macOS Tahoe 26.7. An attacker may be able to impersonate other users.",
+      "datePublished": "Oct 20, 2026, 12:50:42 AM",
+      "dateUpdated": "Oct 20, 2026, 12:50:42 AM",
+      "baseScore": 0.0,
+      "references": "https://support.apple.com/en-us/149035\nhttps://support.apple.com/en-us/149042\nhttps://support.apple.com/en-us/149043\n",
+      "aliases": "GHSA-2c2f-8p99-6q46\nCVE-2026-86868\n",
+      "assigner": "apple",
+      "epss": 0.2,
+      "enisaIdProduct": [
+        {
+          "id": "30531266-7784-381f-8996-04198ec24216",
+          "product": {
+            "name": "macOS",
+            "vendor": {
+              "name": "Apple"
+            }
+          },
+          "product_version": "0 <26.7"
+        },
+        {
+          "id": "4ea3162a-c536-3bb5-8a54-9c6a666ef37d",
+          "product": {
+            "name": "macOS",
+            "vendor": {
+              "name": "Apple"
+            }
+          },
+          "product_version": "0 <15.8"
+        },
+        {
+          "id": "58895c68-f003-3b14-a724-4f53235277da",
+          "product": {
+            "name": "macOS",
+            "vendor": {
+              "name": "Apple"
+            }
+          },
+          "product_version": "0 <27"
+        }
+      ],
+      "enisaIdVendor": [
+        {
+          "id": "470f123f-f2f2-338e-a053-7f484dd1fec1",
+          "vendor": {
+            "name": "Apple"
+          }
+        }
+      ]
+    },
+    {
+      "id": "EUVD-2026-104707",
+      "enisaUuid": "aa18f72f-978a-3695-9e8c-0b425ee13a09",
+      "description": "A privacy issue was addressed with improved access restrictions. This issue is fixed in iOS 27 and iPadOS 27, macOS Golden Gate 27, tvOS 27, visionOS 27, watchOS 27. An app may be able to access sensitive user data.",
+      "datePublished": "Oct 20, 2026, 12:50:37 AM",
+      "dateUpdated": "Oct 20, 2026, 12:50:37 AM",
+      "baseScore": 0.0,
+      "references": "https://support.apple.com/en-us/149034\nhttps://support.apple.com/en-us/149035\nhttps://support.apple.com/en-us/149036\nhttps://support.apple.com/en-us/149037\nhttps://support.apple.com/en-us/149038\n",
+      "aliases": "GHSA-3934-4xv3-w89q\nCVE-2026-84582\n",
+      "assigner": "apple",
+      "epss": 0.16,
+      "enisaIdProduct": [
+        {
+          "id": "16a57672-29a7-3e17-b247-72817207b19d",
+          "product": {
+            "name": "macOS",
+            "vendor": {
+              "name": "Apple"
+            }
+          },
+          "product_version": "0 <27"
+        },
+        {
+          "id": "1ac294db-b006-3bec-82fe-a4a305acd9cb",
+          "product": {
+            "name": "watchOS",
+            "vendor": {
+              "name": "Apple"
+            }
+          },
+          "product_version": "0 <27"
+        },
+        {
+          "id": "44c5bb31-234f-3497-bec4-f5c0e465f21a",
+          "product": {
+            "name": "iOS and iPadOS",
+            "vendor": {
+              "name": "Apple"
+            }
+          },
+          "product_version": "0 <27"
+        },
+        {
+          "id": "5a13ca02-c21c-323d-aefb-26cd7af333ea",
+          "product": {
+            "name": "visionOS",
+            "vendor": {
+              "name": "Apple"
+            }
+          },
+          "product_version": "0 <27"
+        },
+        {
+          "id": "85ec1d46-c3b2-36d2-a6f6-5b95232f89f5",
+          "product": {
+            "name": "tvOS",
+            "vendor": {
+              "name": "Apple"
+            }
+          },
+          "product_version": "0 <27"
+        }
+      ],
+      "enisaIdVendor": [
+        {
+          "id": "be4092a6-0456-3c47-b0be-c81bcdf4c2f2",
+          "vendor": {
+            "name": "Apple"
+          }
+        }
+      ]
+    },
+    {
+      "id": "EUVD-2026-104698",
+      "enisaUuid": "7395ca4f-ce69-3e46-a1ac-fc8e8b5507cb",
+      "description": "The issue was addressed with additional app bundle integrity checks. This issue is fixed in macOS Golden Gate 27. A maliciously modified app may not be prevented from launching.",
+      "datePublished": "Oct 20, 2026, 12:50:04 AM",
+      "dateUpdated": "Oct 20, 2026, 12:50:04 AM",
+      "baseScore": 0.0,
+      "references": "https://support.apple.com/en-us/149035\n",
+      "aliases": "GHSA-4w84-q78m-3mfj\nCVE-2026-28854\n",
+      "assigner": "apple",
+      "epss": 0.15,
+      "enisaIdProduct": [
+        {
+          "id": "63b9407a-e711-31af-a1c2-cc5c2a6e7822",
+          "product": {
+            "name": "macOS",
+            "vendor": {
+              "name": "Apple"
+            }
+          },
+          "product_version": "0 <27"
+        }
+      ],
+      "enisaIdVendor": [
+        {
+          "id": "e8f47104-0a45-3542-a4a6-d8103baedc7d",
+          "vendor": {
+            "name": "Apple"
+          }
+        }
+      ]
+    }
+  ],
+  "total": 51
+}

@@ -1,0 +1,101 @@
+{
+  "items": [
+    {
+      "id": "EUVD-2026-105674",
+      "enisaUuid": "ef1c7d0c-4709-337a-b04f-eeef47d262f2",
+      "description": "Memory corruption in ANGLE in Google Chrome prior to 156.0.8078.47 allowed a remote attacker to read memory via a crafted HTML page. (Chromium security severity: Medium)",
+      "datePublished": "Oct 20, 2026, 9:02:35 PM",
+      "dateUpdated": "Oct 20, 2026, 9:02:35 PM",
+      "baseScore": 0.0,
+      "references": "https://chromereleases.googleblog.com/2026/10/stable-channel-update-for-desktop_02018666648.html\nhttps://issues.chromium.org/issues/563352451\n",
+      "aliases": "CVE-2026-113143\nGHSA-qmwm-8h6v-vg78\n",
+      "assigner": "Chrome",
+      "epss": 0.33,
+      "enisaIdProduct": [
+        {
+          "id": "4e473213-4604-32fd-8037-874fec6612a4",
+          "product": {
+            "name": "Chrome",
+            "vendor": {
+              "name": "Google"
+            }
+          },
+          "product_version": "156.0.8078.47 <156.0.8078.47"
+        }
+      ],
+      "enisaIdVendor": [
+        {
+          "id": "041fef97-fd04-301c-a734-6b2e0330aa01",
+          "vendor": {
+            "name": "Google"
+          }
+        }
+      ]
+    },
+    {
+      "id": "EUVD-2026-105653",
+      "enisaUuid": "f90c522e-72ec-3301-a3f6-099a932d159f",
+      "description": "Improper access control in V8 in Google Chrome prior to 156.0.8078.47 allowed a remote attacker to potentially bypass web origin policy via a crafted HTML page. (Chromium security severity: Medium)",
+      "datePublished": "Oct 20, 2026, 9:02:30 PM",
+      "dateUpdated": "Oct 20, 2026, 9:02:30 PM",
+      "baseScore": 0.0,
+      "references": "https://chromereleases.googleblog.com/2026/10/stable-channel-update-for-desktop_02018666648.html\nhttps://issues.chromium.org/issues/561660149\n",
+      "aliases": "GHSA-x64j-72pg-mmw8\nCVE-2026-113030\n",
+      "assigner": "Chrome",
+      "epss": 0.35,
+      "enisaIdProduct": [
+        {
+          "id": "98390599-a3f5-3a12-b4c6-643a0c74d4a4",
+          "product": {
+            "name": "Chrome",
+            "vendor": {
+              "name": "Google"
+            }
+          },
+          "product_version": "156.0.8078.47 <156.0.8078.47"
+        }
+      ],
+      "enisaIdVendor": [
+        {
+          "id": "e65c0c94-de64-3aa1-9bcd-18db28d4bc95",
+          "vendor": {
+            "name": "Google"
+          }
+        }
+      ]
+    },
+    {
+      "id": "EUVD-2026-105601",
+      "enisaUuid": "35b0a865-bf3c-3f90-8397-be1d607c802c",
+      "description": "Missing authorization in Animation in Google Chrome prior to 156.0.8078.47 allowed a remote attacker to bypass web origin policy via a crafted HTML page. (Chromium security severity: Medium)",
+      "datePublished": "Oct 20, 2026, 9:02:22 PM",
+      "dateUpdated": "Oct 20, 2026, 9:02:22 PM",
+      "baseScore": 0.0,
+      "references": "https://chromereleases.googleblog.com/2026/10/stable-channel-update-for-desktop_02018666648.html\nhttps://issues.chromium.org/issues/537109293\n",
+      "aliases": "CVE-2026-113128\nGHSA-h28r-ffhx-8f4v\n",
+      "assigner": "Chrome",
+      "epss": 0.32,
+      "enisaIdProduct": [
+        {
+          "id": "4d91513c-1aa8-3648-a6bf-bb11aeb0ce8f",
+          "product": {
+            "name": "Chrome",
+            "vendor": {
+              "name": "Google"
+            }
+          },
+          "product_version": "156.0.8078.47 <156.0.8078.47"
+        }
+      ],
+      "enisaIdVendor": [
+        {
+          "id": "41432849-aad0-3308-81bf-f1cab45059ee",
+          "vendor": {
+            "name": "Google"
+          }
+        }
+      ]
+    }
+  ],
+  "total": 51
+}
