@@ -12,8 +12,8 @@
 # JSON Schema (editors, other tools' CI): schemas/config-v1.json
 #
 # Unknown keys, duplicate keys, duplicate ids and duplicate tokens are errors.
-# Once the daemon exists, a change is applied at the next poll cycle; an
-# invalid change is rejected and the last valid configuration stays active.
+# A change is applied at the next poll cycle, without restart; an invalid
+# change is rejected and the last valid configuration stays active.
 #
 # YAML pitfalls: quote versions ("8.10", not 8.10, which YAML reads as the
 # number 8.1) and numeric ids; yes/no/on/off are booleans.
