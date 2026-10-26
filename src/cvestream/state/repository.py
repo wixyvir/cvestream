@@ -14,6 +14,7 @@ from itertools import batched
 from sqlalchemy import Connection, Table, delete, func, insert, select, update
 from sqlalchemy.dialects import postgresql, sqlite
 
+from cvestream.domain.matcher import PassThrough
 from cvestream.domain.model import SourceRecord
 from cvestream.domain.publication import PastPublication, PublicationDecision
 from cvestream.domain.severity import Band
@@ -60,6 +61,31 @@ class StoredRecord:
     id: int
     vulnerability_id: int
     content_hash: str
+
+
+@dataclass(frozen=True, slots=True)
+class StoredPublication:
+    """One publication row: what was decided, as recorded at decision time."""
+
+    vulnerability_id: int
+    kind: str
+    guid: str
+    primary_id: str
+    band: Band
+    is_known_exploited: bool
+    products: tuple[str, ...]
+    labels: frozenset[PassThrough]
+    published_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class StoredFeed:
+    endpoint_id: str
+    xml: str
+    etag: str
+    item_count: int
+    rendered_at: datetime
+    changed_at: datetime
 
 
 class Repository:
@@ -327,6 +353,82 @@ class Repository:
                 labels_json=sorted(label.value for label in decision.labels),
                 published_at=published_at,
             )
+        )
+
+    # feeds
+
+    def publications_since(
+        self, endpoint_ids: Iterable[str], since: datetime
+    ) -> dict[str, list[StoredPublication]]:
+        """Publications at or after `since` per endpoint, newest first."""
+        found: dict[str, list[StoredPublication]] = {}
+        for chunk in _chunks(sorted(set(endpoint_ids))):
+            rows = self._connection.execute(
+                select(
+                    schema.publication.c.endpoint_id,
+                    schema.publication.c.vulnerability_id,
+                    schema.publication.c.kind,
+                    schema.publication.c.guid,
+                    schema.publication.c.primary_id,
+                    schema.publication.c.band,
+                    schema.publication.c.is_known_exploited,
+                    schema.publication.c.products_json,
+                    schema.publication.c.labels_json,
+                    schema.publication.c.published_at,
+                )
+                .where(
+                    schema.publication.c.endpoint_id.in_(chunk),
+                    schema.publication.c.published_at >= since,
+                )
+                .order_by(
+                    schema.publication.c.published_at.desc(),
+                    schema.publication.c.id.desc(),
+                )
+            )
+            for row in rows:
+                found.setdefault(row.endpoint_id, []).append(
+                    StoredPublication(
+                        vulnerability_id=row.vulnerability_id,
+                        kind=row.kind,
+                        guid=row.guid,
+                        primary_id=row.primary_id,
+                        band=Band(row.band),
+                        is_known_exploited=row.is_known_exploited,
+                        products=tuple(row.products_json),
+                        labels=frozenset(PassThrough(v) for v in row.labels_json),
+                        published_at=row.published_at,
+                    )
+                )
+        return found
+
+    def feeds(self) -> dict[str, StoredFeed]:
+        rows = self._connection.execute(select(schema.feed_cache))
+        return {
+            row.endpoint_id: StoredFeed(
+                endpoint_id=row.endpoint_id,
+                xml=row.xml,
+                etag=row.etag,
+                item_count=row.item_count,
+                rendered_at=row.rendered_at,
+                changed_at=row.changed_at,
+            )
+            for row in rows
+        }
+
+    def save_feed(self, feed: StoredFeed) -> None:
+        _upsert(
+            self._connection,
+            schema.feed_cache,
+            {
+                "endpoint_id": feed.endpoint_id,
+                "xml": feed.xml,
+                "etag": feed.etag,
+                "item_count": feed.item_count,
+                "rendered_at": feed.rendered_at,
+                "changed_at": feed.changed_at,
+            },
+            keys=["endpoint_id"],
+            update=["xml", "etag", "item_count", "rendered_at", "changed_at"],
         )
 
     # cursors
