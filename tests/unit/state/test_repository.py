@@ -11,7 +11,12 @@ from cvestream.domain.severity import Band
 from cvestream.state import schema
 from cvestream.state.codec import content_hash
 from cvestream.state.db import State
-from cvestream.state.repository import Repository, StoredRecord, _upsert
+from cvestream.state.repository import (
+    Repository,
+    StoredFeed,
+    StoredRecord,
+    _upsert,
+)
 
 NOW = datetime(2026, 10, 26, 12, 0, tzinfo=UTC)
 
@@ -306,3 +311,103 @@ def test_cursors_store_none_as_null(state: State) -> None:
         assert repo.cursors() == {"cisa_kev": None}
         row = repo._connection.execute(select(schema.source_cursor.c.cursor)).one()
         assert row.cursor is None
+
+
+def test_publications_since_groups_by_endpoint_newest_first(state: State) -> None:
+    with state.transaction() as repo:
+        first = _vulnerability(repo)
+        second = _vulnerability(repo)
+        repo.add_publication(
+            first, _decision("cvestream:e:CVE-2026-1:new"), NOW - timedelta(days=2)
+        )
+        repo.add_publication(
+            second, _decision("cvestream:e:CVE-2026-2:new"), NOW - timedelta(days=1)
+        )
+        repo.add_publication(
+            second,
+            _decision("cvestream:other:CVE-2026-2:new", endpoint_id="other"),
+            NOW,
+        )
+        found = repo.publications_since(
+            ["e", "other", "absent"], NOW - timedelta(days=3)
+        )
+    assert set(found) == {"e", "other"}
+    assert [p.guid for p in found["e"]] == [
+        "cvestream:e:CVE-2026-2:new",
+        "cvestream:e:CVE-2026-1:new",
+    ]
+    assert [p.vulnerability_id for p in found["e"]] == [second, first]
+
+
+def test_publications_since_round_trips_the_decision_columns(state: State) -> None:
+    with state.transaction() as repo:
+        vulnerability_id = _vulnerability(repo)
+        repo.add_publication(vulnerability_id, _decision(), NOW)
+        (stored,) = repo.publications_since(["e"], NOW)["e"]
+    assert stored.band is Band.HIGH
+    assert stored.kind == "new"
+    assert stored.primary_id == "CVE-2026-1"
+    assert stored.is_known_exploited is False
+    assert stored.products == ("php", "nginx")
+    assert stored.labels == {PassThrough.VERSIONS_UNKNOWN, PassThrough.SCORE_UNKNOWN}
+    assert stored.published_at == NOW
+
+
+def test_publications_since_includes_the_boundary(state: State) -> None:
+    since = NOW - timedelta(days=14)
+    with state.transaction() as repo:
+        vulnerability_id = _vulnerability(repo)
+        repo.add_publication(vulnerability_id, _decision("g-at"), since)
+        repo.add_publication(
+            vulnerability_id, _decision("g-before"), since - timedelta(microseconds=1)
+        )
+        found = repo.publications_since(["e"], since)
+    assert [p.guid for p in found["e"]] == ["g-at"]
+
+
+def test_publications_since_breaks_ties_by_newest_row(state: State) -> None:
+    with state.transaction() as repo:
+        vulnerability_id = _vulnerability(repo)
+        repo.add_publication(vulnerability_id, _decision("g-1"), NOW)
+        repo.add_publication(vulnerability_id, _decision("g-2"), NOW)
+        found = repo.publications_since(["e"], NOW)
+    assert [p.guid for p in found["e"]] == ["g-2", "g-1"]
+
+
+def test_publications_since_with_no_endpoint(state: State) -> None:
+    with state.transaction() as repo:
+        assert repo.publications_since([], NOW) == {}
+
+
+def _feed(endpoint_id: str = "e", etag: str = '"a"', xml: str = "<rss/>") -> StoredFeed:
+    return StoredFeed(endpoint_id, xml, etag, 2, NOW, NOW - timedelta(hours=1))
+
+
+def test_save_feed_inserts_then_updates(state: State) -> None:
+    with state.transaction() as repo:
+        assert repo.feeds() == {}
+        repo.save_feed(_feed())
+        repo.save_feed(_feed("other"))
+        updated = StoredFeed(
+            "e", "<rss>2</rss>", '"b"', 5, NOW + timedelta(hours=1), NOW
+        )
+        repo.save_feed(updated)
+        feeds = repo.feeds()
+    assert set(feeds) == {"e", "other"}
+    assert feeds["e"] == updated
+    assert feeds["other"] == _feed("other")
+
+
+def test_feeds_are_committed_with_the_transaction(state: State) -> None:
+    with state.transaction() as repo:
+        repo.save_feed(_feed())
+    with state.transaction() as repo:
+        assert repo.feeds() == {"e": _feed()}
+
+
+def test_a_failed_transaction_rolls_the_feed_back(state: State) -> None:
+    with pytest.raises(RuntimeError), state.transaction() as repo:
+        repo.save_feed(_feed())
+        raise RuntimeError("boom")
+    with state.transaction() as repo:
+        assert repo.feeds() == {}
