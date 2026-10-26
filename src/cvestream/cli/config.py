@@ -61,6 +61,8 @@ def schema(
 ) -> None:
     """Write the JSON Schema of the configuration contract (v1)."""
     text = render_schema()
+    if check and output == _STDOUT:
+        _fail("--check compares a file: give --output a path, not -")
     if output == _STDOUT:
         typer.echo(text, nl=False)
         return

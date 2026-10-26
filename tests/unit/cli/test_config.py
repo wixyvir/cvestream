@@ -173,6 +173,20 @@ def test_schema_check_missing(tmp_path: Path) -> None:
     assert not target.exists()
 
 
+def test_schema_check_refuses_stdout() -> None:
+    result = runner.invoke(app, ["config", "schema", "--check", "-o", "-"])
+    assert result.exit_code == 2
+    assert result.stdout == ""
+    assert len(result.stderr.splitlines()) == 1
+
+
+def test_validate_bad_scalar_is_one_line(tmp_path: Path) -> None:
+    path = _file(tmp_path, VALID.replace("PHP team", "2026-13-45"))
+    result = runner.invoke(app, ["config", "validate", str(path)])
+    assert result.exit_code == 2
+    assert result.stderr == f"{path}: 4:11: invalid timestamp value\n"
+
+
 def test_schema_check_defaults_to_committed_path(tmp_path: Path) -> None:
     (tmp_path / "schemas").mkdir()
     (tmp_path / "schemas" / "config-v1.json").write_text(
