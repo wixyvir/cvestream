@@ -1,9 +1,11 @@
 import sqlite3
 from contextlib import closing
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from cvestream.state import backup as backup_module
 from cvestream.state.backup import backup
 from cvestream.state.db import State, StateError
 from tests.conftest import FakeClock
@@ -48,3 +50,26 @@ def test_backup_refuses_a_non_sqlite_database(tmp_path: Path) -> None:
     state = State("postgresql+psycopg://user:secret@db.example/cvestream")
     with pytest.raises(StateError):
         backup(state, tmp_path / "copy.db")
+
+
+def test_backup_never_overwrites_an_existing_file(state: State, tmp_path: Path) -> None:
+    target = tmp_path / "copy.db"
+    target.write_text("precious", encoding="utf-8")
+    with pytest.raises(FileExistsError):
+        backup(state, target)
+    assert target.read_text(encoding="utf-8") == "precious"
+
+
+def test_a_failed_backup_leaves_no_partial_file(
+    state: State, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _fail(_target: Path) -> sqlite3.Connection:
+        raise sqlite3.OperationalError("disk I/O error")
+
+    monkeypatch.setattr(
+        backup_module, "sqlite3", SimpleNamespace(Error=sqlite3.Error, connect=_fail)
+    )
+    target = tmp_path / "copy.db"
+    with pytest.raises(StateError, match="cannot write backup: OperationalError"):
+        backup(state, target)
+    assert not target.exists()
