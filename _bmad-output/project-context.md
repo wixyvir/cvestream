@@ -74,7 +74,7 @@ _Versions verified online on 2026-10-26 (architecture.md). Before adding any dep
 - Handlers read only the in-memory feed cache, never SQLite or Valkey. The feed cache and the active config are swapped by replacing the whole reference, never mutated.
 - Outbound only through `cvestream.http`: timeouts, size limits, retries (timeout/5xx/429 + `Retry-After`, backoff + jitter, capped), `trust_env=False`, TLS always verified against the system trust store.
 
-**Sources:** `SourceAdapter` protocol (`name`, `async fetch(cursor) -> FetchResult(records, next_cursor)`), registered in `sources/registry.py`. A record-level failure is skipped and counted. Identity is the CVE, EUVD or advisory ID, never a URL. A CERT-FR alerte revision = reference + revision number. The cursor is an opaque string; `next_cursor` comes from source data, never from the local clock.
+**Sources:** `SourceAdapter` protocol (`name`, `async fetch(cursor) -> FetchResult(records, next_cursor)`), registered in `sources/registry.py`. A record-level failure is skipped and counted. Identity is the CVE, EUVD or advisory ID, never a URL. A CERT-FR alerte revision = reference + revision number. The cursor is an opaque string; `next_cursor` comes from source data, never from the local clock (the fetch time only caps it).
 
 **CLI (Typer):** kebab-case, noun then verb (`endpoint create --min-cvss 7.0`). A user error prints one line to stderr and exits with code 2. An unexpected error exits with code 1 and shows the traceback only with `--debug`. `cvestream healthcheck` uses only the stdlib `urllib` and imports neither the app nor the providers.
 
