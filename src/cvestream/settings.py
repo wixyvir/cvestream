@@ -203,6 +203,8 @@ class Settings(BaseSettings):
 
     log: LogSettings = Field(default_factory=LogSettings)
     sources: SourcesSettings = Field(default_factory=SourcesSettings)
+    config_provider: Literal["yaml"] = "yaml"
+    endpoints_file: Path = Path("endpoints.yaml")
 
     @classmethod
     def settings_customise_sources(
