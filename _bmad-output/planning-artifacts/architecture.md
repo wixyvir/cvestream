@@ -207,6 +207,7 @@ cvestream:v1:token:{id}               feed token (plaintext; own namespace so co
 **Validation and model:** Pydantic 2.14 at boundaries (config models, per-source payload models inside adapters; validation failure → source error). Internal domain model as `@dataclass(frozen=True, slots=True)`.
 
 **Feed cache:** after each pipeline run, the RSS XML for each endpoint is rendered, stored in `feed_cache` and swapped into memory. Served with `ETag`/`Last-Modified`. The last good content survives source failures (FR-6) and restarts.
+Rules (story 1.6): every enabled endpoint is rendered at every run, inside the run's transaction, so the 14-day window slides even when nothing is published. The ETag is the quoted SHA-256 of the XML bytes; `Last-Modified` is the last time the ETag changed (`feed_cache.changed_at`), never the render time; the channel `lastBuildDate` is the newest item's date and is absent without items, so an unchanged feed keeps its ETag and readers get `304`. An item's title comes from the values recorded at decision time (product, band, known-exploited), its body from the current merged data of the vulnerability. A known token whose endpoint has no stored feed yet (first start, new endpoint) gets an empty channel until its first run.
 
 ### Authentication & Security
 
@@ -225,6 +226,7 @@ cvestream:v1:token:{id}               feed token (plaintext; own namespace so co
   - one pipeline worker, serialized, executed with `asyncio.to_thread`: reload config if revision changed → normalize → correlate → match → decide publications → SQLite transaction → render → swap in-memory feed cache;
   - embedded `uvicorn.Server` × 2 (public, private) in the same loop.
   - HTTP handlers only read the in-memory feed cache, so asyncio code never touches SQLite.
+  - a source loop reads its cursor from the state before each fetch and waits for the run that carries its outcome; every fetch outcome, failed ones included, triggers one cycle (the worker drains a backlog into a single run).
   - `cvestream poll --once` runs one cycle and exits. SIGTERM: stop loops, finish the current pipeline run, stop servers.
 - **Startup behaviour:** migrate the state store → start the private listener (`/healthz` OK, `/readyz` not ready) → load the configuration from the provider. With the Valkey provider, the daemon **only runs if Valkey is available**: it retries with backoff for `valkey.startup_timeout` (default 60 s), then exits with code 3 and logs `config.unavailable`. Nothing is persisted as a fallback. Once the configuration is loaded: start the source loops and the public listener, `/readyz` becomes ready.
 - **Valkey outage while running:** the in-memory last valid configuration keeps being used, polling and feeds continue, and each pipeline run logs a `config.unavailable` warning until Valkey is back.
@@ -276,7 +278,7 @@ Not applicable: no UI. RSS is the only output contract.
   - Local: `uv run cvestream run` with the YAML provider and `./data`.
 - **Backups:** Valkey RDB snapshot + `cvestream config export` (YAML, can live in git). SQLite: `cvestream db backup <file>` (SQLite online backup API; SQLite only, PostgreSQL would use `pg_dump`).
 - **Scaling:** single replica by design (documented). RWO volume prevents two writers.
-- **Runtime configuration:** pydantic-settings 2.16: `CVESTREAM_*` env vars override an optional `settings.yaml` (`CVESTREAM_SETTINGS_FILE`). Static settings: listeners, `data_dir`, `state.url` (SQLAlchemy URL, default SQLite under `data_dir`), `config_provider` (`valkey` | `yaml`), `valkey.url` + password file + `valkey.startup_timeout`, sources with intervals (default 15 min, max 60 for NFR-1), adapter settings, log level/format. `endpoints.yaml` (YAML provider) is a separate file.
+- **Runtime configuration:** pydantic-settings 2.16: `CVESTREAM_*` env vars override an optional `settings.yaml` (`CVESTREAM_SETTINGS_FILE`). Static settings: listeners (`http.public.host`/`port`, default `0.0.0.0:8080`, and `http.private.host`/`port`, default `0.0.0.0:9090`), `data_dir`, `state.url` (SQLAlchemy URL, default SQLite under `data_dir`), `config_provider` (`valkey` | `yaml`), `valkey.url` + password file + `valkey.startup_timeout`, sources with intervals (default 15 min, max 60 for NFR-1), adapter settings, log level/format. `endpoints.yaml` (YAML provider) is a separate file.
 - **Logging:** structlog 26.1, JSON in production, console in dev, dot-separated event names (`poll.completed`, `source.failed`, `publish.decided`, `config.rejected`). `cycle.summary` per run: per-source result, per-endpoint published count, pass-throughs on unknown score and unknown versions (NFR-4).
 - **Code quality and tests:** ruff 0.17.2, ty 0.0.92 (beta; fallback mypy 2.4.0 with the same CI step), pytest 9.1.1 + anyio plugin, respx 0.23.1. Recorded payloads in `tests/fixtures/<source>/`. Pre-commit optional; CI is the gate.
 
@@ -324,7 +326,7 @@ Not applicable: no UI. RSS is the only output contract.
 - JSON columns: SQLAlchemy `JSON`, suffix `_json` (`products_json`).
 - Constraint names come from the `MetaData` naming convention: `pk_<table>`, `fk_<table>_<col>_<ref>`, `ix_<table>_<col>`, `ux_<table>_<col>`, `ck_<table>_<name>`.
 - Portability rules: no raw dialect-specific SQL in the repository (no `INSERT OR REPLACE`, no `PRAGMA`, no `RETURNING` without a check), no SQLite-only types. Upserts only through `_upsert()`.
-- Migrations: Alembic revisions in `state/migrations/versions/`, named `NNNN_<verb>_<object>.py` (`0003_add_feed_cache.py`), with batch operations. Never edit a migration that has been merged.
+- Migrations: Alembic revisions in `state/migrations/versions/`, named `NNNN_<verb>_<object>.py` (`0002_add_feed_cache.py`), with batch operations. Never edit a migration that has been merged.
 
 **Identifiers:**
 
