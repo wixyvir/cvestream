@@ -1,6 +1,10 @@
+---
+baseline_commit: 12f6857c196a5ac9fb7114f70c317d284493f458
+---
+
 # Story 1.6: Feeds served by the daemon
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -30,62 +34,62 @@ so that I can subscribe my Slack channel once and receive relevant alerts within
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Dependencies (AC: 5, 6, 10)**
-  - [ ] 1.1 `uv add "starlette>=1.10.0" "uvicorn>=0.54.0"` (runtime; plain `uvicorn`, **not** `uvicorn[standard]`). Commit `pyproject.toml` + `uv.lock` together: `chore(story-1.6): add starlette and uvicorn`. Never edit `uv.lock` by hand. No other dependency (no `httpx2`, no `fastapi`, no `feedparser` in this story).
+- [x] **Task 1: Dependencies (AC: 5, 6, 10)**
+  - [x] 1.1 `uv add "starlette>=1.10.0" "uvicorn>=0.54.0"` (runtime; plain `uvicorn`, **not** `uvicorn[standard]`). Commit `pyproject.toml` + `uv.lock` together: `chore(story-1.6): add starlette and uvicorn`. Never edit `uv.lock` by hand. No other dependency (no `httpx2`, no `fastapi`, no `feedparser` in this story).
 
-- [ ] **Task 2: Settings (AC: 4, 15)**: see "Settings design".
-  - [ ] 2.1 `ListenerSettings`, `HttpSettings`, `Settings.http` in `settings.py`.
-  - [ ] 2.2 `tests/unit/test_settings.py`: defaults, `CVESTREAM_HTTP__PUBLIC__PORT`, port bounds (0 and 65536 rejected), unknown key rejected.
+- [x] **Task 2: Settings (AC: 4, 15)**: see "Settings design".
+  - [x] 2.1 `ListenerSettings`, `HttpSettings`, `Settings.http` in `settings.py`.
+  - [x] 2.2 `tests/unit/test_settings.py`: defaults, `CVESTREAM_HTTP__PUBLIC__PORT`, port bounds (0 and 65536 rejected), unknown key rejected.
 
-- [ ] **Task 3: `feed_cache` table and migration (AC: 3)**: see "Feed cache table".
-  - [ ] 3.1 Table in `state/schema.py`.
-  - [ ] 3.2 `state/migrations/versions/0002_add_feed_cache.py` (`revision = "0002"`, `down_revision = "0001"`), batch-safe `op.create_table`, `downgrade()` drops it. Never edit `0001`.
-  - [ ] 3.3 Update the tests pinned to revision `0001` (`tests/unit/state/test_db.py` lines 24 to 37, `tests/unit/cli/test_db.py` lines 44 and 94) and the table set in `tests/unit/state/test_schema.py` (line 25).
+- [x] **Task 3: `feed_cache` table and migration (AC: 3)**: see "Feed cache table".
+  - [x] 3.1 Table in `state/schema.py`.
+  - [x] 3.2 `state/migrations/versions/0002_add_feed_cache.py` (`revision = "0002"`, `down_revision = "0001"`), batch-safe `op.create_table`, `downgrade()` drops it. Never edit `0001`.
+  - [x] 3.3 Update the tests pinned to revision `0001` (`tests/unit/state/test_db.py` lines 24 to 37, `tests/unit/cli/test_db.py` lines 44 and 94) and the table set in `tests/unit/state/test_schema.py` (line 25).
 
-- [ ] **Task 4: Repository additions (AC: 1, 3)**: see "Repository additions". `StoredPublication`, `StoredFeed`, `publications_since()`, `feeds()`, `save_feed()`.
+- [x] **Task 4: Repository additions (AC: 1, 3)**: see "Repository additions". `StoredPublication`, `StoredFeed`, `publications_since()`, `feeds()`, `save_feed()`.
 
-- [ ] **Task 5: `pipeline/render.py` (AC: 1, 2)**: see "Renderer design". `FeedEntry`, `RenderedFeed`, `render_feed()`, `etag_of()`.
+- [x] **Task 5: `pipeline/render.py` (AC: 1, 2)**: see "Renderer design". `FeedEntry`, `RenderedFeed`, `render_feed()`, `etag_of()`.
 
-- [ ] **Task 6: `pipeline/run.py` and `pipeline/summary.py` (AC: 3, 8, 9)**: see "Pipeline additions".
-  - [ ] 6.1 `run()` renders and stores the feeds inside its transaction; `RunResult.feeds`.
-  - [ ] 6.2 `load_feeds()`, `SourceOutcome`, `reload_config()`, `cycle()`, `CycleResult`.
-  - [ ] 6.3 `pipeline/summary.py`: `SourceReport`, `CycleSummary`, `summarize()`, `log_summary()`.
+- [x] **Task 6: `pipeline/run.py` and `pipeline/summary.py` (AC: 3, 8, 9)**: see "Pipeline additions".
+  - [x] 6.1 `run()` renders and stores the feeds inside its transaction; `RunResult.feeds`.
+  - [x] 6.2 `load_feeds()`, `SourceOutcome`, `reload_config()`, `cycle()`, `CycleResult`.
+  - [x] 6.3 `pipeline/summary.py`: `SourceReport`, `CycleSummary`, `summarize()`, `log_summary()`.
 
-- [ ] **Task 7: `app/` package (AC: 4 to 11)**: see "App design".
-  - [ ] 7.1 `app/feed_cache.py`: `CachedFeed`, `FeedCache.build()`, `FeedCacheHolder`.
-  - [ ] 7.2 `app/public_api.py`: `build_public_app(holder)`.
-  - [ ] 7.3 `app/private_api.py`: `RuntimeStatus`, `SourceStatus`, `build_private_app(status, holder)`.
-  - [ ] 7.4 `app/servers.py`: `EmbeddedServer` (uvicorn `Server` without signal capture), `build_server(app, listener)`.
-  - [ ] 7.5 `app/scheduler.py`: `PipelineWorker`, `source_loop()`, `supervise()`.
-  - [ ] 7.6 `app/runtime.py`: `serve(...)` and `poll_once(...)` returning exit codes; SIGTERM/SIGINT handling.
+- [x] **Task 7: `app/` package (AC: 4 to 11)**: see "App design".
+  - [x] 7.1 `app/feed_cache.py`: `CachedFeed`, `FeedCache.build()`, `FeedCacheHolder`.
+  - [x] 7.2 `app/public_api.py`: `build_public_app(holder)`.
+  - [x] 7.3 `app/private_api.py`: `RuntimeStatus`, `SourceStatus`, `build_private_app(status, holder)`.
+  - [x] 7.4 `app/servers.py`: `EmbeddedServer` (uvicorn `Server` without signal capture), `build_server(app, listener)`.
+  - [x] 7.5 `app/scheduler.py`: `PipelineWorker`, `source_loop()`, `supervise()`.
+  - [x] 7.6 `app/runtime.py`: `serve(...)` and `poll_once(...)` returning exit codes; SIGTERM/SIGINT handling.
 
-- [ ] **Task 8: CLI (AC: 4, 11, 12, 15)**: see "CLI design".
-  - [ ] 8.1 `cli/main.py`: `run`, `poll --once`, `healthcheck` registered; app imported lazily; `--debug` wired in `main()`.
-  - [ ] 8.2 `cli/healthcheck.py`: stdlib-only probe.
+- [x] **Task 8: CLI (AC: 4, 11, 12, 15)**: see "CLI design".
+  - [x] 8.1 `cli/main.py`: `run`, `poll --once`, `healthcheck` registered; app imported lazily; `--debug` wired in `main()`.
+  - [x] 8.2 `cli/healthcheck.py`: stdlib-only probe.
 
-- [ ] **Task 9: Image and compose (AC: 12, 13)**
-  - [ ] 9.1 `Dockerfile`: runtime `HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD ["cvestream", "healthcheck"]` and `CMD ["run"]` (remove the "story 1.6 switches to" comments); `dev` target `CMD ["watchfiles", "cvestream run", "src"]`.
-  - [ ] 9.2 `compose.yml` (dev): see "Compose files".
-  - [ ] 9.3 `deploy/compose/compose.yml` (self-hosted, see "Compose files"). Do not commit a `deploy/compose/config/` directory: add `/deploy/compose/config/` to `.gitignore` (an operator who copies `endpoints.yaml` there inside a clone must not commit real tokens) and describe the directory in `docs/operations.md`.
+- [x] **Task 9: Image and compose (AC: 12, 13)**
+  - [x] 9.1 `Dockerfile`: runtime `HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD ["cvestream", "healthcheck"]` and `CMD ["run"]` (remove the "story 1.6 switches to" comments); `dev` target `CMD ["watchfiles", "cvestream run", "src"]`.
+  - [x] 9.2 `compose.yml` (dev): see "Compose files".
+  - [x] 9.3 `deploy/compose/compose.yml` (self-hosted, see "Compose files"). Do not commit a `deploy/compose/config/` directory: add `/deploy/compose/config/` to `.gitignore` (an operator who copies `endpoints.yaml` there inside a clone must not commit real tokens) and describe the directory in `docs/operations.md`.
 
-- [ ] **Task 10: Tests (all ACs)**: see "Testing requirements". Includes `tests/integration/test_pipeline_end_to_end.py`.
+- [x] **Task 10: Tests (all ACs)**: see "Testing requirements". Includes `tests/integration/test_pipeline_end_to_end.py`.
 
-- [ ] **Task 11: `.github/workflows/ci.yml` (AC: 12)**: **no change**. It already triggers on every `pull_request` with no `branches:` filter (stacked PRs target story branches, not `main`) and pushes images only on push to `main`; keep it that way. Its smoke test `docker run --rm cvestream:ci --help` still works with `CMD ["run"]` (arguments replace `CMD`).
+- [x] **Task 11: `.github/workflows/ci.yml` (AC: 12)**: **no change**. It already triggers on every `pull_request` with no `branches:` filter (stacked PRs target story branches, not `main`) and pushes images only on push to `main`; keep it that way. Its smoke test `docker run --rm cvestream:ci --help` still works with `CMD ["run"]` (arguments replace `CMD`).
 
-- [ ] **Task 12: Gates (all ACs)**
-  - [ ] 12.1 `uv sync --locked && uv run ruff check && uv run ruff format --check && uv run ty check && uv run lint-imports && uv run pytest && uv run cvestream config schema --check && uv run cvestream config validate endpoints.example.yaml` all green. `schemas/config-v1.json` must not change (no config model change in this story).
-  - [ ] 12.2 Manual checks of `epic-1-stack-plan.md` §3.6 with `CVESTREAM_DATA_DIR=$(mktemp -d)` and an `endpoints.yaml` built from the example with a real token: `uv run cvestream run` (logs show `state.migrated`, the listeners, the source loops, `app.ready`); `curl -i localhost:9090/healthz`, `/readyz`, `/status`; `uv run cvestream healthcheck --ready; echo $?`; the feed with `curl -i`, `If-None-Match`, `curl -I`, a wrong token; `xmllint --noout` on the body if `xmllint` exists (else `uv run python -c "import xml.etree.ElementTree as ET, sys; ET.parse(sys.argv[1])" feed.xml` and say so); edit `endpoints.yaml` (valid, then invalid) and watch `config.reloaded` / `config.rejected`; `Ctrl-C` stops cleanly; `uv run cvestream poll --once`. Real network is needed for the sources: if it is unavailable, say so in the Completion Notes and do not claim the checks ran.
-  - [ ] 12.3 `docker build --target runtime -t cvestream:local .`, then `docker run --rm cvestream:local --help`, then `docker compose -f deploy/compose/compose.yml config` (valid) and, with a locally tagged image, `up -d` + `docker inspect --format '{{.State.Health.Status}}'` reaching `healthy`. If Docker is unavailable, say so; do not claim it ran.
+- [x] **Task 12: Gates (all ACs)**
+  - [x] 12.1 `uv sync --locked && uv run ruff check && uv run ruff format --check && uv run ty check && uv run lint-imports && uv run pytest && uv run cvestream config schema --check && uv run cvestream config validate endpoints.example.yaml` all green. `schemas/config-v1.json` must not change (no config model change in this story).
+  - [x] 12.2 Manual checks of `epic-1-stack-plan.md` §3.6 with `CVESTREAM_DATA_DIR=$(mktemp -d)` and an `endpoints.yaml` built from the example with a real token: `uv run cvestream run` (logs show `state.migrated`, the listeners, the source loops, `app.ready`); `curl -i localhost:9090/healthz`, `/readyz`, `/status`; `uv run cvestream healthcheck --ready; echo $?`; the feed with `curl -i`, `If-None-Match`, `curl -I`, a wrong token; `xmllint --noout` on the body if `xmllint` exists (else `uv run python -c "import xml.etree.ElementTree as ET, sys; ET.parse(sys.argv[1])" feed.xml` and say so); edit `endpoints.yaml` (valid, then invalid) and watch `config.reloaded` / `config.rejected`; `Ctrl-C` stops cleanly; `uv run cvestream poll --once`. Real network is needed for the sources: if it is unavailable, say so in the Completion Notes and do not claim the checks ran.
+  - [x] 12.3 `docker build --target runtime -t cvestream:local .`, then `docker run --rm cvestream:local --help`, then `docker compose -f deploy/compose/compose.yml config` (valid) and, with a locally tagged image, `up -d` + `docker inspect --format '{{.State.Health.Status}}'` reaching `healthy`. If Docker is unavailable, say so; do not claim it ran.
 
-- [ ] **Task 13: Docs (AC: 15, same PR)**
-  - [ ] 13.1 `settings.example.yaml`: an `http` block (public and private listeners, env names, the note that only 8080 should be published and that the healthcheck uses `--port` when the private port changes).
-  - [ ] 13.2 `docs/configuration.md`: four rows in the keys table (`http.public.host`, `http.public.port`, `http.private.host`, `http.private.port`); "Create or upgrade" bullet: drop "(story 1.6)"; "Reloading" section: the daemon now does it (drop "(once the daemon exists, story 1.6)"), and say that a change applies at the next cycle (the next source fetch).
-  - [ ] 13.3 `docs/operations.md` (new): see "Operations doc outline".
-  - [ ] 13.4 `README.md`: "Status" paragraph says feeds are served by the daemon (drop "There are no feeds yet"); a "Self-hosted quick start" section (`deploy/compose/compose.yml`, `config/endpoints.yaml`, feed URL `http://<host>:8080/feeds/<token>.xml`, HTTPS through a reverse proxy, link to `docs/operations.md`); the dev quick start gets `uv run cvestream run` and `uv run cvestream poll --once`.
-  - [ ] 13.5 `endpoints.example.yaml` header: "Once the daemon exists, a change is applied at the next poll cycle" becomes "A change is applied at the next poll cycle, without restart".
-  - [ ] 13.6 `CLAUDE.md` "Key rules": one line "Only `pipeline/run.py` opens `State.transaction()`: `app/` reads state through `pipeline.run` functions in a thread, and HTTP handlers read only the in-memory feed cache."
-  - [ ] 13.7 `architecture.md`: (a) "Naming Patterns", migrations bullet: the example `0003_add_feed_cache.py` becomes `0002_add_feed_cache.py`; (b) "Feed cache" paragraph (Data Architecture): append the rules of this story (ETag = SHA-256 of the XML, `Last-Modified` = last content change, `lastBuildDate` = newest item, title from the decision-time values and body from the current merged data, a known token without a stored feed gets an empty channel); (c) "Runtime configuration" bullet: name the `http.public` / `http.private` listener settings; (d) "API & Communication Patterns", process model: one line "a source loop reads its cursor from the state before each fetch and waits for the run carrying its outcome; every fetch outcome, failed ones included, triggers one cycle".
-  - [ ] 13.8 `deferred-work.md`: strike through and mark resolved "`--debug` has no effect" (resolved by story 1.6) and "Tokens hidden in non-string log values" (resolved by story 1.6: the access log writes `endpoint_id` only and uvicorn's access log is off; the redaction gap itself remains for other callers, say so). Leave the others untouched.
+- [x] **Task 13: Docs (AC: 15, same PR)**
+  - [x] 13.1 `settings.example.yaml`: an `http` block (public and private listeners, env names, the note that only 8080 should be published and that the healthcheck uses `--port` when the private port changes).
+  - [x] 13.2 `docs/configuration.md`: four rows in the keys table (`http.public.host`, `http.public.port`, `http.private.host`, `http.private.port`); "Create or upgrade" bullet: drop "(story 1.6)"; "Reloading" section: the daemon now does it (drop "(once the daemon exists, story 1.6)"), and say that a change applies at the next cycle (the next source fetch).
+  - [x] 13.3 `docs/operations.md` (new): see "Operations doc outline".
+  - [x] 13.4 `README.md`: "Status" paragraph says feeds are served by the daemon (drop "There are no feeds yet"); a "Self-hosted quick start" section (`deploy/compose/compose.yml`, `config/endpoints.yaml`, feed URL `http://<host>:8080/feeds/<token>.xml`, HTTPS through a reverse proxy, link to `docs/operations.md`); the dev quick start gets `uv run cvestream run` and `uv run cvestream poll --once`.
+  - [x] 13.5 `endpoints.example.yaml` header: "Once the daemon exists, a change is applied at the next poll cycle" becomes "A change is applied at the next poll cycle, without restart".
+  - [x] 13.6 `CLAUDE.md` "Key rules": one line "Only `pipeline/run.py` opens `State.transaction()`: `app/` reads state through `pipeline.run` functions in a thread, and HTTP handlers read only the in-memory feed cache."
+  - [x] 13.7 `architecture.md`: (a) "Naming Patterns", migrations bullet: the example `0003_add_feed_cache.py` becomes `0002_add_feed_cache.py`; (b) "Feed cache" paragraph (Data Architecture): append the rules of this story (ETag = SHA-256 of the XML, `Last-Modified` = last content change, `lastBuildDate` = newest item, title from the decision-time values and body from the current merged data, a known token without a stored feed gets an empty channel); (c) "Runtime configuration" bullet: name the `http.public` / `http.private` listener settings; (d) "API & Communication Patterns", process model: one line "a source loop reads its cursor from the state before each fetch and waits for the run carrying its outcome; every fetch outcome, failed ones included, triggers one cycle".
+  - [x] 13.8 `deferred-work.md`: strike through and mark resolved "`--debug` has no effect" (resolved by story 1.6) and "Tokens hidden in non-string log values" (resolved by story 1.6: the access log writes `endpoint_id` only and uvicorn's access log is off; the redaction gap itself remains for other callers, say so). Leave the others untouched.
 
 ## Dev Notes
 
@@ -644,12 +648,50 @@ Recent commits on the base branch: `chore(story-1.5): record code review`, `fix(
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Sonnet 5.5 (claude-sonnet-5-5), run by the `bmad-dev-story` workflow.
 
 ### Debug Log References
 
+- Baseline on the 1.5 branch: 700 passed. After this story: 919 passed, 2 deselected (`live`). Gates run from the worktree: `uv sync --locked`, `ruff check`, `ruff format --check`, `ty check`, `lint-imports` (7 contracts kept), `pytest`, `config schema --check`, `config validate endpoints.example.yaml`, `docker build --target runtime`.
+- Manual checks of Task 12.2 (local daemon, SQLite in a temporary directory, real network): `state.migrated`, `app.started`, `app.ready`; `/healthz` 200, `/readyz` 200, `/status` with the source and endpoint; `cvestream healthcheck --ready --port <port>` exits 0 and exits 1 against a closed port; the feed with `curl -i` (200, `ETag`, `Last-Modified`, `Cache-Control: max-age=300`, no `Server` header), `If-None-Match` gives 304, `curl -I` (HEAD) gives the headers and no body, a wrong token gives an empty 404, `POST` gives 405; rotating the token in `endpoints.yaml` served the new URL and returned 404 on the old one at the next cycle (`config.reloaded`); an invalid `endpoints.yaml` logged `config.rejected` and the feed kept being served; SIGINT logged `app.stopping` then `app.stopped` and exited cleanly; `poll --once` logged one `cycle.summary` and exited 0 although EUVD failed. `xmllint --noout` accepts the feed rendered from the recorded fixtures.
+- **EUVD was not reachable from the development network** (`GET https://euvdservices.enisa.europa.eu/api/search: HTTP 403` after the retries), so no real EUVD item was served in the manual checks: that failure is itself the failure-isolation check (the CISA KEV source kept fetching, `poll --once` exited 0 with `euvd` as `failed` in `cycle.summary`). Feeds with items are covered by `tests/integration/test_pipeline_end_to_end.py` on the recorded EUVD and CISA KEV fixtures.
+- Task 12.3: `docker build --target runtime -t cvestream:local .` passed; `docker run --rm cvestream:local --help` shows `run`, `poll` and `healthcheck`; `docker compose -f deploy/compose/compose.yml config` is valid; with the local image tagged as `ghcr.io/wixyvir/cvestream:edge` and a `config/endpoints.yaml`, `docker compose up -d` reached `healthy` (`docker inspect`), served the feed on the published port with the read-only root filesystem, `docker compose exec cvestream cvestream healthcheck --ready` exited 0, and `docker compose stop` stopped the container in under a second with exit code 0 (`app.stopping`, `app.stopped`).
+
 ### Completion Notes List
 
-- Ultimate context engine analysis completed - comprehensive developer guide created.
+- **Implemented:** `pipeline/render.py` (RSS 2.0 with `xml.etree.ElementTree`, `etag_of`), `pipeline/summary.py` (`cycle.summary`), `pipeline/run.py` (feeds rendered and stored in the run's transaction, `load_feeds`, `reload_config`, `cycle`), the `feed_cache` table and migration `0002`, repository additions (`StoredPublication`, `StoredFeed`, `publications_since`, `feeds`, `save_feed`), the whole `app/` package (`feed_cache`, `public_api`, `private_api`, `servers`, `scheduler`, `runtime`), the `run`, `poll --once` and `healthcheck` commands, the `http` settings, `Dockerfile` (`CMD ["run"]`, `HEALTHCHECK`), the dev and self-hosted compose files, tests and docs (`docs/operations.md`, README quick start, settings and configuration docs, architecture amendments, `deferred-work.md`).
+- **Tests:** unit tests for the renderer, summary, cycle and reload, repository, schema and migrations (including an upgrade from `0001` with data), settings, feed cache, both APIs (through `httpx.ASGITransport`), servers (plus two real-socket tests on `127.0.0.1` with port 0 and a taken port), scheduler and supervisor (injected `sleep` and `random`, `FakeClock`), runtime startup and shutdown order (fake listeners that probe `/readyz` at each step, a run held in its thread to prove it finishes before the servers stop, a real SIGTERM) and the CLI (exit codes, `--debug`, a subprocess check that `cvestream.cli.main` does not import `cvestream.app`, `starlette`, `uvicorn` or `httpx`). `tests/integration/test_pipeline_end_to_end.py` goes from the recorded fixtures to a served feed, with `304`, `HEAD`, an unknown token and a restart that serves the same bytes. `test_restart_no_repost.py` stays green.
+- **Deferred items resolved** (`deferred-work.md`): `--debug` now works (pretty exceptions off, one line and exit 1, traceback only under `--debug`); the access log writes `endpoint_id` only (the redaction gap for other callers is noted as remaining).
+- **Deviation 1, listener settings defaults:** the story's `ListenerSettings` had a required `host` and `port`, so overriding one key (`CVESTREAM_HTTP__PUBLIC__PORT` alone) failed with "field required". `ListenerSettings` is a base class and `PublicListenerSettings` / `PrivateListenerSettings` carry the default port (8080 / 9090); the host defaults to `0.0.0.0` for both. Behaviour is otherwise as specified.
+- **Deviation 2, `PipelineWorker` has no `status` argument:** the story's constructor listed one but nothing in the worker uses it (the source loop owns the status). The constructor is `(state, provider, snapshot, holder, clock, *, run_cycle=cycle)`.
+- **Deviation 3, `build_public_app(holder)`:** no `clock` argument (Task 7.2 says `build_public_app(holder)`, the App design said `(holder, clock)`): the handler needs no clock, durations use `time.monotonic()`.
+- **Deviation 4, `ManagedServer` and `Listener`:** `app/servers.py` also has `ManagedServer` (a task around an `EmbeddedServer`) and a `Listener` protocol, so the runtime tests inject fake listeners. `ManagedServer` turns uvicorn's `sys.exit(1)` on a bind failure into `ListenerError` **inside the task**: a `SystemExit` raised in an asyncio task would otherwise tear the whole event loop down. A listener ending on its own makes the daemon exit 1 (`app.failed`), as does the pipeline worker ending.
+- **Deviation 5, stderr lines are written by the runtime:** `serve` and `poll_once` write the one stderr line for an invalid (exit 2) or unavailable (exit 3) configuration themselves, since they are the ones that know why they return that code; the CLI only passes the code on.
+- **Deviation 6, settings validation errors in `run` and `poll`:** `load_settings()` can raise a pydantic `ValidationError` (a bad port, for example), which the existing commands do not catch. The new commands turn it into one line (`settings: <path>: <message>`, no input value, since a setting may be a secret) and exit 2, as AC 4 requires. The existing `db` and `config` commands are unchanged.
+- **Deviation 7, `source.stale` is also checked after a fetch whose run was rolled back** (not only after a `SourceError`), because that source did not succeed either.
+- **Deviation 8, `TYPE_CHECKING` import in `pipeline/summary.py`:** `summarize()` takes `RunResult` and `SourceOutcome`, which live in `pipeline/run.py` (as the story says), and `run.py` imports `summary.py`. The cycle is broken with a `TYPE_CHECKING` import in `summary.py` (annotations are deferred in Python 3.14, so nothing is needed at runtime).
+- **Behaviour to know:** a `config.rejected` warning repeats at every cycle until the file is fixed (the revision keeps differing from the active one); a `ransomware use` of `False` reads `no` (the adapters only produce `True` or `None`); `/status` keeps `last_error` after the source recovered.
+- **Not covered by a real run:** EUVD items against the live API (blocked by HTTP 403 from the development network, see the Debug Log). The renderer and the pipeline are exercised on the recorded EUVD fixtures.
 
 ### File List
+
+- `pyproject.toml`, `uv.lock` (modified: `starlette`, `uvicorn`)
+- `.gitignore` (modified: `/deploy/compose/config/`)
+- `src/cvestream/settings.py` (modified: `ListenerSettings`, `PublicListenerSettings`, `PrivateListenerSettings`, `HttpSettings`, `Settings.http`)
+- `src/cvestream/state/schema.py` (modified: `feed_cache`), `src/cvestream/state/repository.py` (modified), `src/cvestream/state/migrations/versions/0002_add_feed_cache.py` (new)
+- `src/cvestream/pipeline/render.py`, `summary.py` (new), `run.py` (modified)
+- `src/cvestream/app/feed_cache.py`, `public_api.py`, `private_api.py`, `servers.py`, `scheduler.py`, `runtime.py` (new)
+- `src/cvestream/cli/healthcheck.py` (new), `src/cvestream/cli/main.py` (modified)
+- `Dockerfile`, `compose.yml` (modified), `deploy/compose/compose.yml` (new)
+- `tests/unit/test_settings.py`, `tests/unit/state/test_db.py`, `test_schema.py`, `test_repository.py`, `tests/unit/cli/test_db.py`, `tests/unit/pipeline/test_run.py` (modified)
+- `tests/unit/pipeline/test_render.py`, `test_summary.py`, `test_cycle.py` (new)
+- `tests/unit/app/__init__.py`, `test_feed_cache.py`, `test_public_api.py`, `test_private_api.py`, `test_servers.py`, `test_scheduler.py`, `test_runtime.py` (new)
+- `tests/unit/cli/test_healthcheck.py`, `test_run.py` (new)
+- `tests/integration/test_pipeline_end_to_end.py` (new)
+- `settings.example.yaml`, `endpoints.example.yaml`, `docs/configuration.md`, `docs/operations.md` (new), `README.md`, `CLAUDE.md` (modified)
+- `_bmad-output/planning-artifacts/architecture.md`, `_bmad-output/implementation-artifacts/deferred-work.md` (modified)
+- `_bmad-output/implementation-artifacts/1-6-feeds-served-by-the-daemon.md`, `_bmad-output/implementation-artifacts/sprint-status.yaml` (modified)
+
+### Change Log
+
+- 2026-10-26: Implemented story 1.6 (RSS renderer, `feed_cache` table and migration `0002`, pipeline cycle with config hot reload and `cycle.summary`, the daemon runtime with its scheduler, supervisor, public and private APIs, the `run`, `poll --once` and `healthcheck` commands, the image `CMD` and `HEALTHCHECK`, the dev and self-hosted compose files, the end-to-end test, operations docs) and moved it to review.
