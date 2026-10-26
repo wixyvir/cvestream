@@ -77,7 +77,7 @@ No envelope. Datetimes are ISO 8601 with `Z`. No token and no feed path appears 
 ```
 
 - `stale` is true when the source has had no success for more than three intervals; for a source that has not succeeded yet, the time is counted from the start of the daemon. The daemon logs `source.stale` (warning) at the same moment.
-- `last_success_at` and `last_error` live in memory: they are lost at restart. `last_error` keeps the last failure, even after the source recovered.
+- `last_success_at` and `last_error` live in memory: they are lost at restart. `last_error` keeps the last failure (a `SourceError`, or the exception type of a crash of the source loop), even after the source recovered.
 - `endpoints` lists the enabled endpoints. `last_render_at` is `null` for an endpoint that no run has rendered yet.
 
 ## Logs
@@ -91,7 +91,7 @@ One JSON object per line on stdout (`CVESTREAM_LOG__FORMAT=console` for humans).
 | `state.migrated` | info | startup | `revision` |
 | `source.fetched` | info | a fetch succeeded | `source`, `count`, `skipped`, `duration_ms` |
 | `source.failed` | warning | a fetch failed (`SourceError`): its cursor does not advance, the other sources are unaffected | `source`, `error_type`, `message` |
-| `source.stale` | warning | no success for more than 3 intervals | `source`, `last_success_at` |
+| `source.stale` | warning | no success for more than 3 intervals, checked after a failed fetch, a rolled-back run or a crash | `source`, `last_success_at` |
 | `source.crashed` | error | an unexpected exception in a source loop (with traceback); the loop restarts after 1, 2, 4... s, capped at 300 s | `source` |
 | `pipeline.failed` | error | a cycle raised (with traceback): the run is rolled back, the previous feeds keep being served | `error_type` |
 | `pipeline.completed` | info | a run committed | `count`, `records`, `changed`, `touched`, `duration_ms` |

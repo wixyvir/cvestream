@@ -7,12 +7,13 @@ import pytest
 from structlog.testing import capture_logs
 
 from cvestream.app.feed_cache import FeedCacheHolder
-from cvestream.app.private_api import RuntimeStatus
+from cvestream.app.private_api import RuntimeStatus, SourceStatus
 from cvestream.app.scheduler import (
     CRASH_BACKOFF_CAP,
     JITTER,
     PipelineWorker,
     fetch_outcome,
+    record_crash,
     source_loop,
     supervise,
 )
@@ -549,6 +550,52 @@ async def test_a_crashing_loop_is_logged_and_restarted_with_a_capped_backoff() -
     assert crashed[0]["log_level"] == "error"
     assert crashed[0]["source"] == "euvd"
     assert crashed[0]["exc_info"] is True
+
+
+@pytest.mark.anyio
+async def test_every_crash_is_handed_to_on_crash() -> None:
+    stop = asyncio.Event()
+    sleeps = _Sleeps(stop, 3)
+    crashes: list[Exception] = []
+
+    async def loop(_done: Callable[[], None]) -> None:
+        raise RuntimeError("bug")
+
+    await supervise("euvd", loop, sleep=sleeps, stop=stop, on_crash=crashes.append)
+    assert [type(error) for error in crashes] == [RuntimeError] * 3
+
+
+def test_a_crash_is_recorded_as_the_last_error(
+    status: RuntimeStatus, clock: FakeClock
+) -> None:
+    status.sources["euvd"] = SourceStatus("euvd", INTERVAL)
+    clock.advance(timedelta(minutes=5))
+    with capture_logs() as logs:
+        record_crash(status, "euvd", clock, RuntimeError("bug"))
+    source = status.sources["euvd"]
+    assert source.last_error_type == "RuntimeError"
+    assert source.last_error_at == clock.now()
+    assert not _events(logs, "source.stale")
+
+
+def test_a_source_that_keeps_crashing_becomes_stale(
+    status: RuntimeStatus, clock: FakeClock
+) -> None:
+    status.sources["euvd"] = SourceStatus("euvd", INTERVAL)
+    clock.advance(3 * INTERVAL + timedelta(seconds=1))
+    with capture_logs() as logs:
+        record_crash(status, "euvd", clock, RuntimeError("bug"))
+    (stale,) = _events(logs, "source.stale")
+    assert stale["log_level"] == "warning"
+    assert stale["source"] == "euvd"
+    assert stale["last_success_at"] is None
+
+
+def test_a_crash_of_an_unknown_source_is_ignored(
+    status: RuntimeStatus, clock: FakeClock
+) -> None:
+    record_crash(status, "euvd", clock, RuntimeError("bug"))
+    assert status.sources == {}
 
 
 @pytest.mark.anyio
