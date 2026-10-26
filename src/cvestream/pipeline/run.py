@@ -4,7 +4,8 @@ The run writes the source records, the publication rows of its decisions and the
 source cursors in one `State.transaction()`: a failure anywhere rolls all of it
 back (no publication without its cursor, no cursor without its publications).
 The same transaction renders every enabled endpoint's feed into `feed_cache`, so
-a feed never shows a publication whose cursor was rolled back.
+a feed never shows a publication whose cursor was rolled back. `cycle()` wraps a
+run with the configuration reload and the `cycle.summary` event.
 The pipeline never retries and never catches: the next cycle is the retry.
 Synchronous code only; the daemon calls it through `asyncio.to_thread`.
 """
@@ -17,7 +18,12 @@ from types import MappingProxyType
 import structlog
 
 from cvestream.clock import Clock
-from cvestream.config.provider import ConfigSnapshot
+from cvestream.config.provider import (
+    ConfigProvider,
+    ConfigSnapshot,
+    ConfigUnavailableError,
+    ConfigValidationError,
+)
 from cvestream.domain.matcher import match
 from cvestream.domain.model import Vulnerability
 from cvestream.domain.publication import (
@@ -28,6 +34,7 @@ from cvestream.domain.publication import (
 )
 from cvestream.pipeline.correlate import build_vulnerability, correlate, normalize_all
 from cvestream.pipeline.render import FeedEntry, RenderedFeed, etag_of, render_feed
+from cvestream.pipeline.summary import log_summary, summarize
 from cvestream.sources.base import FetchResult
 from cvestream.state.db import State
 from cvestream.state.repository import StoredFeed
@@ -55,6 +62,25 @@ class RunResult:
     touched: int
     # The feed of every enabled endpoint, rendered by this run.
     feeds: Mapping[str, RenderedFeed]
+
+
+@dataclass(frozen=True, slots=True)
+class SourceOutcome:
+    """What one source fetch came to: a result, or a failure."""
+
+    # Adapter name, the cursor key.
+    source: str
+    # `None`: the fetch failed.
+    result: FetchResult | None
+    # `SourceError` subclass name when it failed.
+    error_type: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CycleResult:
+    # The snapshot this cycle used (maybe reloaded).
+    snapshot: ConfigSnapshot
+    run: RunResult
 
 
 def load_cursors(state: State) -> dict[str, str | None]:
@@ -219,3 +245,43 @@ def run(
         duration_ms=round((time.monotonic() - started) * 1000),
     )
     return result
+
+
+def reload_config(provider: ConfigProvider, current: ConfigSnapshot) -> ConfigSnapshot:
+    """The snapshot to use now: a valid new one, else `current`.
+
+    An invalid or unreadable configuration keeps the last valid one and is
+    logged. Never logs the snapshot or its tokens.
+    """
+    try:
+        revision = provider.revision()
+        if revision == current.revision:
+            return current
+        snapshot = provider.load()
+    except ConfigValidationError as exc:
+        log.warning("config.rejected", errors=list(exc.errors))
+        return current
+    except ConfigUnavailableError as exc:
+        log.warning("config.unavailable", error_type=type(exc).__name__)
+        return current
+    log.info("config.reloaded", count=len(snapshot.endpoints))
+    return snapshot
+
+
+def cycle(
+    state: State,
+    provider: ConfigProvider,
+    snapshot: ConfigSnapshot,
+    outcomes: Sequence[SourceOutcome],
+    clock: Clock,
+) -> CycleResult:
+    """One pipeline cycle: reload the config, run, log `cycle.summary`."""
+    started = time.monotonic()
+    snapshot = reload_config(provider, snapshot)
+    batches = [
+        SourceBatch(o.source, o.result) for o in outcomes if o.result is not None
+    ]
+    result = run(state, snapshot, batches, clock)
+    duration_ms = round((time.monotonic() - started) * 1000)
+    log_summary(summarize(outcomes, snapshot, result, duration_ms))
+    return CycleResult(snapshot=snapshot, run=result)
