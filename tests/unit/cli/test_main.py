@@ -32,6 +32,7 @@ def test_version_prints_package_version() -> None:
 
 def test_no_args_prints_help() -> None:
     result = runner.invoke(app, [])
+    assert result.exit_code == 2
     assert "Usage" in _plain(result.output)
 
 
