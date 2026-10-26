@@ -11,8 +11,7 @@ RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked
 FROM builder AS dev
 ENV UV_NO_DEV=0 PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked
-# story 1.6 switches to: watchfiles "cvestream run" src
-CMD ["watchfiles", "cvestream --help", "src"]
+CMD ["watchfiles", "cvestream run", "src"]
 
 FROM python:3.14-slim-trixie AS runtime
 RUN groupadd --system --gid 999 cvestream \
@@ -27,5 +26,8 @@ EXPOSE 8080 9090
 USER 999:999
 WORKDIR /app
 ENTRYPOINT ["cvestream"]
-# story 1.6 switches to CMD ["run"] and adds HEALTHCHECK CMD ["cvestream", "healthcheck"]
-CMD ["--help"]
+# /healthz on the private listener; the start period covers the migration and
+# the first config load. A different private port needs `healthcheck --port`.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD ["cvestream", "healthcheck"]
+CMD ["run"]
