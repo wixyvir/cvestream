@@ -287,6 +287,26 @@ async def test_connect_error_is_not_retried(respx_mock: respx.MockRouter) -> Non
     assert isinstance(excinfo.value.__cause__, httpx.ConnectError)
 
 
+@pytest.mark.anyio
+async def test_redirect_to_plain_http_is_refused(respx_mock: respx.MockRouter) -> None:
+    respx_mock.get(URL).respond(301, headers={"Location": "http://example.test/data"})
+    plain = respx_mock.get("http://example.test/data").respond(200, content=b"{}")
+    recorder = Recorder()
+    async with _client(recorder) as http:
+        with pytest.raises(HttpTransportError, match="non-HTTPS"):
+            await http.get(URL)
+    assert plain.call_count == 1  # followed, but its body is never returned
+    assert recorder.delays == []
+
+
+@pytest.mark.anyio
+async def test_redirect_to_https_is_followed(respx_mock: respx.MockRouter) -> None:
+    respx_mock.get(URL).respond(302, headers={"Location": "https://example.test/new"})
+    respx_mock.get("https://example.test/new").respond(200, content=b"moved")
+    async with _client(Recorder()) as http:
+        assert await http.get(URL) == b"moved"
+
+
 class _ExplodingStream(httpx.AsyncByteStream):
     async def __aiter__(self) -> AsyncIterator[bytes]:
         msg = "the body must not be read"

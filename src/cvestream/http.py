@@ -53,7 +53,7 @@ class HttpResponseTooLargeError(HttpError):
     """The response body is larger than the allowed maximum."""
 
 
-class _RetryableError(Exception):
+class _RetryableError(CvestreamError):
     """Internal: one attempt failed in a way that may be retried."""
 
     def __init__(
@@ -155,6 +155,10 @@ class HttpClient:
     ) -> bytes:
         try:
             async with self._client.stream("GET", url, params=params) as response:
+                if response.url.scheme != "https" and httpx.URL(url).scheme == "https":
+                    # A redirect must not downgrade to plain HTTP (no TLS at all).
+                    msg = f"GET {url}: redirected to a non-HTTPS URL"
+                    raise HttpTransportError(msg)
                 status = response.status_code
                 if status == 429 or status >= 500:
                     raise _RetryableError(
