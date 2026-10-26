@@ -147,6 +147,57 @@ def test_duplicate_key_nested(tmp_path: Path) -> None:
     assert ": 9:5: " in str(error)
 
 
+@pytest.mark.parametrize(
+    ("line", "problem"),
+    [
+        ("    name: 2026-13-45\n", "4:11: invalid timestamp value"),
+        (f"    name: !!int {TOKEN}\n", "4:11: invalid int value"),
+    ],
+    ids=["impossible-date", "bad-tagged-scalar"],
+)
+def test_bad_scalar_is_a_validation_error_without_its_value(
+    tmp_path: Path, line: str, problem: str
+) -> None:
+    # PyYAML raises a bare ValueError here, quoting the value.
+    content = VALID.replace("    name: PHP team\n", line)
+    error = _load_error(tmp_path, content)
+    assert str(error).endswith(f": {problem}")
+    assert TOKEN not in str(error)
+    assert "2026-13-45" not in str(error)
+
+
+def test_too_deep_nesting_is_a_validation_error(tmp_path: Path) -> None:
+    content = "version: 1\nx: " + "[" * 5000 + "]" * 5000 + "\n"
+    error = _load_error(tmp_path, content)
+    assert error.errors == ("nesting is too deep",)
+
+
+def test_merge_keys_are_supported(tmp_path: Path) -> None:
+    content = f"""\
+version: 1
+endpoints:
+  - &base
+    id: team-php
+    name: PHP team
+    kev_only: true
+    token: {TOKEN}
+  - <<: *base
+    id: team-php-two
+    kev_only: false
+    token: {"u" * 43}
+"""
+    snapshot = YamlConfigProvider(_write(tmp_path, content)).load()
+    second = snapshot.endpoints[1]
+    assert (second.id, second.name) == ("team-php-two", "PHP team")
+    assert second.rules.kev_only is False
+
+
+def test_duplicate_key_next_to_merge_key(tmp_path: Path) -> None:
+    content = "a: &x {b: 1}\nc:\n  <<: *x\n  d: 1\n  d: 2\n"
+    error = _load_error(tmp_path, content)
+    assert "duplicate key 'd'" in str(error)
+
+
 def test_unquoted_version_asks_for_quotes(tmp_path: Path) -> None:
     content = VALID + "      - name: gitlab\n        min_version: 8.10\n"
     error = _load_error(tmp_path, content)
