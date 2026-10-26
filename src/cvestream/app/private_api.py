@@ -112,7 +112,7 @@ def build_private_app(
         }
         return JSONResponse({"sources": sources, "endpoints": endpoints})
 
-    return Starlette(
+    app = Starlette(
         routes=[
             Route("/healthz", healthz, methods=["GET"]),
             Route("/readyz", readyz, methods=["GET"]),
@@ -120,3 +120,6 @@ def build_private_app(
         ],
         exception_handlers={404: _handle_not_found, 405: _handle_method_not_allowed},
     )
+    # No 307 from `/healthz/` to `/healthz`: an unknown path is a JSON 404.
+    app.router.redirect_slashes = False
+    return app
