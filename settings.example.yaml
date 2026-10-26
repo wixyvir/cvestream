@@ -20,6 +20,17 @@
 # to a file, nested names included (CVESTREAM_<SECTION>__<NAME>_FILE); setting
 # both CVESTREAM_<NAME> and CVESTREAM_<NAME>_FILE is an error.
 
+# Where the endpoint configuration (teams, products, rules, feed tokens) comes
+# from. Only "yaml" exists for now.
+# Env: CVESTREAM_CONFIG_PROVIDER
+config_provider: yaml
+
+# Path of the endpoints file when config_provider is yaml (see
+# endpoints.example.yaml), relative to the working directory. A plain path, not
+# a secret: CVESTREAM_ENDPOINTS_FILE holds the path itself.
+# Env: CVESTREAM_ENDPOINTS_FILE
+endpoints_file: endpoints.yaml
+
 log:
   # Minimum level. One of: debug, info, warning, error.
   # Env: CVESTREAM_LOG__LEVEL
