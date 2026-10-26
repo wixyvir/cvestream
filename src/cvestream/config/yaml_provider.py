@@ -21,17 +21,33 @@ from cvestream.config.provider import (
     build_snapshot,
 )
 
+_MERGE_TAG = "tag:yaml.org,2002:merge"
+
 
 class _UniqueKeyLoader(yaml.SafeLoader):
     """Safe loader that rejects a repeated mapping key.
 
     PyYAML otherwise keeps the last value silently, so a duplicated `min_cvss`
-    would win without a trace.
+    would win without a trace. Merge keys (`<<: *anchor`) keep working: a key
+    written next to them overrides the merged one, as YAML intends.
     """
+
+    def construct_object(self, node: yaml.Node, deep: bool = False) -> Any:
+        try:
+            return super().construct_object(node, deep=deep)
+        except ValueError:
+            # `2026-13-45`, `!!int abc`: PyYAML raises a bare `ValueError` whose
+            # message quotes the value (maybe a token). Keep the position only.
+            kind = node.tag.rsplit(":", 1)[-1]
+            raise ConstructorError(
+                None, None, f"invalid {kind} value", node.start_mark
+            ) from None
 
     def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> Any:
         seen: set[object] = set()
         for key_node, _ in node.value:
+            if key_node.tag == _MERGE_TAG:
+                continue  # `<<` has no constructor; the base class flattens it
             key = self.construct_object(key_node, deep=True)
             try:
                 duplicate = key in seen
@@ -86,6 +102,9 @@ class YamlConfigProvider:
             data = _parse(text)
         except yaml.YAMLError as exc:
             raise ConfigValidationError(source, [_yaml_problem(exc)]) from None
+        except RecursionError:
+            msg = "nesting is too deep"
+            raise ConfigValidationError(source, [msg]) from None
         if not isinstance(data, dict):
             msg = "top level must be a mapping"
             raise ConfigValidationError(source, [msg])
