@@ -80,6 +80,8 @@ class SourceRecord:
     url: str | None = None
     published_at: datetime | None = None
     updated_at: datetime | None = None
+    # EPSS probability as a 0-1 fraction.
+    epss: Sourced[float] | None = None
 
 
 @dataclass(frozen=True, slots=True)
