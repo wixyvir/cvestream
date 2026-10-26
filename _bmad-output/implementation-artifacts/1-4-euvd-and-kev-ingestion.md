@@ -4,7 +4,7 @@ baseline_commit: 512fd28d0b1d2fd76582a851f3d71e34b089baf7
 
 # Story 1.4: EUVD and KEV ingestion
 
-Status: review
+Status: in-progress
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -82,6 +82,23 @@ so that my feed is built from the European reference database and flags actively
   - [x] 12.1 `uv sync --locked && uv run ruff check && uv run ruff format --check && uv run ty check && uv run lint-imports && uv run pytest` all green; `uv run pytest --collect-only -m live -q tests/contract` lists the live tests and the default run deselects them.
   - [x] 12.2 `grep -rn "import httpx\|from httpx" src/` shows only `src/cvestream/http.py` and `src/cvestream/sources/*`.
   - [x] 12.3 `docker build --target runtime -t cvestream:local .` then `docker run --rm --entrypoint python cvestream:local -c "import ssl, cvestream.sources.registry; assert ssl.create_default_context().cert_store_stats()['x509_ca'] > 0"` exits 0 (httpx is in the runtime image and the system trust store is populated). If Docker is unavailable, say so in the Completion Notes; do not claim it ran.
+
+### Review Findings
+
+Code review 2026-10-26 (Blind Hunter, Edge Case Hunter, Acceptance Auditor; diff against `story-1-3-endpoint-configuration-in-yaml`). 2 decision-needed, 7 patched, 3 deferred, 6 dismissed.
+
+- [ ] [Review][Decision] Silent data loss if EUVD lowers its page-size maximum — `_fetch_search` stops on `len(items) < page_size` [src/cvestream/sources/euvd.py:425]. EUVD already caps `size` silently (101 gives 100); if it ever caps below 100, every page is "short", paging stops after page 0 and `next_cursor` jumps to the newest record, so the rest of the window is lost with no error. Options: (1) a short page while `page * size + len(items) < total` raises `SourceContractError` (loud, like the order check); (2) drop the short-page stop and count the items actually read against `total`, adapting to the server's page size; (3) keep as is and rely on the `live` test / `source-drift.yml`. Recommendation: (1).
+- [ ] [Review][Decision] A stale cursor beyond the 1,000-page cap stalls `euvd` for good — [src/cvestream/sources/euvd.py:431]. After a long outage (a backlog above ~100k updates, about two months), every fetch reads 1,000 pages (~13 min, ~350 MB) and then raises `SourceContractError`; the cursor never advances and the load repeats every interval. Options: (1) clamp the start to now − `INITIAL_WINDOW` (14 days, the feed window) with a `source.cursor_clamped` warning, accepting the loss of older updates exactly like a first run; (2) keep the cap and document an operator action (cursor reset, tooling in 1.5/1.6); (3) raise or remove the cap. Recommendation: (1).
+- [x] [Review][Patch] Order check rejected records inserted while paging: when two or more records are inserted on top between two page requests, the next page starts with items already seen, newer than the last one, and the check raised `SourceContractError`; already-emitted IDs are now skipped before the check [src/cvestream/sources/euvd.py:413]
+- [x] [Review][Patch] A future-dated `dateUpdated` (or stored cursor) parked the cursor ahead of every real record for good; `next_cursor` is now capped at the fetch time and a future stored cursor falls back to the first-run window (duplicates only, never a gap) [src/cvestream/sources/euvd.py:350]
+- [x] [Review][Patch] A KEV catalogue where every entry is rejected (renamed fields) returned an empty success, silently dropping all KEV flags; it is now a `SourceContractError` in both adapters [src/cvestream/sources/euvd.py:384, src/cvestream/sources/cisa_kev.py:116]
+- [x] [Review][Patch] A redirect from HTTPS to plain HTTP was followed and its body accepted (no TLS at all); it is now an `HttpTransportError`, not retried [src/cvestream/http.py:160]
+- [x] [Review][Patch] EU KEV `euvdId` / `cveId` were not validated: a malformed EUVD ID became the record ID and URL; IDs are now trimmed, upper-cased and pattern-checked, a malformed one counts as missing [src/cvestream/sources/euvd.py:259]
+- [x] [Review][Patch] Deeply nested JSON raised `RecursionError` out of `get_json` instead of `SourcePayloadError` [src/cvestream/sources/base.py:92]
+- [x] [Review][Patch] `_RetryableError` inherited `Exception` instead of `CvestreamError` (project exception rule) [src/cvestream/http.py:56]
+- [x] [Review][Defer] A wrong-typed optional field drops the whole record (e.g. a non-string `knownRansomwareCampaignUse`, `shortDescription` or `product_version`), losing a KEV flag or a vulnerability [src/cvestream/sources/cisa_kev.py:39, src/cvestream/sources/euvd.py:85] — deferred, documented as deliberate in `docs/sources.md`; revisit with lenient coercion of optional text fields if drift shows up
+- [x] [Review][Defer] A `/kev/dump` outage blocks EUVD `/search` ingestion: the all-or-nothing fetch couples two endpoints in one source [src/cvestream/sources/euvd.py:340] — deferred, spec-mandated; revisit with failure isolation in 1.6 or a separate `eu_kev` adapter
+- [x] [Review][Defer] Decompression amplification before the size check: httpx decodes a whole network chunk at once, so one compressed chunk can expand well past `max_bytes` in memory before `_read_body` counts it [src/cvestream/http.py:200] — deferred, bounded by chunk size; revisit if a source serves compressed bodies
 
 ## Dev Notes
 
@@ -509,3 +526,4 @@ claude-sonnet-5-5
 ### Change Log
 
 - 2026-10-26: Implemented story 1.4 (outbound HTTP client, adapter contract, EUVD and EU KEV adapter, CISA KEV adapter, registry, recorded fixtures, contract tests, docs) and moved it to review.
+- 2026-10-26: Code review: 7 patches applied (paging order check vs. concurrent inserts, cursor cap at fetch time, all-rejected KEV catalogues, HTTPS downgrade redirect, EU KEV ID validation, nested JSON, `_RetryableError` base), 3 deferred, 2 decisions pending; status back to in-progress.
