@@ -73,7 +73,7 @@ A product entry has `name` (required), `aliases[]`, `exclude[]` and `min_version
 python -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
-**YAML pitfalls.** PyYAML follows YAML 1.1: `8.10` is the number 8.1 (quote versions), `yes`/`no`/`on`/`off` are booleans, `2026-10-26` is a date, and an all-digit `id` is an integer (quote it). The contract is strict: `min_cvss: "7.0"` and `kev_only: "yes"` are rejected, a version must be quoted, and unknown or duplicate keys are errors.
+**YAML pitfalls.** PyYAML follows YAML 1.1: `8.10` is the number 8.1 (quote versions), `yes`/`no`/`on`/`off` are booleans, `2026-10-26` is a date, and an all-digit `id` is an integer (quote it). The contract is strict: `min_cvss: "7.0"` and `kev_only: "yes"` are rejected, a version must be quoted, and unknown or duplicate keys are errors. Anchors, aliases and merge keys (`<<: *defaults`) work.
 
 ### Validate
 
@@ -85,7 +85,7 @@ Exit code 0 when valid (one line on stdout). Exit code 2 when invalid or unreada
 
 ### JSON Schema
 
-[`schemas/config-v1.json`](../schemas/config-v1.json) is the published contract (JSON Schema 2020-12), generated from the same models the daemon validates with. Other tools can validate their `endpoints.yaml` against it in their own CI. `uv run cvestream config schema` regenerates it and `--check` fails when it is stale.
+[`schemas/config-v1.json`](../schemas/config-v1.json) is the published contract (JSON Schema 2020-12), generated from the same models the daemon validates with. Other tools can validate their `endpoints.yaml` against it in their own CI. The schema checks the structure only: unique ids and tokens, valid version strings and duplicate YAML keys are checked by `cvestream config validate`, so run that too when you can. `uv run cvestream config schema` regenerates it and `--check` fails when it is stale.
 
 ### Reloading
 
