@@ -45,6 +45,7 @@ INITIAL_WINDOW = timedelta(days=14)
 
 _EU_KEV_LIST = "eukev_kev"
 _ID_PATTERN = re.compile(r"EUVD-\d{4}-\d+")
+_CVE_PATTERN = re.compile(r"CVE-\d{4}-\d{4,}")
 _CURSOR_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 _MONTHS = {
     name: number
@@ -255,12 +256,21 @@ def _record(item: _SearchItem, observed_at: datetime) -> SourceRecord:
     )
 
 
+def _identifier(value: str | None, pattern: re.Pattern[str]) -> str | None:
+    """Upper-cased ID when it fullmatches `pattern`, else `None` (unusable)."""
+    text = clean_text(value)
+    if text is None:
+        return None
+    text = text.upper()
+    return text if pattern.fullmatch(text) else None
+
+
 def _kev_record(entry: _KevEntry, observed_at: datetime) -> SourceRecord:
-    euvd_id = clean_text(entry.euvd_id)
-    cve_id = clean_text(entry.cve_id)
+    euvd_id = _identifier(entry.euvd_id, _ID_PATTERN)
+    cve_id = _identifier(entry.cve_id, _CVE_PATTERN)
     record_id = euvd_id or cve_id
     if record_id is None:
-        msg = "KEV entry has neither euvdId nor cveId"
+        msg = "KEV entry has no usable euvdId or cveId"
         raise _InvalidRecordError(msg)
     name = clean_text(entry.vulnerability_name)
     kev = KevEntry(
@@ -334,17 +344,22 @@ class EuvdAdapter:
         newest = max(
             (r.updated_at for r in search_records if r.updated_at), default=start
         )
+        # Capped at the fetch time: a future `dateUpdated` (bad source data) must
+        # not park the cursor ahead of every real record. The cap can only cause
+        # re-delivery (duplicates), never a gap.
+        next_start = min(max(start, newest), observed_at)
         return FetchResult(
             records=(*kev_records, *search_records),
-            next_cursor=_encode_cursor(max(start, newest)),
+            next_cursor=_encode_cursor(next_start),
             skipped=kev_skipped + search_skipped,
         )
 
     def _start(self, cursor: Cursor | None, now: datetime) -> datetime:
         if cursor is not None:
             start = _decode_cursor(cursor)
-            if start is not None:
+            if start is not None and start <= now:
                 return start
+            # Unparseable, naive, or in the future (it would skip every record).
             log.warning("source.cursor_invalid", source=NAME)
         return now - INITIAL_WINDOW
 
@@ -364,6 +379,10 @@ class EuvdAdapter:
             except (ValidationError, _InvalidRecordError) as exc:
                 skipped += 1
                 _skipped(None, exc)
+        if skipped and not records:
+            # Every EU KEV candidate rejected is drift, not bad records: fail loudly.
+            msg = "EUVD /kev/dump: no entry passed validation"
+            raise SourceContractError(NAME, msg)
         return records, skipped
 
     async def _fetch_search(
@@ -390,6 +409,10 @@ class EuvdAdapter:
                     continue
                 updated_at = record.updated_at
                 if updated_at is None:  # unreachable: `_record` requires it
+                    continue
+                if record.record_id in records:
+                    # Already emitted: records inserted on top while paging shift
+                    # older items onto the next page. Not an ordering violation.
                     continue
                 if previous is not None and updated_at > previous:
                     msg = "EUVD /search is no longer sorted by dateUpdated descending"

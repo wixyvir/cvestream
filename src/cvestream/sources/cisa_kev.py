@@ -111,5 +111,9 @@ class CisaKevAdapter:
                     record_id=None,
                     error_type=type(exc).__name__,
                 )
+        if not records:
+            # Every entry rejected is drift, not bad records: fail loudly.
+            msg = "CISA KEV catalogue: no entry passed validation"
+            raise SourceContractError(NAME, msg)
         version = clean_text(data.get("catalogVersion"))
         return FetchResult(records=tuple(records), next_cursor=version, skipped=skipped)

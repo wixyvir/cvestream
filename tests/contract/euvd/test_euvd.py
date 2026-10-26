@@ -551,6 +551,54 @@ async def test_duplicates_across_pages_are_emitted_once(
 
 
 @pytest.mark.anyio
+async def test_insertions_while_paging_are_not_an_order_violation(
+    respx_mock: respx.MockRouter,
+    make_adapter: Callable[..., tuple[EuvdAdapter, HttpClient]],
+) -> None:
+    # Three records inserted on top between page 0 and page 1 shift the whole
+    # of page 0 onto page 1: its first item is newer than the last one seen.
+    page0 = _json("euvd_search_page0.json")
+    page1 = _json("euvd_search_page1.json")
+    _mock_dump(respx_mock)
+    route = _mock_pages(
+        respx_mock, {0: page0, 1: page0, 2: page1, 3: {"items": [], "total": 1519}}
+    )
+    adapter, http = make_adapter(page_size=3)
+    async with http:
+        result = await adapter.fetch("2026-10-20T23:41:10Z")
+    ids = [r.record_id for r in result.records if r.source == "euvd"]
+    assert ids == [
+        "EUVD-2026-105619",
+        "EUVD-2026-105627",
+        "EUVD-2026-105623",
+        "EUVD-2026-105621",
+        "EUVD-2026-105424",
+        "EUVD-2026-105422",
+    ]
+    assert _requested_pages(route) == [0, 1, 2, 3]
+
+
+@pytest.mark.anyio
+async def test_future_update_date_does_not_park_the_cursor_ahead(
+    respx_mock: respx.MockRouter,
+    make_adapter: Callable[..., tuple[EuvdAdapter, HttpClient]],
+    clock: FakeClock,
+) -> None:
+    page = _json("euvd_search_last_page.json")
+    page["items"][0]["dateUpdated"] = "Jan 1, 2099, 1:00:00 AM"
+    _mock_dump(respx_mock)
+    _mock_pages(respx_mock, {0: page})
+    adapter, http = make_adapter(page_size=3)
+    async with http:
+        result = await adapter.fetch("2026-10-20T00:00:00Z")
+    assert [r.record_id for r in result.records if r.source == "euvd"] == [
+        "EUVD-2026-104698"
+    ]
+    assert result.next_cursor == "2026-10-26T20:00:00Z"  # the fetch time
+    assert clock.now() == NOW
+
+
+@pytest.mark.anyio
 async def test_next_cursor_is_the_newest_update_not_the_local_clock(
     respx_mock: respx.MockRouter,
     make_adapter: Callable[..., tuple[EuvdAdapter, HttpClient]],
@@ -581,7 +629,8 @@ async def test_without_new_records_the_cursor_does_not_move(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    "cursor", ["not a date", "", "2026-10-20T23:41:11", "2026-10-20"]
+    "cursor",
+    ["not a date", "", "2026-10-20T23:41:11", "2026-10-20", "2099-01-01T00:00:00Z"],
 )
 async def test_invalid_cursor_falls_back_to_the_initial_window(
     respx_mock: respx.MockRouter,
@@ -692,9 +741,9 @@ async def test_kev_entries_without_ids_are_skipped_and_odd_dates_tolerated(
 ) -> None:
     dump: list[object] = [
         {"sources": ["eukev_kev"], "dateAdded": "2026-09-05"},  # no ID at all
-        {"cveId": "CVE-2026-1", "sources": ["eukev_kev"], "dateAdded": "soon"},
-        {"cveId": "CVE-2026-2", "euvdId": "n/a", "sources": ["eukev_kev"]},
-        {"cveId": "CVE-2026-3", "sources": "eukev_kev"},  # wrong type
+        {"cveId": "CVE-2026-10001", "sources": ["eukev_kev"], "dateAdded": "soon"},
+        {"cveId": "CVE-2026-10002", "euvdId": "n/a", "sources": ["eukev_kev"]},
+        {"cveId": "CVE-2026-10003", "sources": "eukev_kev"},  # wrong type
         "not an object",
     ]
     _mock_dump(respx_mock, json.dumps(dump).encode())
@@ -702,12 +751,63 @@ async def test_kev_entries_without_ids_are_skipped_and_odd_dates_tolerated(
     adapter, http = make_adapter()
     async with http:
         result = await adapter.fetch(None)
-    assert [r.record_id for r in result.records] == ["CVE-2026-1", "CVE-2026-2"]
+    assert [r.record_id for r in result.records] == [
+        "CVE-2026-10001",
+        "CVE-2026-10002",
+    ]
     first = result.records[0]
-    assert first.aliases == ("CVE-2026-1",)
+    assert first.aliases == ("CVE-2026-10001",)
     assert first.url is None
     assert first.kev[0].value.added_at is None
     assert result.skipped == 3
+
+
+@pytest.mark.anyio
+async def test_kev_entries_with_malformed_ids_fall_back_or_are_skipped(
+    respx_mock: respx.MockRouter,
+    make_adapter: Callable[..., tuple[EuvdAdapter, HttpClient]],
+) -> None:
+    dump: list[object] = [
+        # a malformed EUVD ID is not an identity: the CVE ID is used instead
+        {
+            "euvdId": "https://euvd/x",
+            "cveId": "CVE-2025-25231",
+            "sources": ["eukev_kev"],
+        },
+        {"euvdId": " euvd-2025-24160 ", "cveId": "garbage", "sources": ["eukev_kev"]},
+        {"euvdId": "EUVD-x", "cveId": "CVE-1", "sources": ["eukev_kev"]},
+    ]
+    _mock_dump(respx_mock, json.dumps(dump).encode())
+    _mock_pages(respx_mock, {0: {"items": [], "total": 0}})
+    adapter, http = make_adapter()
+    async with http:
+        result = await adapter.fetch(None)
+    assert [(r.record_id, r.aliases, r.url) for r in result.records] == [
+        ("CVE-2025-25231", ("CVE-2025-25231",), None),
+        (
+            "EUVD-2025-24160",
+            ("EUVD-2025-24160",),
+            "https://euvd.enisa.europa.eu/vulnerability/EUVD-2025-24160",
+        ),
+    ]
+    assert result.skipped == 1
+
+
+@pytest.mark.anyio
+async def test_dump_where_every_entry_is_rejected_is_a_contract_error(
+    respx_mock: respx.MockRouter,
+    make_adapter: Callable[..., tuple[EuvdAdapter, HttpClient]],
+) -> None:
+    # e.g. `euvdId`/`cveId` renamed upstream: every entry fails, which is drift
+    dump = [
+        {"vulnId": entry["euvdId"], "sources": entry["sources"]}
+        for entry in _json("euvd_kev_dump.json")
+    ]
+    _mock_dump(respx_mock, json.dumps(dump).encode())
+    adapter, http = make_adapter()
+    async with http:
+        with pytest.raises(SourceContractError, match="no entry passed validation"):
+            await adapter.fetch(None)
 
 
 # --- malformed payloads and failures ----------------------------------------
