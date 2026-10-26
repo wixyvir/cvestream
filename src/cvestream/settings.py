@@ -35,6 +35,7 @@ SETTINGS_FILE_ENV = "CVESTREAM_SETTINGS_FILE"
 DEFAULT_SETTINGS_FILE = Path("settings.yaml")
 MAX_SOURCE_INTERVAL = timedelta(minutes=60)  # NFR-1
 DEFAULT_SOURCE_INTERVAL = timedelta(minutes=15)
+DATABASE_FILE = "cvestream.db"
 
 # The environment seen by the next `Settings()` construction. `load_settings`
 # sets it so tests (and callers) can inject an environment mapping.
@@ -68,6 +69,14 @@ class SourcesSettings(BaseModel):
 
     euvd: SourceSettings = Field(default_factory=SourceSettings)
     cisa_kev: SourceSettings = Field(default_factory=SourceSettings)
+
+
+class StateSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # SQLAlchemy URL. Secret: a PostgreSQL URL carries a password
+    # (CVESTREAM_STATE__URL_FILE).
+    url: SecretStr | None = None
 
 
 class _EnvironSource(EnvSettingsSource):
@@ -213,6 +222,8 @@ class Settings(BaseSettings):
     sources: SourcesSettings = Field(default_factory=SourcesSettings)
     config_provider: Literal["yaml"] = "yaml"
     endpoints_file: Path = Path("endpoints.yaml")
+    data_dir: Path = Path("data")
+    state: StateSettings = Field(default_factory=StateSettings)
 
     @classmethod
     def settings_customise_sources(
@@ -245,3 +256,10 @@ def _load[S: Settings](settings_cls: type[S], environ: Mapping[str, str] | None)
 def load_settings(environ: Mapping[str, str] | None = None) -> Settings:
     """Build `Settings` from `environ` (default: the process environment)."""
     return _load(Settings, environ)
+
+
+def state_url(settings: Settings) -> str:
+    """`state.url`, or the SQLite file `<data_dir>/cvestream.db`."""
+    if settings.state.url is not None:
+        return settings.state.url.get_secret_value()
+    return f"sqlite:///{settings.data_dir / DATABASE_FILE}"
