@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+
+# Local runtime data
+/data/
+/settings.yaml
+/endpoints.yaml
+
+# Personal BMad overrides
+*.user.toml
+
+# Tooling scratch
+.playwright-mcp/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
