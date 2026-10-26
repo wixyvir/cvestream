@@ -173,8 +173,9 @@ async def test_status_has_no_token_and_no_feed_path(
 
 
 @pytest.mark.anyio
-async def test_unknown_path_is_a_json_404(client: httpx.AsyncClient) -> None:
-    response = await client.get(f"/feeds/{TOKEN}.xml")
+@pytest.mark.parametrize("path", [f"/feeds/{TOKEN}.xml", "/healthz/", "/status/"])
+async def test_unknown_path_is_a_json_404(client: httpx.AsyncClient, path: str) -> None:
+    response = await client.get(path)
     assert response.status_code == 404
     assert response.json() == {
         "error": {"code": "not_found", "message": "no such endpoint"}

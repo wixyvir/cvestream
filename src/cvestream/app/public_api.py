@@ -98,7 +98,11 @@ def build_public_app(holder: FeedCacheHolder) -> Starlette:
         )
         return response
 
-    return Starlette(
+    app = Starlette(
         routes=[Route("/feeds/{token}.xml", feed, methods=["GET"])],
         exception_handlers={404: _handle_not_found, 405: _handle_method_not_allowed},
     )
+    # Starlette answers `/feeds/<anything>.xml/` with a 307 to the path without
+    # the slash (built from the client's `Host`): any other path is a 404.
+    app.router.redirect_slashes = False
+    return app

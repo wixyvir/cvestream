@@ -116,7 +116,7 @@ A fetch outcome, failed ones included, triggers a cycle: a failed source still r
 
 ## Feeds
 
-- URL: `http://<host>:8080/feeds/<token>.xml`. Only `GET` and `HEAD`; any other method on that path is `405`.
+- URL: `http://<host>:8080/feeds/<token>.xml`. Only `GET` and `HEAD`; any other method on that path is `405`. There is no trailing-slash redirect: `/feeds/<token>.xml/` is a `404` like any other path.
 - An unknown, revoked or disabled endpoint's token, and any other path, return `404` with an empty body (never `401` or `403`).
 - Headers: `Content-Type: application/rss+xml; charset=utf-8`, `ETag`, `Last-Modified`, `Cache-Control: max-age=300`. `If-None-Match` (which wins) or `If-Modified-Since` that matches returns `304` with no body.
 - The `ETag` is the SHA-256 of the document and `Last-Modified` is the last time it changed, so an unchanged feed answers `304` to well-behaved readers.

@@ -185,6 +185,9 @@ async def test_an_unusable_if_modified_since_is_ignored(
         f"/feeds/{TOKEN}.rss",
         f"/feeds/{TOKEN}",
         f"/feeds/{TOKEN}.xml/extra",
+        # Starlette would otherwise redirect these to the path without "/".
+        f"/feeds/{TOKEN}.xml/",
+        "/feeds/unknown.xml/",
         "/healthz",
         "/status",
     ],
