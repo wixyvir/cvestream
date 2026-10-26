@@ -80,7 +80,7 @@ layers = [
     "cvestream.app",
     "cvestream.pipeline",
     "cvestream.config | cvestream.sources | cvestream.state",
-    "(cvestream.http) : cvestream.settings : cvestream.log : cvestream.clock : cvestream.errors",
+    "cvestream.http : cvestream.settings : cvestream.log : cvestream.clock : cvestream.errors",
     "cvestream.domain",
 ]
 
@@ -119,8 +119,7 @@ forbidden_modules = [
 # The AST allow-list test (tests/unit/domain/test_purity.py) is the positive
 # counterpart: import-linter can only deny a list, never allow one.
 
-# Library ownership, one forbidden contract per library family. Add
-# cvestream.http to the non-owner lists in story 1.4 when it exists.
+# Library ownership, one forbidden contract per library family.
 
 [[tool.importlinter.contracts]]
 name = "httpx only in sources and http"
@@ -143,6 +142,7 @@ forbidden_modules = ["httpx"]
 name = "sqlalchemy and alembic only in state"
 type = "forbidden"
 source_modules = [
+    "cvestream.http",
     "cvestream.domain",
     "cvestream.config",
     "cvestream.sources",
@@ -163,6 +163,7 @@ forbidden_modules = ["sqlalchemy", "alembic"]
 name = "valkey only in config"
 type = "forbidden"
 source_modules = [
+    "cvestream.http",
     "cvestream.domain",
     "cvestream.sources",
     "cvestream.state",
@@ -180,6 +181,7 @@ forbidden_modules = ["valkey"]
 name = "starlette and uvicorn only in app"
 type = "forbidden"
 source_modules = [
+    "cvestream.http",
     "cvestream.domain",
     "cvestream.config",
     "cvestream.sources",
@@ -197,6 +199,7 @@ forbidden_modules = ["starlette", "uvicorn"]
 name = "typer only in cli"
 type = "forbidden"
 source_modules = [
+    "cvestream.http",
     "cvestream.domain",
     "cvestream.config",
     "cvestream.sources",
