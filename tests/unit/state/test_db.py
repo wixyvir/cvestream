@@ -45,6 +45,27 @@ def test_migrate_creates_a_missing_parent_directory(tmp_path: Path) -> None:
     state.dispose()
 
 
+@pytest.mark.parametrize(
+    "url",
+    ["", "not a url", "postgresql://user:hunter2@db.example:port/x"],
+)
+def test_an_invalid_url_is_a_state_error_that_never_quotes_it(url: str) -> None:
+    with pytest.raises(StateError) as caught:
+        State(url)
+    assert "hunter2" not in str(caught.value)
+    assert caught.value.__cause__ is None
+    assert caught.value.__suppress_context__
+
+
+def test_migrate_reports_a_file_that_is_not_a_database(tmp_path: Path) -> None:
+    database = tmp_path / "state.db"
+    database.write_bytes(b"this is not a SQLite database, only some text" * 4)
+    state = State(f"sqlite:///{database}")
+    with pytest.raises(StateError, match="cannot open database: DatabaseError"):
+        state.migrate()
+    state.dispose()
+
+
 def test_metadata_equals_migrations(state: State) -> None:
     with state._get_engine().connect() as connection:
         diff = compare_metadata(MigrationContext.configure(connection), schema.metadata)
