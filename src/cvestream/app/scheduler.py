@@ -198,15 +198,34 @@ async def source_loop(
             if outcome.result.next_cursor is not None:
                 source.cursor = outcome.result.next_cursor
         if not committed or outcome.result is None:
-            now = clock.now()
-            if status.is_stale(source, now):
-                log.warning(
-                    "source.stale",
-                    source=name,
-                    last_success_at=_iso(source.last_success_at),
-                )
+            _warn_if_stale(status, source, clock)
         await sleep(interval.total_seconds() * (1 + JITTER * random()))
         iteration_done()
+
+
+def _warn_if_stale(status: RuntimeStatus, source: SourceStatus, clock: Clock) -> None:
+    if status.is_stale(source, clock.now()):
+        log.warning(
+            "source.stale",
+            source=source.name,
+            last_success_at=_iso(source.last_success_at),
+        )
+
+
+def record_crash(
+    status: RuntimeStatus, name: str, clock: Clock, error: Exception
+) -> None:
+    """A crashed loop did not succeed either: record it, warn when stale.
+
+    The supervisor calls it, so a source that keeps crashing still shows its
+    error in `/status` and still logs `source.stale`.
+    """
+    source = status.sources.get(name)
+    if source is None:
+        return
+    source.last_error_type = type(error).__name__
+    source.last_error_at = clock.now()
+    _warn_if_stale(status, source, clock)
 
 
 async def supervise(
@@ -215,11 +234,13 @@ async def supervise(
     *,
     sleep: Sleep,
     stop: asyncio.Event,
+    on_crash: Callable[[Exception], None] | None = None,
 ) -> None:
     """Run a source loop; restart it after a capped exponential backoff.
 
     `loop_factory(iteration_done)` builds the loop. The loop calls
     `iteration_done()` after each completed iteration, which resets the backoff.
+    `on_crash(error)` runs after each logged crash (see `record_crash`).
     """
     backoff = CRASH_BACKOFF_BASE
 
@@ -232,8 +253,10 @@ async def supervise(
             await loop_factory(reset)
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as exc:
             log.error("source.crashed", source=name, exc_info=True)
+            if on_crash is not None:
+                on_crash(exc)
             await sleep(backoff)
             backoff = min(backoff * 2, CRASH_BACKOFF_CAP)
         else:

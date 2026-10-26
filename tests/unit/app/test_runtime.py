@@ -48,7 +48,9 @@ log = structlog.get_logger()
 
 
 class _Adapter:
-    def __init__(self, name: str, *script: FetchResult | SourceError) -> None:
+    def __init__(
+        self, name: str, *script: FetchResult | SourceError | RuntimeError
+    ) -> None:
         self.name = name
         self._script = list(script)
         self.cursors: list[str | None] = []
@@ -476,6 +478,19 @@ async def test_sigterm_stops_the_daemon_cleanly(harness: _Harness) -> None:
         os.kill(os.getpid(), signal.SIGTERM)
         assert await asyncio.wait_for(task, 10) == 0
     assert logs[-1]["event"] == "app.stopped"
+
+
+@pytest.mark.anyio
+async def test_a_crashing_source_shows_its_error_in_status(harness: _Harness) -> None:
+    harness.adapters = (_Adapter("euvd", RuntimeError("adapter bug")),)
+    with capture_logs() as logs:
+        task = asyncio.ensure_future(harness.serve())
+        await _until(lambda: any(e["event"] == "source.crashed" for e in logs))
+        status = (await harness.get("private", "/status")).json()
+        harness.stop.set()
+        assert await task == 0
+    assert status["sources"]["euvd"]["last_error"]["type"] == "RuntimeError"
+    assert status["sources"]["euvd"]["last_success_at"] is None
 
 
 @pytest.mark.anyio

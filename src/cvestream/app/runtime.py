@@ -11,6 +11,7 @@ both servers stop, the HTTP client and the state close.
 """
 
 import asyncio
+import functools
 import random as random_module
 import signal
 import sys
@@ -25,6 +26,7 @@ from cvestream.app.public_api import build_public_app
 from cvestream.app.scheduler import (
     PipelineWorker,
     fetch_outcome,
+    record_crash,
     source_loop,
     supervise,
 )
@@ -210,8 +212,11 @@ async def _start(
         name = scheduled.adapter.name
         status.sources[name] = SourceStatus(name, scheduled.interval)
         factory = _loop_factory(scheduled, worker, state, status, clock, random, sleep)
+        on_crash = functools.partial(record_crash, status, name, clock)
         running.loops.append(
-            asyncio.create_task(supervise(name, factory, sleep=sleep, stop=stop))
+            asyncio.create_task(
+                supervise(name, factory, sleep=sleep, stop=stop, on_crash=on_crash)
+            )
         )
     log.info("app.started", sources=[s.adapter.name for s in sources])
 
