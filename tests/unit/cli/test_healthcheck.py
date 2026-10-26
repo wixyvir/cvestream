@@ -1,4 +1,5 @@
 import ast
+import http.client
 import subprocess
 import sys
 import urllib.error
@@ -112,6 +113,8 @@ def test_a_non_200_success_status_exits_1(monkeypatch: pytest.MonkeyPatch) -> No
         urllib.error.URLError(ConnectionRefusedError("refused")),
         TimeoutError("timed out"),
         ConnectionResetError("reset"),
+        # Something that is not HTTP answers on the port.
+        http.client.BadStatusLine("SSH-2.0-OpenSSH"),
     ],
 )
 def test_a_connection_failure_exits_1(

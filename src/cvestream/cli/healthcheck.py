@@ -5,6 +5,7 @@ Standard library and `typer` only: it must start fast, work in an image without
 private listener on 127.0.0.1 and ignores proxy environment variables.
 """
 
+import http.client
 import urllib.error
 import urllib.request
 from typing import Annotated, NoReturn
@@ -45,7 +46,13 @@ def healthcheck(
             status = response.status
     except urllib.error.HTTPError as exc:
         _fail(path, f"HTTP {exc.code}")
-    except (urllib.error.URLError, OSError, TimeoutError) as exc:
+    # `http.client.HTTPException`: something that is not HTTP answers on the port.
+    except (
+        urllib.error.URLError,
+        OSError,
+        TimeoutError,
+        http.client.HTTPException,
+    ) as exc:
         _fail(path, type(exc).__name__)
     if status != 200:
         _fail(path, f"HTTP {status}")
