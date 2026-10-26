@@ -101,7 +101,8 @@ class ProductEntryConfig(BaseModel):
     exclude: list[Term] = Field(
         default=[],
         description=(
-            "Terms that rule a vulnerability out when they appear next to the name."
+            "Terms that rule this entry out when they appear in the affected "
+            "products or in the description."
         ),
     )
     min_version: MinVersion | None = Field(
