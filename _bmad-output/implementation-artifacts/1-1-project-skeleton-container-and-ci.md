@@ -366,6 +366,7 @@ claude-sonnet-5-5
 - `uv run pytest` after adding `tests/`: `cvestream.__main__` called `main()` at import and aborted collection (`SystemExit: 2`); fixed with an `if __name__ == "__main__":` guard.
 - `uv run ruff format` also reformatted BMad tooling and the Python blocks of `architecture.md`; reverted those files and added `extend-exclude` for `_bmad`, `_bmad-output`, `.agents`, `.claude` to `[tool.ruff]`.
 - `docker compose -f compose.yml -f .devcontainer/compose.devcontainer.yml config` showed that relative paths in the override resolve from the first compose file, so the bind mount is `.:/app:cached` (not `..`).
+- First CI run failed in `tests/unit/cli/test_main.py`: with `GITHUB_ACTIONS` set Rich colors the Typer help and splits `--debug` across ANSI codes; the CLI tests now strip escape sequences (reproduced locally with `GITHUB_ACTIONS=true FORCE_COLOR=1`).
 - The first `docker build` failed on the proxy TLS interception while fetching the registry token; after `docker pull` of the two base images the build succeeded with the unchanged Dockerfile. Environment only, nothing committed for it.
 
 ### Completion Notes List
@@ -411,3 +412,4 @@ claude-sonnet-5-5
 ### Change Log
 
 - 2026-10-26: Implemented story 1.1 (project skeleton, tooling, cross-cutting modules, container, dev loop, CI, Dependabot, docs). Status set to review.
+- 2026-10-26: Fixed CLI help assertions that failed under CI color output.
