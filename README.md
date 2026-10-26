@@ -7,13 +7,15 @@ to them, with CVSS score, known-exploited status and affected versions
 in each item.
 
 **Status:** pre-release. Epic 1 (a first working pipeline) is in progress; this
-repository currently holds the project skeleton, the container image and the
-CI quality gate. There are no feeds yet.
+repository currently holds the project skeleton, the container image, the CI
+quality gate, the domain model and the endpoint configuration contract. There
+are no feeds yet.
 
 Design: [`_bmad-output/planning-artifacts/architecture.md`](_bmad-output/planning-artifacts/architecture.md).
 Static settings: [`settings.example.yaml`](settings.example.yaml) (every key is
 documented there; environment variables use the `CVESTREAM_` prefix, `__` for
-nesting).
+nesting). Endpoint configuration (`endpoints.yaml`) and settings are described
+in [`docs/configuration.md`](docs/configuration.md).
 
 ## Development quick start
 
@@ -22,7 +24,9 @@ by uv) and, for the container workflow, Docker with Compose.
 
 ```sh
 uv sync                    # create .venv with runtime and dev dependencies
-uv run cvestream --help    # root command (no subcommands yet)
+uv run cvestream --help    # root command
+cp endpoints.example.yaml endpoints.yaml   # then replace the placeholder tokens
+uv run cvestream config validate endpoints.yaml
 ```
 
 ### Quality gate
@@ -36,6 +40,8 @@ uv run ruff format --check
 uv run ty check
 uv run lint-imports
 uv run pytest
+uv run cvestream config schema --check
+uv run cvestream config validate endpoints.example.yaml
 ```
 
 `pytest` blocks the network (pytest-socket). Tests marked `live` hit real
