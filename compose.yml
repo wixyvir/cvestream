@@ -1,0 +1,17 @@
+# Dev loop: `docker compose watch`. Valkey joins in story 3.1.
+services:
+  app:
+    build:
+      context: .
+      target: dev
+    # story 1.6 switches to: watchfiles "cvestream run" src
+    command: ["watchfiles", "cvestream --help", "src"]
+    develop:
+      watch:
+        - action: sync
+          path: ./src
+          target: /app/src
+        - action: rebuild
+          path: ./uv.lock
+        - action: rebuild
+          path: ./pyproject.toml
