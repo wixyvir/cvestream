@@ -4,7 +4,7 @@ baseline_commit: 20cf3c98f26e2198c6da1aa9ca4d0f40c49f0ae5
 
 # Story 1.1: Project skeleton, container and CI
 
-Status: review
+Status: in-progress
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -83,6 +83,26 @@ so that every following story ships through the same quality gate and runs the s
   - [x] 9.2 `uv run cvestream --help` and `uv run python -m cvestream --help` print the root help.
   - [x] 9.3 `docker build --target runtime -t cvestream:test .`; `docker run --rm cvestream:test --help` (exit 0); `docker run --rm --entrypoint id cvestream:test` → `uid=999`; `docker run --rm --entrypoint sh cvestream:test -c 'command -v uv'` prints nothing; `docker inspect cvestream:test --format '{{.Config.ExposedPorts}} {{.Config.Volumes}} {{.Config.User}}'`.
   - [x] 9.4 `docker build --target dev .` succeeds; `docker compose config` is valid. If Docker is unavailable in the dev environment, say so in the Completion Notes and rely on CI's image job; do not claim it was run.
+
+### Review Findings
+
+_Code review 2026-10-26 (Blind Hunter, Edge Case Hunter, Acceptance Auditor; branch diff `origin/main...HEAD`). No acceptance criterion is violated; the documented deviations (console `format_exc_info`, runtime copies only `.venv` + `src`, CI split into `ci`/`image`/`publish`) are justified._
+
+- [ ] [Review][Decision] PR image build is not part of the required `ci` check — architecture.md makes only `ci` the required status check on `main`, and the job named `ci` runs the Python gates only. The `image` job (runtime build + `--help` smoke test) is a separate check, so a PR that breaks the Dockerfile can be merged, and the breakage only shows in `publish` after merge. Options: (1) mark `image` as a second required check in branch protection and say so in architecture.md; (2) fold the image build and smoke test into the `ci` job (one required check, slower job, the `docker` steps need no extra permission); (3) keep as is and accept a post-merge failure. Recommendation: (1). [.github/workflows/ci.yml:41]
+- [ ] [Review][Decision] Top-level environment typos are silently ignored — `CVESTREAM_LOG_LEVEL=debug` (single underscore) or any unknown top-level `CVESTREAM_*` variable is dropped without a word, while unknown YAML keys and unknown nested env keys fail with `extra="forbid"`. An operator typo on a setting (e.g. a future `CVESTREAM_DATADIR`) goes unnoticed. Options: (1) keep pydantic-settings' behaviour and document it in `settings.example.yaml`; (2) reject unknown top-level `CVESTREAM_*` variables in `load_settings` (allow-list `CVESTREAM_SETTINGS_FILE` and the secret `*_FILE` variables), raising `SettingsError`; (3) accept them but log a `config.rejected`-style warning once logging is configured (story 1.6). Recommendation: (2), small and consistent with `extra="forbid"`. [src/cvestream/settings.py:172]
+- [x] [Review][Patch] `load_settings({})` reads the process environment: `_environ.get() or os.environ` treats an empty mapping as "not given" [src/cvestream/settings.py:188]
+- [x] [Review][Patch] Nested `*_FILE` secrets fail validation: the env source also sees `CVESTREAM_<A>__<B>_FILE` and the nested `extra="forbid"` model rejects `<b>_file` (e.g. a future `CVESTREAM_VALKEY__PASSWORD_FILE`) [src/cvestream/settings.py:80]
+- [x] [Review][Patch] `redact_tokens` crashes on named tuples and struct sequences (`type(value)(generator)` raises `TypeError`, so the log call itself raises); sets are not traversed [src/cvestream/log.py:38]
+- [x] [Review][Patch] Feed-path redaction only matches `/feeds/<token>.xml`: `/feeds/<token>` or `/feeds/<token>.rss` (a mistyped URL holding a real token) is logged in clear; token keys match case-sensitively (`Token`, `FEED_TOKEN` not masked) [src/cvestream/log.py:16]
+- [x] [Review][Patch] Malformed or non-mapping YAML settings raise a raw `yaml.YAMLError` / `ValueError` instead of a `SettingsError` naming the file [src/cvestream/settings.py:193]
+- [x] [Review][Patch] Domain purity test rejects every relative import, so a legitimate `from .model import X` inside `domain` (story 1.2) fails the test; resolve relative imports instead [tests/unit/domain/test_purity.py:20]
+- [x] [Review][Patch] `test_no_args_prints_help` does not assert the documented exit code 2 [tests/unit/cli/test_main.py:33]
+- [x] [Review][Defer] Non-string values whose `repr()` carries a token (URL objects, exceptions passed as values, `?token=` query strings) are not redacted: `JSONRenderer` falls back to `repr` after the redaction processor [src/cvestream/log.py:46] — deferred, address with the HTTP access log in story 1.6
+- [x] [Review][Defer] `settings.py` overrides private pydantic-settings hooks (`EnvSettingsSource._load_env_vars`, `YamlConfigSettingsSource._read_file`); a Dependabot upgrade can change them (the unit tests would catch it) [src/cvestream/settings.py:80] — deferred, no public hook exists in pydantic-settings 2.16
+- [x] [Review][Defer] Runtime image keeps an editable install and `UV_COMPILE_BYTECODE` only compiles site-packages, so `src/` is recompiled in memory at every start on a read-only root filesystem [Dockerfile:22] — deferred, consider `uv sync --no-editable` when story 1.6/3.3 harden the image
+- [x] [Review][Defer] CI jobs have no `timeout-minutes` (GitHub default: 6 h) [.github/workflows/ci.yml:18] — deferred, low impact
+- [x] [Review][Defer] The devcontainer's anonymous `/app/.venv` volume can survive a container recreate and keep a stale venv after a `uv.lock` change [.devcontainer/compose.devcontainer.yml:9] — deferred, document `--renew-anon-volumes` if it bites
+- [x] [Review][Defer] Import-linter ownership contracts do not cover the root package modules (`cvestream/__init__.py`, `__main__.py`), which could import `typer`/`httpx` unnoticed [pyproject.toml:65] — deferred, low risk while they stay one-liners
 
 ## Dev Notes
 
@@ -394,6 +414,7 @@ claude-sonnet-5-5
 - `Dockerfile` (new)
 - `README.md` (new)
 - `_bmad-output/implementation-artifacts/1-1-project-skeleton-container-and-ci.md` (modified)
+- `_bmad-output/implementation-artifacts/deferred-work.md` (new, code review)
 - `_bmad-output/implementation-artifacts/sprint-status.yaml` (modified)
 - `_bmad-output/planning-artifacts/architecture.md` (modified)
 - `_bmad-output/project-context.md` (modified)
@@ -413,3 +434,4 @@ claude-sonnet-5-5
 
 - 2026-10-26: Implemented story 1.1 (project skeleton, tooling, cross-cutting modules, container, dev loop, CI, Dependabot, docs). Status set to review.
 - 2026-10-26: Fixed CLI help assertions that failed under CI color output.
+- 2026-10-26: Code review: 7 patches applied (settings env isolation, nested `*_FILE` secrets, YAML errors as `SettingsError`, redaction crash and coverage, domain purity test, CLI exit code), 6 items deferred to `deferred-work.md`, 2 decisions pending. Status set to in-progress.
