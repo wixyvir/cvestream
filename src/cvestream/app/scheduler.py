@@ -1,0 +1,240 @@
+"""Source loops, the pipeline worker and the supervisor that restarts a loop.
+
+One loop per enabled source fetches on its own interval. Every fetch outcome,
+failures included, goes onto one queue consumed by one serialized worker that
+runs `pipeline.run.cycle` in a thread; the loop waits for the run that carries
+its outcome before it sleeps. A source cursor is therefore always read from the
+state before a fetch and never kept in memory: when a run is rolled back, the
+next fetch simply starts from the stored cursor again.
+
+All waits and randomness are injected, so tests never sleep for real.
+"""
+
+import asyncio
+import time
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
+from datetime import datetime
+
+import structlog
+
+from cvestream.app.feed_cache import FeedCache, FeedCacheHolder
+from cvestream.app.private_api import RuntimeStatus, SourceStatus
+from cvestream.clock import Clock
+from cvestream.config.provider import ConfigProvider, ConfigSnapshot
+from cvestream.pipeline.run import CycleResult, SourceOutcome, cycle, load_cursors
+from cvestream.sources.base import SourceAdapter, SourceError
+from cvestream.sources.registry import ScheduledSource
+from cvestream.state.db import State
+
+# Up to +10 % of the interval, so sources do not all fire together.
+JITTER = 0.1
+CRASH_BACKOFF_BASE = 1.0
+CRASH_BACKOFF_CAP = 300.0
+
+type Sleep = Callable[[float], Awaitable[None]]
+type RunCycle = Callable[
+    [State, ConfigProvider, ConfigSnapshot, list[SourceOutcome], Clock], CycleResult
+]
+
+log = structlog.get_logger()
+
+
+def _iso(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    return value.isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+@dataclass(slots=True)
+class _Job:
+    outcome: SourceOutcome
+    done: asyncio.Future[bool] = field(default_factory=asyncio.Future)
+
+    def resolve(self, committed: bool) -> None:
+        # A source loop cancelled while it waited leaves a cancelled future.
+        if not self.done.done():
+            self.done.set_result(committed)
+
+
+class PipelineWorker:
+    """Runs one cycle at a time, never two, never cancelled mid-run."""
+
+    def __init__(
+        self,
+        state: State,
+        provider: ConfigProvider,
+        snapshot: ConfigSnapshot,
+        holder: FeedCacheHolder,
+        clock: Clock,
+        *,
+        run_cycle: RunCycle = cycle,
+    ) -> None:
+        self._state = state
+        self._provider = provider
+        self._holder = holder
+        self._clock = clock
+        self._run_cycle = run_cycle
+        self._queue: asyncio.Queue[_Job] = asyncio.Queue()
+        self._closed = False
+        self.snapshot = snapshot
+
+    async def submit(self, outcome: SourceOutcome) -> bool:
+        """Queue `outcome`; wait for its run. True when the run committed."""
+        if self._closed:
+            return False
+        job = _Job(outcome)
+        self._queue.put_nowait(job)
+        return await job.done
+
+    async def _next_job(self, stop: asyncio.Event) -> _Job | None:
+        if not self._queue.empty():
+            return self._queue.get_nowait()
+        getter = asyncio.ensure_future(self._queue.get())
+        stopper = asyncio.ensure_future(stop.wait())
+        try:
+            await asyncio.wait({getter, stopper}, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            stopper.cancel()
+            if not getter.done():
+                getter.cancel()
+        if getter.done() and not getter.cancelled():
+            return getter.result()
+        return None
+
+    async def work(self, stop: asyncio.Event) -> None:
+        """Consume the queue until `stop` is set; `stop` is checked between runs.
+
+        A run in its thread is never cancelled (the thread would go on and
+        could commit after the state is closed): the caller awaits this task.
+        """
+        try:
+            while not stop.is_set():
+                first = await self._next_job(stop)
+                if first is None:
+                    break
+                jobs = [first]
+                while not self._queue.empty():
+                    jobs.append(self._queue.get_nowait())
+                await self._run(jobs)
+        finally:
+            self._closed = True
+            while not self._queue.empty():
+                self._queue.get_nowait().resolve(False)
+
+    async def _run(self, jobs: list[_Job]) -> None:
+        outcomes = [job.outcome for job in jobs]
+        try:
+            result = await asyncio.to_thread(
+                self._run_cycle,
+                self._state,
+                self._provider,
+                self.snapshot,
+                outcomes,
+                self._clock,
+            )
+        except Exception as exc:
+            log.error("pipeline.failed", error_type=type(exc).__name__, exc_info=True)
+            committed = False
+        else:
+            self.snapshot = result.snapshot
+            self._holder.current = FeedCache.build(
+                result.snapshot, result.run.feeds, self._clock.now()
+            )
+            committed = True
+        for job in jobs:
+            job.resolve(committed)
+
+
+async def fetch_outcome(adapter: SourceAdapter, cursor: str | None) -> SourceOutcome:
+    """Fetch once. A `SourceError` becomes a failed outcome, never an exception."""
+    started = time.monotonic()
+    try:
+        result = await adapter.fetch(cursor)
+    except SourceError as exc:
+        log.warning(
+            "source.failed",
+            source=adapter.name,
+            error_type=type(exc).__name__,
+            message=str(exc),
+        )
+        return SourceOutcome(adapter.name, None, type(exc).__name__)
+    log.info(
+        "source.fetched",
+        source=adapter.name,
+        count=len(result.records),
+        skipped=result.skipped,
+        duration_ms=round((time.monotonic() - started) * 1000),
+    )
+    return SourceOutcome(adapter.name, result)
+
+
+async def source_loop(
+    scheduled: ScheduledSource,
+    worker: PipelineWorker,
+    state: State,
+    status: RuntimeStatus,
+    clock: Clock,
+    *,
+    random: Callable[[], float],
+    sleep: Sleep,
+    iteration_done: Callable[[], None],
+) -> None:
+    """Fetch, hand the outcome to the worker, sleep: forever."""
+    name = scheduled.adapter.name
+    interval = scheduled.interval
+    source = status.sources.setdefault(name, SourceStatus(name, interval))
+    while True:
+        # Always the stored cursor: a rolled-back run must not advance it.
+        cursor = (await asyncio.to_thread(load_cursors, state)).get(name)
+        source.cursor = cursor
+        outcome = await fetch_outcome(scheduled.adapter, cursor)
+        if outcome.result is None:
+            source.last_error_type = outcome.error_type
+            source.last_error_at = clock.now()
+        committed = await worker.submit(outcome)
+        if committed and outcome.result is not None:
+            source.last_success_at = clock.now()
+            if outcome.result.next_cursor is not None:
+                source.cursor = outcome.result.next_cursor
+        if not committed or outcome.result is None:
+            now = clock.now()
+            if status.is_stale(source, now):
+                log.warning(
+                    "source.stale",
+                    source=name,
+                    last_success_at=_iso(source.last_success_at),
+                )
+        await sleep(interval.total_seconds() * (1 + JITTER * random()))
+        iteration_done()
+
+
+async def supervise(
+    name: str,
+    loop_factory: Callable[[Callable[[], None]], Awaitable[None]],
+    *,
+    sleep: Sleep,
+    stop: asyncio.Event,
+) -> None:
+    """Run a source loop; restart it after a capped exponential backoff.
+
+    `loop_factory(iteration_done)` builds the loop. The loop calls
+    `iteration_done()` after each completed iteration, which resets the backoff.
+    """
+    backoff = CRASH_BACKOFF_BASE
+
+    def reset() -> None:
+        nonlocal backoff
+        backoff = CRASH_BACKOFF_BASE
+
+    while not stop.is_set():
+        try:
+            await loop_factory(reset)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.error("source.crashed", source=name, exc_info=True)
+            await sleep(backoff)
+            backoff = min(backoff * 2, CRASH_BACKOFF_CAP)
+        else:
+            return
