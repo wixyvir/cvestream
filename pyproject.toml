@@ -31,6 +31,8 @@ dev = [
 
 [tool.ruff]
 src = ["src", "tests"]
+# BMad tooling and planning artifacts are not project code
+extend-exclude = ["_bmad", "_bmad-output", ".agents", ".claude"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "DTZ", "BLE", "S", "RUF"]
