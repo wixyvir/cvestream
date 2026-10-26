@@ -1,6 +1,10 @@
+---
+baseline_commit: 20cf3c98f26e2198c6da1aa9ca4d0f40c49f0ae5
+---
+
 # Story 1.1: Project skeleton, container and CI
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -23,62 +27,62 @@ so that every following story ships through the same quality gate and runs the s
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Initialize the uv project (AC: 1, 2)**
-  - [ ] 1.1 From the repo root run `uv init --app --build-backend uv_build --python 3.14 --name cvestream .` (uv 0.13.5). It creates `pyproject.toml`, `.python-version` (`3.14`), `src/cvestream/__init__.py` and an empty `README.md`; it keeps the existing `.gitignore` and does not re-init git.
-  - [ ] 1.2 Edit the generated `pyproject.toml`: real `description` (one line: filtered vulnerability RSS feeds from EUVD and KEV), keep `requires-python = ">=3.14"`, keep `build-backend = "uv_build"`. `uv init` copies `authors` from the git config: keep it or drop it, do not invent one. Do **not** add a `license` field or a `LICENSE` file (architecture gap M1: licence not chosen).
-  - [ ] 1.3 Replace the generated entry point: `[project.scripts] cvestream = "cvestream.cli.main:main"` (uv init writes `cvestream:main`). Remove the generated `def main()` from `__init__.py`; `__init__.py` only exposes `__version__` via `importlib.metadata.version("cvestream")`.
-  - [ ] 1.4 Runtime deps (`uv add`): `typer`, `structlog`, `pydantic`, `pydantic-settings[yaml]` (the `yaml` extra pulls `pyyaml`, needed for `settings.yaml`). Nothing else: no httpx, sqlalchemy, alembic, valkey, starlette, uvicorn, packaging, feedparser yet (later stories add them).
-  - [ ] 1.5 Dev deps (`uv add --dev`): `ruff`, `ty`, `import-linter`, `pytest`, `pytest-socket`, `anyio` (provides the pytest anyio plugin), `watchfiles` (dev loop). Not yet: `respx`, `mypy` (fallback only if ty breaks).
-  - [ ] 1.6 Commit `uv.lock`. Never edit it by hand.
+- [x] **Task 1: Initialize the uv project (AC: 1, 2)**
+  - [x] 1.1 From the repo root run `uv init --app --build-backend uv_build --python 3.14 --name cvestream .` (uv 0.13.5). It creates `pyproject.toml`, `.python-version` (`3.14`), `src/cvestream/__init__.py` and an empty `README.md`; it keeps the existing `.gitignore` and does not re-init git.
+  - [x] 1.2 Edit the generated `pyproject.toml`: real `description` (one line: filtered vulnerability RSS feeds from EUVD and KEV), keep `requires-python = ">=3.14"`, keep `build-backend = "uv_build"`. `uv init` copies `authors` from the git config: keep it or drop it, do not invent one. Do **not** add a `license` field or a `LICENSE` file (architecture gap M1: licence not chosen).
+  - [x] 1.3 Replace the generated entry point: `[project.scripts] cvestream = "cvestream.cli.main:main"` (uv init writes `cvestream:main`). Remove the generated `def main()` from `__init__.py`; `__init__.py` only exposes `__version__` via `importlib.metadata.version("cvestream")`.
+  - [x] 1.4 Runtime deps (`uv add`): `typer`, `structlog`, `pydantic`, `pydantic-settings[yaml]` (the `yaml` extra pulls `pyyaml`, needed for `settings.yaml`). Nothing else: no httpx, sqlalchemy, alembic, valkey, starlette, uvicorn, packaging, feedparser yet (later stories add them).
+  - [x] 1.5 Dev deps (`uv add --dev`): `ruff`, `ty`, `import-linter`, `pytest`, `pytest-socket`, `anyio` (provides the pytest anyio plugin), `watchfiles` (dev loop). Not yet: `respx`, `mypy` (fallback only if ty breaks).
+  - [x] 1.6 Commit `uv.lock`. Never edit it by hand.
 
-- [ ] **Task 2: Package skeleton and CLI root (AC: 1, 2)**
-  - [ ] 2.1 Create `src/cvestream/__main__.py`: `from cvestream.cli.main import main` then `main()` (so `python -m cvestream --help` works).
-  - [ ] 2.2 Create `src/cvestream/cli/__init__.py` and `src/cvestream/cli/main.py`: `app = typer.Typer(name="cvestream", no_args_is_help=True, add_completion=False)`, a root `@app.callback()` with a `--debug` flag (stored for later error handling: traceback only under `--debug`) and a `--version` eager option printing `__version__`; `def main() -> None: app()`. **No subcommands in this story** (`run`, `poll`, `healthcheck`, `config`, `db`... belong to later stories).
-  - [ ] 2.3 Create the empty layer packages with a one-line module docstring each: `domain/`, `config/`, `sources/`, `state/`, `pipeline/`, `app/` (`__init__.py` only). Reason: import-linter fails a `layers` contract when a listed layer does not exist, and a `forbidden` contract when a source module does not exist (verified on import-linter 2.15). They are in the architecture tree anyway.
+- [x] **Task 2: Package skeleton and CLI root (AC: 1, 2)**
+  - [x] 2.1 Create `src/cvestream/__main__.py`: `from cvestream.cli.main import main` then `main()` (so `python -m cvestream --help` works).
+  - [x] 2.2 Create `src/cvestream/cli/__init__.py` and `src/cvestream/cli/main.py`: `app = typer.Typer(name="cvestream", no_args_is_help=True, add_completion=False)`, a root `@app.callback()` with a `--debug` flag (stored for later error handling: traceback only under `--debug`) and a `--version` eager option printing `__version__`; `def main() -> None: app()`. **No subcommands in this story** (`run`, `poll`, `healthcheck`, `config`, `db`... belong to later stories).
+  - [x] 2.3 Create the empty layer packages with a one-line module docstring each: `domain/`, `config/`, `sources/`, `state/`, `pipeline/`, `app/` (`__init__.py` only). Reason: import-linter fails a `layers` contract when a listed layer does not exist, and a `forbidden` contract when a source module does not exist (verified on import-linter 2.15). They are in the architecture tree anyway.
 
-- [ ] **Task 3: Cross-cutting modules (AC: 3)**
-  - [ ] 3.1 `errors.py`: `class CvestreamError(Exception)`, docstring stating every exception of ours inherits from it and ends in `Error`. Nothing else (the `SourceError` family lives in `sources/base.py`, story 1.4).
-  - [ ] 3.2 `clock.py`: `class Clock(Protocol): def now(self) -> datetime: ...` and `class SystemClock` returning `datetime.now(UTC)`. Aware UTC only.
-  - [ ] 3.3 `settings.py`: see "Settings design" in Dev Notes (models, sources order, `settings.yaml` lookup, `*_FILE` secrets, interval bounds, `load_settings()`).
-  - [ ] 3.4 `log.py`: see "Logging design" in Dev Notes (`configure_logging()`, JSON/console renderers, redaction processor).
-  - [ ] 3.5 `settings.example.yaml` at the repo root documenting every key this story defines (see Dev Notes). `settings.yaml` stays gitignored (already in `.gitignore`).
+- [x] **Task 3: Cross-cutting modules (AC: 3)**
+  - [x] 3.1 `errors.py`: `class CvestreamError(Exception)`, docstring stating every exception of ours inherits from it and ends in `Error`. Nothing else (the `SourceError` family lives in `sources/base.py`, story 1.4).
+  - [x] 3.2 `clock.py`: `class Clock(Protocol): def now(self) -> datetime: ...` and `class SystemClock` returning `datetime.now(UTC)`. Aware UTC only.
+  - [x] 3.3 `settings.py`: see "Settings design" in Dev Notes (models, sources order, `settings.yaml` lookup, `*_FILE` secrets, interval bounds, `load_settings()`).
+  - [x] 3.4 `log.py`: see "Logging design" in Dev Notes (`configure_logging()`, JSON/console renderers, redaction processor).
+  - [x] 3.5 `settings.example.yaml` at the repo root documenting every key this story defines (see Dev Notes). `settings.yaml` stays gitignored (already in `.gitignore`).
 
-- [ ] **Task 4: Tool configuration in `pyproject.toml` (AC: 2)**
-  - [ ] 4.1 `[tool.ruff]` / `[tool.ruff.lint]`: `select` includes at least `E`, `F`, `W`, `I`, `UP`, `B`, `DTZ`, `BLE`, `S`, `RUF`; `[tool.ruff.lint.per-file-ignores]` `"tests/**" = ["S101"]` (asserts). Keep ruff defaults otherwise.
-  - [ ] 4.2 `[tool.ty]`: `[tool.ty.environment] python-version = "3.14"`, `[tool.ty.src] include = ["src", "tests"]`, `[tool.ty.terminal] error-on-warning = true` (all three keys verified in the ty configuration reference).
-  - [ ] 4.3 `[tool.pytest.ini_options]`: `testpaths = ["tests"]`, `addopts = ["--disable-socket", "--allow-unix-socket", "-m", "not live", "--strict-markers"]`, `markers = ["live: hits the real network; deselected by default, run by source-drift.yml", "valkey: needs a Valkey server"]`. **`--allow-unix-socket` is mandatory**: without it every `@pytest.mark.anyio` test fails with `SocketBlockedError` because the asyncio event loop creates a Unix socketpair (verified with pytest-socket 0.8.1 + anyio 4.15.1). TCP/DNS stay blocked.
-  - [ ] 4.4 `[tool.importlinter]`: see "Import-linter contracts" in Dev Notes.
+- [x] **Task 4: Tool configuration in `pyproject.toml` (AC: 2)**
+  - [x] 4.1 `[tool.ruff]` / `[tool.ruff.lint]`: `select` includes at least `E`, `F`, `W`, `I`, `UP`, `B`, `DTZ`, `BLE`, `S`, `RUF`; `[tool.ruff.lint.per-file-ignores]` `"tests/**" = ["S101"]` (asserts). Keep ruff defaults otherwise.
+  - [x] 4.2 `[tool.ty]`: `[tool.ty.environment] python-version = "3.14"`, `[tool.ty.src] include = ["src", "tests"]`, `[tool.ty.terminal] error-on-warning = true` (all three keys verified in the ty configuration reference).
+  - [x] 4.3 `[tool.pytest.ini_options]`: `testpaths = ["tests"]`, `addopts = ["--disable-socket", "--allow-unix-socket", "-m", "not live", "--strict-markers"]`, `markers = ["live: hits the real network; deselected by default, run by source-drift.yml", "valkey: needs a Valkey server"]`. **`--allow-unix-socket` is mandatory**: without it every `@pytest.mark.anyio` test fails with `SocketBlockedError` because the asyncio event loop creates a Unix socketpair (verified with pytest-socket 0.8.1 + anyio 4.15.1). TCP/DNS stay blocked.
+  - [x] 4.4 `[tool.importlinter]`: see "Import-linter contracts" in Dev Notes.
 
-- [ ] **Task 5: Tests (AC: 2, 3)**
-  - [ ] 5.1 `tests/conftest.py`: `FakeClock` (constructed with an aware UTC datetime, `now()`, `advance(delta)`, `set(dt)`; rejects naive datetimes with `ValueError`), a `fake_clock` fixture, and an `anyio_backend` fixture returning `"asyncio"`.
-  - [ ] 5.2 `tests/unit/test_clock.py`: `SystemClock().now()` is aware and UTC; `FakeClock` advance/set; naive datetime rejected.
-  - [ ] 5.3 `tests/unit/test_settings.py`: defaults (interval 15 min); env override with `__` nesting (`CVESTREAM_SOURCES__EUVD__INTERVAL=PT30M`); interval `PT60M` accepted, `PT61M` and `PT0S` rejected; YAML file values, env beats YAML (deep merge: a YAML `interval` and an env `enabled` combine); `CVESTREAM_SETTINGS_FILE` pointing to a missing file raises a `CvestreamError` subclass; `*_FILE` secret read from a tmp file (trailing newline stripped) into a `SecretStr`; both `X` and `X_FILE` set → error; unknown key in YAML → validation error (`extra="forbid"`). Use `monkeypatch.setenv` / `delenv` and `tmp_path`; never depend on the developer's real env (clear `CVESTREAM_*` in a fixture).
-  - [ ] 5.4 `tests/unit/test_log.py`: the redaction processor masks a `token` key, `*_token` keys and any `/feeds/<token>.xml` substring in string values; JSON output is one valid JSON object per line with `event`, `level`, `timestamp` ending in `Z`.
-  - [ ] 5.5 `tests/unit/cli/test_main.py`: `typer.testing.CliRunner` on `app`: `--help` exits 0 and shows usage; `--version` prints the version. Plus one subprocess-free check that `cvestream.__main__` imports `main`.
-  - [ ] 5.6 `tests/unit/test_errors.py` (tiny): `CvestreamError` is an `Exception`.
-  - [ ] 5.7 One `@pytest.mark.anyio` smoke test (e.g. in `test_clock.py` or `tests/unit/test_pytest_setup.py`) proving async tests run with sockets disabled, and one test proving TCP is blocked (`socket.create_connection` raises `pytest_socket.SocketBlockedError`).
-  - [ ] 5.8 `tests/unit/domain/test_purity.py`: AST allow-list test: every module under `src/cvestream/domain/` imports only stdlib (`sys.stdlib_module_names`), `packaging` or `cvestream.domain.*`. Passes trivially today; it is the real allow-list (import-linter can only deny a list, see Dev Notes).
+- [x] **Task 5: Tests (AC: 2, 3)**
+  - [x] 5.1 `tests/conftest.py`: `FakeClock` (constructed with an aware UTC datetime, `now()`, `advance(delta)`, `set(dt)`; rejects naive datetimes with `ValueError`), a `fake_clock` fixture, and an `anyio_backend` fixture returning `"asyncio"`.
+  - [x] 5.2 `tests/unit/test_clock.py`: `SystemClock().now()` is aware and UTC; `FakeClock` advance/set; naive datetime rejected.
+  - [x] 5.3 `tests/unit/test_settings.py`: defaults (interval 15 min); env override with `__` nesting (`CVESTREAM_SOURCES__EUVD__INTERVAL=PT30M`); interval `PT60M` accepted, `PT61M` and `PT0S` rejected; YAML file values, env beats YAML (deep merge: a YAML `interval` and an env `enabled` combine); `CVESTREAM_SETTINGS_FILE` pointing to a missing file raises a `CvestreamError` subclass; `*_FILE` secret read from a tmp file (trailing newline stripped) into a `SecretStr`; both `X` and `X_FILE` set → error; unknown key in YAML → validation error (`extra="forbid"`). Use `monkeypatch.setenv` / `delenv` and `tmp_path`; never depend on the developer's real env (clear `CVESTREAM_*` in a fixture).
+  - [x] 5.4 `tests/unit/test_log.py`: the redaction processor masks a `token` key, `*_token` keys and any `/feeds/<token>.xml` substring in string values; JSON output is one valid JSON object per line with `event`, `level`, `timestamp` ending in `Z`.
+  - [x] 5.5 `tests/unit/cli/test_main.py`: `typer.testing.CliRunner` on `app`: `--help` exits 0 and shows usage; `--version` prints the version. Plus one subprocess-free check that `cvestream.__main__` imports `main`.
+  - [x] 5.6 `tests/unit/test_errors.py` (tiny): `CvestreamError` is an `Exception`.
+  - [x] 5.7 One `@pytest.mark.anyio` smoke test (e.g. in `test_clock.py` or `tests/unit/test_pytest_setup.py`) proving async tests run with sockets disabled, and one test proving TCP is blocked (`socket.create_connection` raises `pytest_socket.SocketBlockedError`).
+  - [x] 5.8 `tests/unit/domain/test_purity.py`: AST allow-list test: every module under `src/cvestream/domain/` imports only stdlib (`sys.stdlib_module_names`), `packaging` or `cvestream.domain.*`. Passes trivially today; it is the real allow-list (import-linter can only deny a list, see Dev Notes).
 
-- [ ] **Task 6: Container (AC: 4, 5)**
-  - [ ] 6.1 `Dockerfile` with stages in this order: `builder`, `dev`, `runtime` (runtime **last**, so a plain `docker build .` produces the runtime image). See "Dockerfile design" in Dev Notes.
-  - [ ] 6.2 `.dockerignore`: `_bmad/`, `_bmad-output/`, `.claude/`, `.agents/`, `.git/`, `.github/`, `.venv/`, `**/__pycache__/`, `.pytest_cache/`, `.ruff_cache/`, `data/`, `settings.yaml`, `endpoints.yaml`, `.devcontainer/`. **Do not exclude `README.md`** (`pyproject.toml` declares `readme = "README.md"`; `uv_build` fails without it) nor `src/`, `pyproject.toml`, `uv.lock`, `.python-version`.
-  - [ ] 6.3 `compose.yml` (dev): one service `app`, `build: {context: ., target: dev}`, `develop.watch`: `sync` `./src` → `/app/src`, `rebuild` on `./uv.lock` (and on `./pyproject.toml`). No Valkey service yet (story 3.1 adds it with `deploy/valkey/users.acl`). No published ports needed yet.
-  - [ ] 6.4 `.devcontainer/devcontainer.json` pointing to the compose file (see "Dev container" in Dev Notes).
+- [x] **Task 6: Container (AC: 4, 5)**
+  - [x] 6.1 `Dockerfile` with stages in this order: `builder`, `dev`, `runtime` (runtime **last**, so a plain `docker build .` produces the runtime image). See "Dockerfile design" in Dev Notes.
+  - [x] 6.2 `.dockerignore`: `_bmad/`, `_bmad-output/`, `.claude/`, `.agents/`, `.git/`, `.github/`, `.venv/`, `**/__pycache__/`, `.pytest_cache/`, `.ruff_cache/`, `data/`, `settings.yaml`, `endpoints.yaml`, `.devcontainer/`. **Do not exclude `README.md`** (`pyproject.toml` declares `readme = "README.md"`; `uv_build` fails without it) nor `src/`, `pyproject.toml`, `uv.lock`, `.python-version`.
+  - [x] 6.3 `compose.yml` (dev): one service `app`, `build: {context: ., target: dev}`, `develop.watch`: `sync` `./src` → `/app/src`, `rebuild` on `./uv.lock` (and on `./pyproject.toml`). No Valkey service yet (story 3.1 adds it with `deploy/valkey/users.acl`). No published ports needed yet.
+  - [x] 6.4 `.devcontainer/devcontainer.json` pointing to the compose file (see "Dev container" in Dev Notes).
 
-- [ ] **Task 7: CI and Dependabot (AC: 6, 7)**
-  - [ ] 7.1 `.github/workflows/ci.yml`: see "CI design" in Dev Notes. Trigger `pull_request` **without a `branches:` filter** + `push` to `main`.
-  - [ ] 7.2 `.github/dependabot.yml`: `version: 2`, three `updates` entries (`uv` at `/`, `github-actions` at `/`, `docker` at `/`), each `schedule.interval: weekly`.
+- [x] **Task 7: CI and Dependabot (AC: 6, 7)**
+  - [x] 7.1 `.github/workflows/ci.yml`: see "CI design" in Dev Notes. Trigger `pull_request` **without a `branches:` filter** + `push` to `main`.
+  - [x] 7.2 `.github/dependabot.yml`: `version: 2`, three `updates` entries (`uv` at `/`, `github-actions` at `/`, `docker` at `/`), each `schedule.interval: weekly`.
 
-- [ ] **Task 8: Docs (AC: 8)**
-  - [ ] 8.1 `README.md`: what cvestream is (2–3 sentences from the PRD), status (pre-release, epic 1 in progress), dev quick start: `uv sync`, `uv run cvestream --help`, the gate commands, `docker compose watch`, devcontainer, `docker build --target runtime`. Link `_bmad-output/planning-artifacts/architecture.md` for design.
-  - [ ] 8.2 `CLAUDE.md`: points to `_bmad-output/planning-artifacts/architecture.md` (authoritative) and `_bmad-output/project-context.md` (rules), lists the gate commands, and the key MUSTs (uv not poetry; layering via import-linter; `None` = unknown; aware UTC via `Clock`; no `from __future__ import annotations`; all tool config in `pyproject.toml`; one story = one branch = one PR, stacked PRs allowed; Conventional Commits split by concern; docs follow behaviour in the same PR; never log tokens).
-  - [ ] 8.3 Architecture amendment (same PR, required by "Changing a pattern"): add `.devcontainer/compose.devcontainer.yml` to the project tree in `architecture.md` if you create it (see Dev container note), and record any other deviation from the tree.
+- [x] **Task 8: Docs (AC: 8)**
+  - [x] 8.1 `README.md`: what cvestream is (2–3 sentences from the PRD), status (pre-release, epic 1 in progress), dev quick start: `uv sync`, `uv run cvestream --help`, the gate commands, `docker compose watch`, devcontainer, `docker build --target runtime`. Link `_bmad-output/planning-artifacts/architecture.md` for design.
+  - [x] 8.2 `CLAUDE.md`: points to `_bmad-output/planning-artifacts/architecture.md` (authoritative) and `_bmad-output/project-context.md` (rules), lists the gate commands, and the key MUSTs (uv not poetry; layering via import-linter; `None` = unknown; aware UTC via `Clock`; no `from __future__ import annotations`; all tool config in `pyproject.toml`; one story = one branch = one PR, stacked PRs allowed; Conventional Commits split by concern; docs follow behaviour in the same PR; never log tokens).
+  - [x] 8.3 Architecture amendment (same PR, required by "Changing a pattern"): add `.devcontainer/compose.devcontainer.yml` to the project tree in `architecture.md` if you create it (see Dev container note), and record any other deviation from the tree.
 
-- [ ] **Task 9: Verify locally before pushing (all ACs)**
-  - [ ] 9.1 `uv sync --locked && uv run ruff check && uv run ruff format --check && uv run ty check && uv run lint-imports && uv run pytest` all green.
-  - [ ] 9.2 `uv run cvestream --help` and `uv run python -m cvestream --help` print the root help.
-  - [ ] 9.3 `docker build --target runtime -t cvestream:test .`; `docker run --rm cvestream:test --help` (exit 0); `docker run --rm --entrypoint id cvestream:test` → `uid=999`; `docker run --rm --entrypoint sh cvestream:test -c 'command -v uv'` prints nothing; `docker inspect cvestream:test --format '{{.Config.ExposedPorts}} {{.Config.Volumes}} {{.Config.User}}'`.
-  - [ ] 9.4 `docker build --target dev .` succeeds; `docker compose config` is valid. If Docker is unavailable in the dev environment, say so in the Completion Notes and rely on CI's image job; do not claim it was run.
+- [x] **Task 9: Verify locally before pushing (all ACs)**
+  - [x] 9.1 `uv sync --locked && uv run ruff check && uv run ruff format --check && uv run ty check && uv run lint-imports && uv run pytest` all green.
+  - [x] 9.2 `uv run cvestream --help` and `uv run python -m cvestream --help` print the root help.
+  - [x] 9.3 `docker build --target runtime -t cvestream:test .`; `docker run --rm cvestream:test --help` (exit 0); `docker run --rm --entrypoint id cvestream:test` → `uid=999`; `docker run --rm --entrypoint sh cvestream:test -c 'command -v uv'` prints nothing; `docker inspect cvestream:test --format '{{.Config.ExposedPorts}} {{.Config.Volumes}} {{.Config.User}}'`.
+  - [x] 9.4 `docker build --target dev .` succeeds; `docker compose config` is valid. If Docker is unavailable in the dev environment, say so in the Completion Notes and rely on CI's image job; do not claim it was run.
 
 ## Dev Notes
 
@@ -355,12 +359,55 @@ None: this is the first story. The repository holds only planning artifacts (`_b
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+claude-sonnet-5-5
 
 ### Debug Log References
 
+- `uv run pytest` after adding `tests/`: `cvestream.__main__` called `main()` at import and aborted collection (`SystemExit: 2`); fixed with an `if __name__ == "__main__":` guard.
+- `uv run ruff format` also reformatted BMad tooling and the Python blocks of `architecture.md`; reverted those files and added `extend-exclude` for `_bmad`, `_bmad-output`, `.agents`, `.claude` to `[tool.ruff]`.
+- `docker compose -f compose.yml -f .devcontainer/compose.devcontainer.yml config` showed that relative paths in the override resolve from the first compose file, so the bind mount is `.:/app:cached` (not `..`).
+- The first `docker build` failed on the proxy TLS interception while fetching the registry token; after `docker pull` of the two base images the build succeeded with the unchanged Dockerfile. Environment only, nothing committed for it.
+
 ### Completion Notes List
 
-- Ultimate context engine analysis completed - comprehensive developer guide created.
+- Project initialized with `uv init` (uv 0.13.5); runtime and dev dependencies added with `uv add` at the architecture.md versions (`uv.lock` committed). `authors` dropped from `pyproject.toml`; no licence.
+- Cross-cutting modules `errors.py`, `clock.py`, `log.py`, `settings.py` with unit tests; `FakeClock` and `anyio_backend` fixtures in `tests/conftest.py`. 41 tests pass with the network blocked (TCP blocked test, anyio smoke test, domain purity AST allow-list).
+- `settings.py`: `load_settings(environ)` injects the environment through a `ContextVar` read by `settings_customise_sources` (the pydantic-settings hook has no access to a caller-provided mapping); a private `_load(settings_cls, environ)` lets tests exercise `*_FILE` secrets with a test-only subclass declaring a `SecretStr`. `extra="forbid"` also rejects a nested typo such as `CVESTREAM_LOG__LEVEL_FILE` (it is a nested key, not a secret variable).
+- Deviation from the Logging design: `redact_tokens` runs after `format_exc_info` (and `format_exc_info` is used for the console renderer as well), so tokens inside formatted tracebacks are masked too.
+- import-linter: 7 contracts (layers, domain purity, five library ownership rules) all KEPT; a planted `import typer` in `domain` made two contracts BROKEN, then removed.
+- Dockerfile: builder / dev / runtime as designed; one deviation: the runtime stage copies only `/app/.venv` and `/app/src` (architecture: "runtime target holds only `.venv` + `src`") instead of the whole `/app`. Verified locally: `--help` exit 0 (also with no arguments), `uid=999`, no `uv`, ports 8080/9090, volume `/data` writable by UID 999, `/app` root-owned, `docker build --target dev` works and has ruff and pytest.
+- `.dockerignore` also excludes `.import_linter_cache/`.
+- CI: split into `ci` (required check), `image` (pull requests: build + `--help` smoke test, `contents: read`) and `publish` (push to `main`: amd64 + arm64, `edge` + `sha-<short>`, `packages: write`) for strict least privilege. All Action SHAs were re-checked against the tags with `gh api`.
+- Architecture amendments in the same PR: `.devcontainer/compose.devcontainer.yml` in the tree, the `ci`/`image`/`publish` jobs, `--allow-unix-socket`; `project-context.md` pins pytest-socket 0.8.1.
+- Local gates: `uv sync --locked`, ruff check, ruff format --check, ty check, lint-imports, pytest and `docker build --target runtime` all green. CI result is recorded on the pull request.
 
 ### File List
+
+- `.dockerignore` (new)
+- `.devcontainer/compose.devcontainer.yml` (new)
+- `.devcontainer/devcontainer.json` (new)
+- `.github/dependabot.yml` (new)
+- `.github/workflows/ci.yml` (new)
+- `.python-version` (new)
+- `CLAUDE.md` (new)
+- `Dockerfile` (new)
+- `README.md` (new)
+- `_bmad-output/implementation-artifacts/1-1-project-skeleton-container-and-ci.md` (modified)
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` (modified)
+- `_bmad-output/planning-artifacts/architecture.md` (modified)
+- `_bmad-output/project-context.md` (modified)
+- `compose.yml` (new)
+- `pyproject.toml` (new)
+- `settings.example.yaml` (new)
+- `src/cvestream/__init__.py`, `__main__.py`, `clock.py`, `errors.py`, `log.py`, `settings.py` (new)
+- `src/cvestream/cli/__init__.py`, `src/cvestream/cli/main.py` (new)
+- `src/cvestream/{domain,config,sources,state,pipeline,app}/__init__.py` (new)
+- `tests/__init__.py`, `tests/conftest.py` (new)
+- `tests/unit/__init__.py`, `test_clock.py`, `test_errors.py`, `test_log.py`, `test_pytest_setup.py`, `test_settings.py` (new)
+- `tests/unit/cli/__init__.py`, `tests/unit/cli/test_main.py` (new)
+- `tests/unit/domain/__init__.py`, `tests/unit/domain/test_purity.py` (new)
+- `uv.lock` (new)
+
+### Change Log
+
+- 2026-10-26: Implemented story 1.1 (project skeleton, tooling, cross-cutting modules, container, dev loop, CI, Dependabot, docs). Status set to review.
