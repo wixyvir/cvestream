@@ -4,7 +4,7 @@ baseline_commit: 12f6857c196a5ac9fb7114f70c317d284493f458
 
 # Story 1.6: Feeds served by the daemon
 
-Status: review
+Status: in-progress
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -90,6 +90,20 @@ so that I can subscribe my Slack channel once and receive relevant alerts within
   - [x] 13.6 `CLAUDE.md` "Key rules": one line "Only `pipeline/run.py` opens `State.transaction()`: `app/` reads state through `pipeline.run` functions in a thread, and HTTP handlers read only the in-memory feed cache."
   - [x] 13.7 `architecture.md`: (a) "Naming Patterns", migrations bullet: the example `0003_add_feed_cache.py` becomes `0002_add_feed_cache.py`; (b) "Feed cache" paragraph (Data Architecture): append the rules of this story (ETag = SHA-256 of the XML, `Last-Modified` = last content change, `lastBuildDate` = newest item, title from the decision-time values and body from the current merged data, a known token without a stored feed gets an empty channel); (c) "Runtime configuration" bullet: name the `http.public` / `http.private` listener settings; (d) "API & Communication Patterns", process model: one line "a source loop reads its cursor from the state before each fetch and waits for the run carrying its outcome; every fetch outcome, failed ones included, triggers one cycle".
   - [x] 13.8 `deferred-work.md`: strike through and mark resolved "`--debug` has no effect" (resolved by story 1.6) and "Tokens hidden in non-string log values" (resolved by story 1.6: the access log writes `endpoint_id` only and uvicorn's access log is off; the redaction gap itself remains for other callers, say so). Leave the others untouched.
+
+### Review Findings
+
+Code review of 2026-10-26 (Blind Hunter, Edge Case Hunter, Acceptance Auditor): 2 decision-needed, 4 patch, 3 defer, 8 dismissed.
+
+- [ ] [Review][Decision] Source text in `<description>` is read as HTML by RSS readers — RSS 2.0 defines `description` as entity-encoded HTML. `render.py` sets source text once as XML text (AC 1, "escaped as plain text by the serializer"), so a source description containing `<img src=x onerror=...>` or `<b>` reaches the reader, after XML parsing, as markup that a reader rendering HTML (most desktop and web readers; Slack strips it) interprets. Options: (1) keep single escaping and rely on readers sanitising; (2) HTML-escape every source-derived line (`html.escape(..., quote=False)`) before setting the text, so readers show the literal text (and optionally join lines with `<br/>`, which also settles the "readers collapse line breaks" decision); (3) wrap the description in CDATA (forbidden by the story). Recommendation: (2), checked with the Slack RSS app during the trial (architecture M3). [src/cvestream/pipeline/render.py:250]
+- [ ] [Review][Decision] Crash backoff cap (300 s) is shorter than the source interval — a source loop that crashes on every attempt (an adapter bug raising something other than `SourceError` after its HTTP calls) is restarted every 5 minutes once the backoff is capped, three times more often than its 15-minute interval, so a bug makes cvestream poll a public API harder than configured. The cap is fixed by the story (`CRASH_BACKOFF_CAP = 300.0`). Options: (1) keep 300 s; (2) cap the backoff at the source interval (`max(300, interval)`), so a crashing source is never polled more often than a healthy one; (3) restart at the interval right away (no exponential phase). Recommendation: (2). [src/cvestream/app/scheduler.py:261]
+- [x] [Review][Patch] Trailing-slash redirects on both listeners: Starlette's default `redirect_slashes` answered `/feeds/<anything>.xml/` (any token, known or not) and `/healthz/` with a `307` to the path without the slash, built from the client's `Host` header, instead of the `404` of AC 6 and AC 10 (and logged nothing). Disabled on both routers; tests added. [src/cvestream/app/public_api.py:107, src/cvestream/app/private_api.py:124]
+- [x] [Review][Patch] A crashing source loop never recorded `last_error` nor logged `source.stale` (AC 7, AC 10): the stale check ran only after a failed fetch or a rolled-back run, so a source whose loop kept crashing showed `last_error: null` in `/status` and never raised the alert. `supervise()` takes an `on_crash` callback; the runtime passes `record_crash`, which records the error type and time and logs `source.stale` when due. Tests added; `docs/operations.md` updated. [src/cvestream/app/scheduler.py:215]
+- [x] [Review][Patch] `_FORBIDDEN` regex held literal U+D7FF, U+E000 (invisible) and U+FFFD characters in the source, and its test a literal U+FFFE: written as escapes, with a test pinning the edges of the allowed ranges. [src/cvestream/pipeline/render.py:41]
+- [x] [Review][Patch] `cvestream healthcheck` let `http.client.HTTPException` escape (something that is not HTTP answers on the port, e.g. `BadStatusLine`): it surfaced as "unexpected error" through `main()` instead of the healthcheck's own one-line failure. Caught with the other connection errors; test added. [src/cvestream/cli/healthcheck.py:54]
+- [x] [Review][Defer] Feeds have no item cap [src/cvestream/pipeline/run.py:186] — deferred, the story sizes a feed at "a few hundred items at most"; a broad product list could render thousands of items per endpoint at every cycle.
+- [x] [Review][Defer] Configuration reload (token revocation included) waits for a source fetch [src/cvestream/pipeline/run.py:258] — deferred, spec-compliant (FR-23 "at the next poll cycle"); a leaked token stays valid up to one interval (60 min + jitter at most), and with every source disabled the configuration never reloads.
+- [x] [Review][Defer] `cvestream healthcheck` always probes `127.0.0.1` [src/cvestream/cli/healthcheck.py:43] — deferred, a private listener bound to one specific non-loopback address (`http.private.host: 10.0.0.5`) makes the probe, and the image `HEALTHCHECK`, fail; document it or add `--host` when the Kubernetes manifests arrive (story 3.3).
 
 ## Dev Notes
 
@@ -695,3 +709,4 @@ Claude Sonnet 5.5 (claude-sonnet-5-5), run by the `bmad-dev-story` workflow.
 ### Change Log
 
 - 2026-10-26: Implemented story 1.6 (RSS renderer, `feed_cache` table and migration `0002`, pipeline cycle with config hot reload and `cycle.summary`, the daemon runtime with its scheduler, supervisor, public and private APIs, the `run`, `poll --once` and `healthcheck` commands, the image `CMD` and `HEALTHCHECK`, the dev and self-hosted compose files, the end-to-end test, operations docs) and moved it to review.
+- 2026-10-26: Code review (bmad-code-review): 4 patches applied (no trailing-slash redirects, crashes recorded in `/status` and `source.stale`, escaped XML character ranges, healthcheck on non-HTTP answers), 3 items deferred, 2 decisions pending (HTML semantics of `<description>`, crash backoff cap); status back to in-progress.
