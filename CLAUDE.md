@@ -33,6 +33,7 @@ docker build --target runtime -t cvestream:local .
 - Outbound HTTP goes only through `cvestream.http` (`trust_env=False`, system trust store, retries live there and nowhere else).
 - Unknown is `None`, never `0`, `""` or `"n/a"`.
 - Free-text versions are parsed only by `domain/version.py`; `packaging` is the only third-party import allowed in `domain`.
+- Publication GUIDs are built only in `domain/publication.py`, stored in `publication.guid` and never recomputed; state is written only inside `State.transaction()`.
 - Time is aware UTC from the injected `Clock`; never call `datetime.now()` elsewhere.
 - Every exception inherits from `CvestreamError` and its name ends in `Error`.
 - All tool configuration lives in `pyproject.toml` (no `ruff.toml`, `pytest.ini`, `.importlinter`).
