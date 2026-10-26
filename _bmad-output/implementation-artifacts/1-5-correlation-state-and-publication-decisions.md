@@ -4,7 +4,7 @@ baseline_commit: 78549530f80893add3da4992a735cf91da347f28
 
 # Story 1.5: Correlation, state and publication decisions
 
-Status: review
+Status: in-progress
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -78,6 +78,18 @@ so that my channel has no duplicates (SM-4) and no missed escalation.
   - [x] 14.1 `uv sync --locked && uv run ruff check && uv run ruff format --check && uv run ty check && uv run lint-imports && uv run pytest && uv run cvestream config schema --check && uv run cvestream config validate endpoints.example.yaml` all green.
   - [x] 14.2 Manual checks of `epic-1-stack-plan.md` §3.5 with `CVESTREAM_DATA_DIR=$(mktemp -d)`: `db migrate` twice (second is a no-op), `sqlite3 <dir>/cvestream.db '.tables'` and `PRAGMA journal_mode;` (`wal`), `db backup`, `grep -rn "cvestream:{" src/` (one construction site), `grep -rn "\.commit()\|\.transaction(" src/cvestream` (only the definition in `state/db.py` and the calls in `pipeline/run.py`). If `sqlite3` is not installed, use `uv run python -c "import sqlite3; ..."` and say so.
   - [x] 14.3 `docker build --target runtime -t cvestream:local .` then `docker run --rm -v "$(mktemp -d):/data" --user "$(id -u)" cvestream:local db migrate` exits 0 (alembic and the migration files are in the image). If Docker is unavailable, say so in the Completion Notes; do not claim it ran.
+
+### Review Findings
+
+Code review of 2026-10-26 (Blind Hunter, Edge Case Hunter, Acceptance Auditor; diff `story-1-4-euvd-and-kev-ingestion...story-1-5-correlation-state-and-publication-decisions`). 2 decision-needed, 3 patched, 2 deferred, 9 dismissed.
+
+- [ ] [Review][Decision] GUID collision between two vulnerabilities sharing an advisory-only primary ID aborts every run — `publication.guid` is unique, but `decide()` only checks the GUID against the history of the same (endpoint, vulnerability). Advisory IDs are not merge keys, so two records with no CVE/EUVD alias that share an advisory reference (CERT-FR alerte revisions `CERTFR-2026-ALE-012` rev. 1 and rev. 2 before a CVE exists, story 2.1) become two vulnerabilities with the same primary ID; both decide `new` with the same GUID, the insert violates `ux_publication_guid`, the transaction rolls back, and the next cycle replays the same input: the whole pipeline is stuck. Unreachable with EUVD and CISA KEV (every record carries an EUVD ID or a CVE). It also contradicts FR-2b (a revision "merges into the existing vulnerability"). Options: (1) defer to story 2.1 and add an acceptance criterion there (advisory revisions of the same reference merge; no GUID collision); (2) make advisory references merge keys now (changes the "CVE and EUVD only" rule recorded in architecture.md); (3) add a defensive global GUID check in `pipeline/run.py` that skips and logs a colliding decision (keeps the pipeline alive but drops an item); (4) include the internal vulnerability id in the GUID of advisory-only vulnerabilities (changes the GUID contract). Recommendation: (1), plus (3) as a safety net when 2.1 lands.
+- [ ] [Review][Decision] `unknown` to `none` (CVSS 0.0) re-publishes as `band-none` — `_kind()` treats any rated band above `unknown` as a rise, so a vulnerability published unscored is posted again as an `[UPDATE]` whose news is "severity none". The story lists this literal reading of FR-19 for review. Options: (1) keep it (literal FR-19, recall over volume); (2) count a rise only from `low` upwards (`unknown` to `none` publishes nothing; a later `low` or higher still does). Recommendation: (2): a CVSS 0.0 update carries no actionable news for a channel.
+- [x] [Review][Patch] A malformed `state.url` (unparsable, non-numeric port) crashed `cvestream db migrate|backup` with a traceback and exit 1 instead of a one-line user error; `State()` now raises `StateError("state.url is not a valid database URL")`, never quoting the URL and dropping the parser exception from the chain [src/cvestream/state/db.py:54]
+- [x] [Review][Patch] `State.migrate()` mapped only `OperationalError` to `StateError`; a file that is not a SQLite database (`DatabaseError`) crashed with a traceback. It now maps `DatabaseError` (which covers `OperationalError`) [src/cvestream/state/db.py:111]
+- [x] [Review][Patch] `db backup` was not atomic about "never overwrite" (a file created between the CLI's existence check and `sqlite3.connect` was overwritten), left a partial file after a failed copy (the retry then said "already exists"), and `cli/db.py` imported `sqlite3` (the story keeps it inside `state/`). `backup()` now creates the target exclusively, removes it on failure and raises `StateError` for SQLite errors [src/cvestream/state/backup.py:11]
+- [x] [Review][Defer] `--debug` has no effect: an unexpected CLI error always prints a Rich traceback (seen with an invalid `state.url` before the patch) [src/cvestream/cli/main.py:32] — deferred, pre-existing
+- [x] [Review][Defer] SQLite runs use deferred transactions: a run reads before it writes, so if another writer commits in between, the upgrade to a write lock fails at once with `SQLITE_BUSY` (the busy timeout does not apply to a WAL snapshot upgrade) [src/cvestream/state/db.py:36] — deferred, no second writer today (single daemon, `db backup` only reads); revisit with the daemon in story 1.6
 
 ## Dev Notes
 
@@ -615,3 +627,4 @@ claude-sonnet-5-5 (bmad-dev-story, autonomous run)
 ### Change Log
 
 - 2026-10-26: Implemented story 1.5 (state store, migrations and backup, source record codec, correlation, publication decisions, pipeline run, `db migrate` and `db backup`, restart no-repost guardrail, docs) and moved it to review.
+- 2026-10-26: Code review: 3 patches applied (invalid `state.url` and non-database file are user errors, atomic `db backup` without partial files), 2 items deferred, 2 decisions pending; status back to in-progress.
