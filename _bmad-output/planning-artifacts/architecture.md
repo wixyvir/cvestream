@@ -263,7 +263,7 @@ Not applicable: no UI. RSS is the only output contract.
 
 | Workflow | Trigger | Jobs |
 |---|---|---|
-| `ci.yml` | PR, push to `main` | `uv sync --locked` → ruff check + format check → ty → pytest (unit, contract on fixtures, provider tests against a `valkey/valkey:9.1` service) → image build (push `edge` on `main`) |
+| `ci.yml` | PR (any base), push to `main` | `ci` job: `uv sync --locked` → ruff check + format check → ty → import-linter → pytest (unit, contract on fixtures, provider tests against a `valkey/valkey:9.1` service). Then `image` (PR: build the runtime image, no push, `--help` smoke test, `contents: read`) or `publish` (push to `main`: amd64 + arm64, push `edge` and `sha-<short>`, `packages: write`) |
 | `release.yml` | tag `v*` | tag = `pyproject.toml` version check → multi-arch build → push GHCR → provenance attestation → GitHub Release |
 | `source-drift.yml` | nightly + manual | contract tests against the live APIs; on failure opens/updates an issue labelled `source-drift` |
 
@@ -372,7 +372,7 @@ The "Component boundaries (allowed imports)" list in the Project Structure secti
 - `tests/unit/` mirrors `src/cvestream/`. `tests/contract/<source>/` holds the adapter contract tests. `tests/integration/` covers SQLite and Valkey end to end.
 - `tests/fixtures/<source>/<case>.json|xml` holds payloads recorded from the real APIs, never hand-written. They are named after what they show (`euvd_no_score.json`, `euvd_version_na.json`).
 - Markers: `live` (real network, deselected by default, run by `source-drift.yml`), `valkey` (needs a server).
-- By default, **pytest-socket** blocks the network. HTTP is mocked with respx.
+- By default, **pytest-socket** blocks the network (`--disable-socket --allow-unix-socket`: the asyncio event loop needs a Unix socketpair, TCP and DNS stay blocked). HTTP is mocked with respx.
 
 **Files:** static settings `settings.yaml`, YAML provider `endpoints.yaml`, JSON Schema `schemas/config-v1.json`, Valkey ACLs `deploy/valkey/users.acl`. Docs live in `docs/`. Specs stay in `_bmad-output/`.
 
@@ -502,7 +502,8 @@ cvestream/
 ├── settings.example.yaml             # static settings, every key documented
 ├── endpoints.example.yaml            # YAML provider example
 ├── .devcontainer/
-│   └── devcontainer.json             # dockerComposeFile: ../compose.yml, service: app
+│   ├── devcontainer.json             # dockerComposeFile: ../compose.yml + compose.devcontainer.yml, service: app
+│   └── compose.devcontainer.yml      # bind-mounts the repository (compose-based devcontainers ignore workspaceMount)
 ├── .github/
 │   ├── dependabot.yml                # uv, github-actions, docker
 │   └── workflows/
