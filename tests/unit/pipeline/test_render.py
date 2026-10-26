@@ -301,7 +301,7 @@ def test_the_endpoint_name_is_escaped_too() -> None:
 
 
 def test_forbidden_control_characters_are_removed_and_the_output_parses() -> None:
-    dirty = "a\x00b\x0bc\x1fd\ud800e￾f\x7f"  # ￾ forbidden, \x7f allowed
+    dirty = "a\x00b\x0bc\x1fd\ud800e\ufffef\uffff\x7f"  # \x7f is allowed
     vulnerability = replace(_full_vulnerability(), descriptions=(_sourced(dirty),))
     entry = _entry(vulnerability=vulnerability, guid="g\x00uid")
     item = _item(entry)
@@ -309,6 +309,15 @@ def test_forbidden_control_characters_are_removed_and_the_output_parses() -> Non
     description = item.findtext("description")
     assert description is not None
     assert "Description: abcdef\x7f" in description
+
+
+def test_the_edges_of_the_allowed_ranges_are_kept() -> None:
+    kept = "\t\x20\ud7ff\ue000\ufffd\U00010000\U0010ffff"
+    vulnerability = replace(_full_vulnerability(), descriptions=(_sourced(kept),))
+    xml = render_feed(ENDPOINT, (_entry(vulnerability=vulnerability),))
+    description = _parse(xml).findtext("channel/item/description")
+    assert description is not None
+    assert "\ud7ff\ue000\ufffd\U00010000\U0010ffff" in description
 
 
 def test_valid_astral_characters_are_kept() -> None:
