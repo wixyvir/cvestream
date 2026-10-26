@@ -46,6 +46,24 @@ data_dir: data
 # state:
 #   url: sqlite:///data/cvestream.db
 
+http:
+  # The daemon has two listeners. Publish only the public one (8080): the
+  # private one serves /healthz, /readyz and /status and is never public.
+  # Defaults bind every interface because the container's network namespace is
+  # the boundary; on a bare host, use 127.0.0.1 for the private listener.
+  public:
+    # Feeds: GET and HEAD /feeds/<token>.xml. Env: CVESTREAM_HTTP__PUBLIC__HOST
+    host: 0.0.0.0
+    # Env: CVESTREAM_HTTP__PUBLIC__PORT
+    port: 8080
+  private:
+    # Health and status. Env: CVESTREAM_HTTP__PRIVATE__HOST
+    host: 0.0.0.0
+    # Env: CVESTREAM_HTTP__PRIVATE__PORT. `cvestream healthcheck` probes 9090:
+    # when you change this port, pass `--port` to the healthcheck too (and to
+    # the image HEALTHCHECK, if you keep it).
+    port: 9090
+
 log:
   # Minimum level. One of: debug, info, warning, error.
   # Env: CVESTREAM_LOG__LEVEL
