@@ -233,6 +233,22 @@ async def test_entries_without_a_usable_cve_id_are_skipped_and_counted(
 
 
 @pytest.mark.anyio
+async def test_catalogue_where_every_entry_is_rejected_is_a_contract_error(
+    respx_mock: respx.MockRouter,
+    make_adapter: Callable[[], tuple[CisaKevAdapter, HttpClient]],
+) -> None:
+    # e.g. `cveID` renamed upstream: every entry fails, which is drift
+    catalog = _catalog()
+    for entry in catalog["vulnerabilities"]:
+        entry["cveId"] = entry.pop("cveID")
+    _serve(respx_mock, catalog)
+    adapter, http = make_adapter()
+    async with http:
+        with pytest.raises(SourceContractError, match="no entry passed validation"):
+            await adapter.fetch(None)
+
+
+@pytest.mark.anyio
 async def test_cve_id_is_stripped_and_upper_cased(
     respx_mock: respx.MockRouter,
     make_adapter: Callable[[], tuple[CisaKevAdapter, HttpClient]],
