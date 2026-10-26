@@ -159,3 +159,11 @@ def test_validation_error_has_no_token(tmp_path: Path) -> None:
     error = _load_error(tmp_path, content)
     assert TOKEN not in str(error)
     assert all(TOKEN not in line for line in error.errors)
+
+
+def test_example_file_is_valid() -> None:
+    path = Path(__file__).parents[3] / "endpoints.example.yaml"
+    snapshot = YamlConfigProvider(path).load()
+    assert len(snapshot.endpoints) >= 2
+    assert {e.enabled for e in snapshot.endpoints} == {True, False}
+    assert all("REPLACE-ME" in token for token in snapshot.tokens)
