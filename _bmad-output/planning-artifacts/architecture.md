@@ -362,7 +362,7 @@ cli ──────────▶ app ──────────▶ pipe
 
 The "Component boundaries (allowed imports)" list in the Project Structure section is the authoritative rule. This diagram illustrates it.
 
-- `domain`: pure (no I/O, no third-party imports apart from the standard library). It holds the model, matching, version parsing, bands and the publication decision.
+- `domain`: pure (no I/O, no third-party imports apart from the standard library and `packaging`, the only allowed exception, used by `domain/version.py` and whitelisted in the import-linter contract). It holds the model, matching, version parsing, bands and the publication decision.
 - Only `sources/*` and `cvestream.http` import `httpx`. Only `state/` imports `sqlalchemy` and `alembic`. Only `config/valkey_provider.py` imports `valkey`. Only `app/` imports `starlette`/`uvicorn`. Only `cli/` imports `typer`.
 - `pipeline` orchestrates synchronously. `app` owns asyncio, the loops and the servers.
 
@@ -543,7 +543,7 @@ cvestream/
 │   ├── log.py                        # structlog setup (JSON / console), redaction
 │   ├── settings.py                   # pydantic-settings: Settings, SourceSettings, ValkeySettings
 │   ├── http.py                       # httpx wrapper: timeouts, size limits, retries, system trust store, no proxy
-│   ├── domain/                       # pure: stdlib only
+│   ├── domain/                       # pure: stdlib + packaging only
 │   │   ├── __init__.py
 │   │   ├── model.py                  # Sourced[T], SourceRecord, NormalizedRecord, Vulnerability, AffectedProduct
 │   │   ├── identity.py               # alias normalization, primary-ID precedence
