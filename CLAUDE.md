@@ -20,6 +20,8 @@ uv run ruff format --check
 uv run ty check
 uv run lint-imports
 uv run pytest
+uv run cvestream config schema --check
+uv run cvestream config validate endpoints.example.yaml
 docker build --target runtime -t cvestream:local .
 ```
 
@@ -33,6 +35,7 @@ docker build --target runtime -t cvestream:local .
 - Time is aware UTC from the injected `Clock`; never call `datetime.now()` elsewhere.
 - Every exception inherits from `CvestreamError` and its name ends in `Error`.
 - All tool configuration lives in `pyproject.toml` (no `ruff.toml`, `pytest.ini`, `.importlinter`).
+- `config/models.py` is a public contract: regenerate `schemas/config-v1.json` (`uv run cvestream config schema`) in the same commit.
 - Never log a feed token or a feed path (`log.py` redacts them as a safety net).
 - Never commit `settings.yaml`, `endpoints.yaml`, `data/`, CA bundles or proxy settings.
 - Documentation follows behaviour in the same PR: README, this file, `settings.example.yaml`, and `docs/` when it exists.
