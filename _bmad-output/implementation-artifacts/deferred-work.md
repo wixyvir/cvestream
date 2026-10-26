@@ -20,3 +20,9 @@ Findings deferred by code reviews, to pick up in a later story or when they bite
 ## Deferred from: code review of 1-3-endpoint-configuration-in-yaml.md (2026-10-26)
 
 - **`settings.yaml` loader leaks a bare `ValueError`** (`src/cvestream/settings.py`, `_YamlSource._read_file`): it catches `yaml.YAMLError` only, but PyYAML's constructors raise `ValueError` for an impossible date (`log: {level: 2026-13-45}`) or a bad tagged scalar (`!!int abc`), and deep nesting raises `RecursionError`. `load_settings()` then crashes with a traceback instead of a `SettingsError`. Story 1.3 fixed the same issue in `config/yaml_provider.py`; reuse its loader (or catch `ValueError`/`RecursionError`) when `settings.py` is next touched.
+
+## Deferred from: code review of 1-4-euvd-and-kev-ingestion.md (2026-10-26)
+
+- **A wrong-typed optional field drops the whole record** (`src/cvestream/sources/cisa_kev.py`, `src/cvestream/sources/euvd.py` payload models): optional text fields are typed `str | None`, so a non-string `knownRansomwareCampaignUse`, `shortDescription`, `description` or `product_version` fails validation and the record is skipped, losing a KEV flag or a vulnerability. Documented as deliberate in `docs/sources.md`; a catalogue where every entry fails is now a contract error. Revisit with lenient coercion (non-strings become `None`) if drift shows up.
+- **A `/kev/dump` outage blocks EUVD search ingestion** (`src/cvestream/sources/euvd.py`, `EuvdAdapter.fetch`): the fetch is all-or-nothing and loads the dump first, so a dump failure also stops `/search` progress. Spec-mandated; revisit with failure isolation in story 1.6 or a separate `eu_kev` adapter.
+- **Decompression amplification before the size check** (`src/cvestream/http.py`, `_read_body`): httpx decodes one network chunk at a time, so a single compressed chunk can expand far past `max_bytes` in memory before it is counted. Bounded by the chunk size; revisit if a source serves compressed bodies.
