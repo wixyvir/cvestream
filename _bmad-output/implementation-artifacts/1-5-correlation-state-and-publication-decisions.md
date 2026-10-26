@@ -4,7 +4,7 @@ baseline_commit: 78549530f80893add3da4992a735cf91da347f28
 
 # Story 1.5: Correlation, state and publication decisions
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -30,54 +30,54 @@ so that my channel has no duplicates (SM-4) and no missed escalation.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Dependencies (AC: 1)**
-  - [ ] 1.1 `uv add "sqlalchemy>=2.1.6" "alembic>=1.20.1"` (runtime). Both are the latest on PyPI (2026-10-21 and 2026-10-22); Alembic pulls `Mako`. Commit `pyproject.toml` + `uv.lock` together (`chore(story-1.5): add sqlalchemy and alembic`). Never edit `uv.lock` by hand.
+- [x] **Task 1: Dependencies (AC: 1)**
+  - [x] 1.1 `uv add "sqlalchemy>=2.1.6" "alembic>=1.20.1"` (runtime). Both are the latest on PyPI (2026-10-21 and 2026-10-22); Alembic pulls `Mako`. Commit `pyproject.toml` + `uv.lock` together (`chore(story-1.5): add sqlalchemy and alembic`). Never edit `uv.lock` by hand.
 
-- [ ] **Task 2: import-linter contracts (AC: 2)**: see "Layering and import-linter".
-  - [ ] 2.1 Add `allow_indirect_imports = true` to the five library-ownership contracts (`httpx`, `sqlalchemy and alembic`, `valkey`, `starlette and uvicorn`, `typer`), with one comment above the first one. Do not touch the `layers` contract or the "domain is pure" contract (it keeps indirect checks).
-  - [ ] 2.2 Commit separately: `chore(story-1.5): check library ownership on direct imports only`.
+- [x] **Task 2: import-linter contracts (AC: 2)**: see "Layering and import-linter".
+  - [x] 2.1 Add `allow_indirect_imports = true` to the five library-ownership contracts (`httpx`, `sqlalchemy and alembic`, `valkey`, `starlette and uvicorn`, `typer`), with one comment above the first one. Do not touch the `layers` contract or the "domain is pure" contract (it keeps indirect checks).
+  - [x] 2.2 Commit separately: `chore(story-1.5): check library ownership on direct imports only`.
 
-- [ ] **Task 3: Settings (AC: 11)**: see "Settings design".
-  - [ ] 3.1 `data_dir: Path = Path("data")`, `StateSettings(url: SecretStr | None = None)`, `state: StateSettings`, and `state_url(settings) -> str` in `settings.py`.
-  - [ ] 3.2 Deferred item from 1.3 (`deferred-work.md`): `_YamlSource._read_file` also turns `ValueError` and `RecursionError` into `SettingsError` (message: file + exception type only). Add the test; mark the item resolved in `deferred-work.md` (strike-through + "Resolved by story 1.5").
-  - [ ] 3.3 `tests/unit/test_settings.py`: defaults, `CVESTREAM_DATA_DIR`, `CVESTREAM_STATE__URL`, `CVESTREAM_STATE__URL_FILE`, `state_url()` for relative and absolute `data_dir`, the URL never appears in `repr(settings)`.
+- [x] **Task 3: Settings (AC: 11)**: see "Settings design".
+  - [x] 3.1 `data_dir: Path = Path("data")`, `StateSettings(url: SecretStr | None = None)`, `state: StateSettings`, and `state_url(settings) -> str` in `settings.py`.
+  - [x] 3.2 Deferred item from 1.3 (`deferred-work.md`): `_YamlSource._read_file` also turns `ValueError` and `RecursionError` into `SettingsError` (message: file + exception type only). Add the test; mark the item resolved in `deferred-work.md` (strike-through + "Resolved by story 1.5").
+  - [x] 3.3 `tests/unit/test_settings.py`: defaults, `CVESTREAM_DATA_DIR`, `CVESTREAM_STATE__URL`, `CVESTREAM_STATE__URL_FILE`, `state_url()` for relative and absolute `data_dir`, the URL never appears in `repr(settings)`.
 
-- [ ] **Task 4: `state/schema.py` (AC: 1)**: see "Schema design".
-  - [ ] 4.1 `NAMING_CONVENTION`, `metadata`, `UTCDateTime`, `format_utc()` / `parse_utc()`.
-  - [ ] 4.2 The five tables, exactly as specified.
+- [x] **Task 4: `state/schema.py` (AC: 1)**: see "Schema design".
+  - [x] 4.1 `NAMING_CONVENTION`, `metadata`, `UTCDateTime`, `format_utc()` / `parse_utc()`.
+  - [x] 4.2 The five tables, exactly as specified.
 
-- [ ] **Task 5: `state/codec.py` (AC: 3)**: see "Record codec". `record_to_json`, `record_from_json`, `content_hash`.
+- [x] **Task 5: `state/codec.py` (AC: 3)**: see "Record codec". `record_to_json`, `record_from_json`, `content_hash`.
 
-- [ ] **Task 6: `state/db.py`, migrations, `state/backup.py` (AC: 1, 2, 10)**: see "Database and migrations".
-  - [ ] 6.1 `StateError`, `State` (engine, SQLite connect event, `transaction()`, `migrate()`, `current_revision()`, `dispose()`, `display_url`).
-  - [ ] 6.2 `state/migrations/env.py`, `script.py.mako`, `versions/0001_create_schema.py` (revision `"0001"`, `down_revision = None`).
-  - [ ] 6.3 `state/backup.py`: `backup(state, target)`.
+- [x] **Task 6: `state/db.py`, migrations, `state/backup.py` (AC: 1, 2, 10)**: see "Database and migrations".
+  - [x] 6.1 `StateError`, `State` (engine, SQLite connect event, `transaction()`, `migrate()`, `current_revision()`, `dispose()`, `display_url`).
+  - [x] 6.2 `state/migrations/env.py`, `script.py.mako`, `versions/0001_create_schema.py` (revision `"0001"`, `down_revision = None`).
+  - [x] 6.3 `state/backup.py`: `backup(state, target)`.
 
-- [ ] **Task 7: `state/repository.py` (AC: 2, 3, 7, 8)**: see "Repository API". `_upsert()` and the `Repository` class.
+- [x] **Task 7: `state/repository.py` (AC: 2, 3, 7, 8)**: see "Repository API". `_upsert()` and the `Repository` class.
 
-- [ ] **Task 8: `domain/publication.py` (AC: 4, 5, 6)**: see "Publication decision design".
+- [x] **Task 8: `domain/publication.py` (AC: 4, 5, 6)**: see "Publication decision design".
 
-- [ ] **Task 9: `pipeline/normalize.py` and `pipeline/correlate.py` (AC: 3)**: see "Correlation design".
+- [x] **Task 9: `pipeline/normalize.py` and `pipeline/correlate.py` (AC: 3)**: see "Correlation design".
 
-- [ ] **Task 10: `pipeline/run.py` (AC: 6, 7, 8)**: see "Pipeline run design".
+- [x] **Task 10: `pipeline/run.py` (AC: 6, 7, 8)**: see "Pipeline run design".
 
-- [ ] **Task 11: CLI `cvestream db migrate|backup` (AC: 1, 10)**: `cli/db.py` (`db_app`), registered in `cli/main.py` with `app.add_typer(db_app, name="db")`. See "CLI design".
+- [x] **Task 11: CLI `cvestream db migrate|backup` (AC: 1, 10)**: `cli/db.py` (`db_app`), registered in `cli/main.py` with `app.add_typer(db_app, name="db")`. See "CLI design".
 
-- [ ] **Task 12: Tests (all ACs)**: see "Testing requirements". Includes `tests/integration/test_restart_no_repost.py`.
+- [x] **Task 12: Tests (all ACs)**: see "Testing requirements". Includes `tests/integration/test_restart_no_repost.py`.
 
-- [ ] **Task 13: Docs and image (AC: 11, same PR)**
-  - [ ] 13.1 `settings.example.yaml`: `data_dir` and `state.url` blocks (env names, default, the secret-file form `CVESTREAM_STATE__URL_FILE`); the header line "Secrets (none yet)" becomes "Secrets (state.url for now)".
-  - [ ] 13.2 `docs/configuration.md`: two rows in the keys table (`data_dir`, `state.url`), the "Secrets" bullet names `state.url` as the first secret field, and a short "State database" section: SQLite file `<data_dir>/cvestream.db`, WAL mode, block storage only (never NFS/SMB/CIFS), `cvestream db migrate`, `cvestream db backup <file>`, PostgreSQL later.
-  - [ ] 13.3 `Dockerfile` runtime stage: `ENV CVESTREAM_DATA_DIR=/data` (on the existing `ENV PATH=...` line or next to it). Nothing else in the Dockerfile.
-  - [ ] 13.4 `README.md`: the "Status" paragraph mentions the state store and publication decisions (still "no feeds yet"); quick start gets `uv run cvestream db migrate` (creates `./data/cvestream.db`).
-  - [ ] 13.5 `CLAUDE.md` "Key rules": one line "Publication GUIDs are built only in `domain/publication.py`, stored in `publication.guid` and never recomputed; state is written only inside `State.transaction()`."
-  - [ ] 13.6 `architecture.md`: (a) project tree: add `codec.py` under `state/` ("SourceRecord ⇄ JSON, content hash"); (b) "Layered dependencies" bullet "Only `sources/*` and `cvestream.http` import `httpx`...": append "Ownership is about direct imports: the import-linter ownership contracts set `allow_indirect_imports = true` (a `pipeline` module may import `state`, which imports `sqlalchemy`)"; (c) Data Architecture, "State store", after "Logical tables": one bullet "Correlation and publication rules" summarizing the decisions of this story (merge keys CVE/EUVD only, aliases append-only, unchanged content does not touch a vulnerability, 14-day publication window, backfill while an endpoint has no publication, `kev` wins over a band rise in the same run, product-list edits do not backfill).
-  - [ ] 13.7 `_bmad-output/project-context.md`: "Identity (FR-8)" bullet: add "merge keys are CVE and EUVD aliases only; aliases are never removed"; "Publish once" bullets: add "only vulnerabilities active in the last 14 days are decided; an endpoint without any publication is backfilled with the last 7 days".
+- [x] **Task 13: Docs and image (AC: 11, same PR)**
+  - [x] 13.1 `settings.example.yaml`: `data_dir` and `state.url` blocks (env names, default, the secret-file form `CVESTREAM_STATE__URL_FILE`); the header line "Secrets (none yet)" becomes "Secrets (state.url for now)".
+  - [x] 13.2 `docs/configuration.md`: two rows in the keys table (`data_dir`, `state.url`), the "Secrets" bullet names `state.url` as the first secret field, and a short "State database" section: SQLite file `<data_dir>/cvestream.db`, WAL mode, block storage only (never NFS/SMB/CIFS), `cvestream db migrate`, `cvestream db backup <file>`, PostgreSQL later.
+  - [x] 13.3 `Dockerfile` runtime stage: `ENV CVESTREAM_DATA_DIR=/data` (on the existing `ENV PATH=...` line or next to it). Nothing else in the Dockerfile.
+  - [x] 13.4 `README.md`: the "Status" paragraph mentions the state store and publication decisions (still "no feeds yet"); quick start gets `uv run cvestream db migrate` (creates `./data/cvestream.db`).
+  - [x] 13.5 `CLAUDE.md` "Key rules": one line "Publication GUIDs are built only in `domain/publication.py`, stored in `publication.guid` and never recomputed; state is written only inside `State.transaction()`."
+  - [x] 13.6 `architecture.md`: (a) project tree: add `codec.py` under `state/` ("SourceRecord ⇄ JSON, content hash"); (b) "Layered dependencies" bullet "Only `sources/*` and `cvestream.http` import `httpx`...": append "Ownership is about direct imports: the import-linter ownership contracts set `allow_indirect_imports = true` (a `pipeline` module may import `state`, which imports `sqlalchemy`)"; (c) Data Architecture, "State store", after "Logical tables": one bullet "Correlation and publication rules" summarizing the decisions of this story (merge keys CVE/EUVD only, aliases append-only, unchanged content does not touch a vulnerability, 14-day publication window, backfill while an endpoint has no publication, `kev` wins over a band rise in the same run, product-list edits do not backfill).
+  - [x] 13.7 `_bmad-output/project-context.md`: "Identity (FR-8)" bullet: add "merge keys are CVE and EUVD aliases only; aliases are never removed"; "Publish once" bullets: add "only vulnerabilities active in the last 14 days are decided; an endpoint without any publication is backfilled with the last 7 days".
 
-- [ ] **Task 14: Gates (all ACs)**
-  - [ ] 14.1 `uv sync --locked && uv run ruff check && uv run ruff format --check && uv run ty check && uv run lint-imports && uv run pytest && uv run cvestream config schema --check && uv run cvestream config validate endpoints.example.yaml` all green.
-  - [ ] 14.2 Manual checks of `epic-1-stack-plan.md` §3.5 with `CVESTREAM_DATA_DIR=$(mktemp -d)`: `db migrate` twice (second is a no-op), `sqlite3 <dir>/cvestream.db '.tables'` and `PRAGMA journal_mode;` (`wal`), `db backup`, `grep -rn "cvestream:{" src/` (one construction site), `grep -rn "\.commit()\|\.transaction(" src/cvestream` (only the definition in `state/db.py` and the calls in `pipeline/run.py`). If `sqlite3` is not installed, use `uv run python -c "import sqlite3; ..."` and say so.
-  - [ ] 14.3 `docker build --target runtime -t cvestream:local .` then `docker run --rm -v "$(mktemp -d):/data" --user "$(id -u)" cvestream:local db migrate` exits 0 (alembic and the migration files are in the image). If Docker is unavailable, say so in the Completion Notes; do not claim it ran.
+- [x] **Task 14: Gates (all ACs)**
+  - [x] 14.1 `uv sync --locked && uv run ruff check && uv run ruff format --check && uv run ty check && uv run lint-imports && uv run pytest && uv run cvestream config schema --check && uv run cvestream config validate endpoints.example.yaml` all green.
+  - [x] 14.2 Manual checks of `epic-1-stack-plan.md` §3.5 with `CVESTREAM_DATA_DIR=$(mktemp -d)`: `db migrate` twice (second is a no-op), `sqlite3 <dir>/cvestream.db '.tables'` and `PRAGMA journal_mode;` (`wal`), `db backup`, `grep -rn "cvestream:{" src/` (one construction site), `grep -rn "\.commit()\|\.transaction(" src/cvestream` (only the definition in `state/db.py` and the calls in `pipeline/run.py`). If `sqlite3` is not installed, use `uv run python -c "import sqlite3; ..."` and say so.
+  - [x] 14.3 `docker build --target runtime -t cvestream:local .` then `docker run --rm -v "$(mktemp -d):/data" --user "$(id -u)" cvestream:local db migrate` exits 0 (alembic and the migration files are in the image). If Docker is unavailable, say so in the Completion Notes; do not claim it ran.
 
 ## Dev Notes
 
@@ -570,10 +570,48 @@ Recent commits on the base branch: `chore(story-1.4): record code review`, `docs
 
 ### Agent Model Used
 
+claude-sonnet-5-5 (bmad-dev-story, autonomous run)
+
 ### Debug Log References
+
+- `uv run pytest`: 692 passed, 2 deselected (`live`). Story 1.4 ended at 414; this story adds 278 tests.
+- Gates all green locally: `uv sync --locked`, `ruff check`, `ruff format --check`, `ty check`, `lint-imports` (7 contracts kept), `pytest`, `config schema --check`, `config validate endpoints.example.yaml`.
+- `docker build --target runtime -t cvestream:local .` passed; `docker run --rm -v <tmp>:/data --user $(id -u) cvestream:local db migrate` exits 0 and writes `/data/cvestream.db` (Alembic and the migration files are in the image).
+- Manual checks of `epic-1-stack-plan.md` section 3.5 with `CVESTREAM_DATA_DIR=$(mktemp -d)`: `db migrate` twice (second is a no-op), `sqlite3 .tables` lists the five tables plus `alembic_version`, `PRAGMA journal_mode` is `wal`, `db backup` writes a copy and refuses to overwrite it (exit 2), `grep -rn "cvestream:{" src/` finds one construction site (`domain/publication.py`), `.commit()` appears nowhere and `.transaction(` is called only in `pipeline/run.py` (plus its definition in `state/db.py`).
 
 ### Completion Notes List
 
-- Ultimate context engine analysis completed - comprehensive developer guide created.
+- **Implemented:** `state/` (schema with `UTCDateTime`, codec, `State` with lazy engine and the SQLite connect event, repository with `_upsert()`, backup, Alembic in code and revision `0001`), `domain/publication.py` (`decide()`, the only GUID construction site, window constants), `pipeline/normalize.py`, `pipeline/correlate.py`, `pipeline/run.py` (one `State.transaction()` per run), `cli/db.py` (`db migrate`, `db backup`), the `data_dir` and `state.url` settings, the `CVESTREAM_DATA_DIR=/data` image variable, tests and docs.
+- **Tests:** unit tests for every module, `tests/integration/test_restart_no_repost.py` (real EUVD and CISA KEV adapters on the recorded fixtures, a restart between runs, then a late KEV addition publishes exactly one `kev`, once). The "metadata equals migrations" test (`compare_metadata`) guards drift between `schema.py` and `0001`. A source-scan test (AST based) checks that nothing calls `.commit()` and that `.transaction()` is only called from `pipeline/run.py`.
+- **Deferred item resolved:** the `settings.yaml` loader now turns `ValueError` and `RecursionError` into `SettingsError` (`deferred-work.md` item struck through).
+- **Deviation 1, `StateError` and `NaiveDatetimeError` live in `state/schema.py`** and are re-exported by `state/db.py` (the story put `StateError` in `db.py`). `schema.py` and `codec.py` need them and `db.py` imports the repository, which imports the schema: defining them in `db.py` would be circular.
+- **Deviation 2, `State` helpers:** `State._get_engine()` creates the engine lazily; `raw_sqlite_connection()` is a context manager (yields the `sqlite3.Connection`, returns it to the pool). `State.migrate()` turns an unopenable database or an uncreatable directory into `StateError`, and a missing driver (`psycopg` is not installed) into `StateError("no database driver for ...")`, so the CLI reports one line and exits 2 instead of showing a traceback.
+- **Deviation 3, `repository.py` does not import `sources.base.Cursor`:** `state` and `sources` are independent siblings in the `layers` contract, so `set_cursor` takes `str | None` (what `Cursor` is).
+- **Deviation 4, `Repository.create_vulnerability()` stores `primary_id = ""`** as a placeholder (the signature in the story has no ID); `refresh_vulnerability()` sets it before the transaction ends, because every created vulnerability receives a record and is therefore touched.
+- **Not done on purpose:** raw-payload retention (architecture: "raw payloads kept 30 days"). Adapters emit `SourceRecord`s, not raw payloads, so there is nothing to keep yet.
+- **Known limitation (recorded in the story decisions):** KEV removals are not modelled; a vulnerability removed from a KEV catalogue keeps its flag.
+- **Log noise:** `state.migrated` is logged through structlog's default configuration, so `cvestream db migrate` prints that line before its own summary line (the CLI does not configure logging yet; the daemon of story 1.6 will).
+- **Review notes:** `unknown` to `none` (CVSS 0.0) counts as a band rise (literal FR-19). A product-list edit on an existing endpoint does not backfill (see the decisions section). The first run publishes the last 7 days, not 14.
 
 ### File List
+
+- `pyproject.toml`, `uv.lock` (modified: `sqlalchemy`, `alembic`, import-linter ownership contracts check direct imports only)
+- `src/cvestream/settings.py` (modified: `data_dir`, `StateSettings`, `state_url()`, YAML `ValueError`/`RecursionError`)
+- `src/cvestream/state/schema.py`, `codec.py`, `db.py`, `repository.py`, `backup.py` (new)
+- `src/cvestream/state/migrations/env.py`, `script.py.mako`, `versions/0001_create_schema.py` (new)
+- `src/cvestream/domain/publication.py` (new)
+- `src/cvestream/pipeline/normalize.py`, `correlate.py`, `run.py` (new)
+- `src/cvestream/cli/db.py` (new), `src/cvestream/cli/main.py` (modified)
+- `tests/conftest.py` (modified: `state` fixture), `tests/unit/test_settings.py` (modified)
+- `tests/unit/state/__init__.py`, `test_schema.py`, `test_codec.py`, `test_db.py`, `test_repository.py`, `test_backup.py` (new)
+- `tests/unit/domain/test_publication.py` (new)
+- `tests/unit/pipeline/__init__.py`, `test_normalize.py`, `test_correlate.py`, `test_run.py` (new)
+- `tests/unit/cli/test_db.py` (new)
+- `tests/integration/__init__.py`, `test_restart_no_repost.py` (new)
+- `Dockerfile` (modified: `CVESTREAM_DATA_DIR=/data`)
+- `settings.example.yaml`, `docs/configuration.md`, `README.md`, `CLAUDE.md`, `_bmad-output/planning-artifacts/architecture.md`, `_bmad-output/project-context.md` (modified)
+- `_bmad-output/implementation-artifacts/deferred-work.md`, `_bmad-output/implementation-artifacts/1-5-correlation-state-and-publication-decisions.md`, `_bmad-output/implementation-artifacts/sprint-status.yaml` (modified)
+
+### Change Log
+
+- 2026-10-26: Implemented story 1.5 (state store, migrations and backup, source record codec, correlation, publication decisions, pipeline run, `db migrate` and `db backup`, restart no-repost guardrail, docs) and moved it to review.
