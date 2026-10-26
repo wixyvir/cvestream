@@ -121,7 +121,7 @@ Branch: `story-1-3-endpoint-configuration-in-yaml`
 1. `uv run cvestream config validate endpoints.example.yaml; echo $?` prints `0`.
 2. Make an invalid copy (unknown field, bad slug such as `My_Team`, or `min_cvss: "high"`):
    ```bash
-   cp endpoints.example.yaml /tmp/bad.yaml && echo "  unknown_field: 1" >> /tmp/bad.yaml
+   cp endpoints.example.yaml /tmp/bad.yaml && echo "    unknown_field: 1" >> /tmp/bad.yaml   # 4 spaces: a key of the last endpoint
    uv run cvestream config validate /tmp/bad.yaml; echo $?
    ```
    Expected: exactly one plain error line on stderr naming the field, and exit code `2`.
