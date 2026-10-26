@@ -7,6 +7,7 @@ import typer
 
 from cvestream import __version__
 from cvestream.cli.config import config_app
+from cvestream.cli.db import db_app
 
 
 @dataclass
@@ -18,6 +19,7 @@ class CliState:
 
 app = typer.Typer(name="cvestream", no_args_is_help=True, add_completion=False)
 app.add_typer(config_app, name="config")
+app.add_typer(db_app, name="db")
 
 
 def _version_callback(value: bool) -> None:
