@@ -269,3 +269,14 @@ def test_config_provider_from_environment() -> None:
 def test_valkey_config_provider_is_rejected_until_it_exists() -> None:
     with pytest.raises(ValidationError):
         load_settings(_env(CVESTREAM_CONFIG_PROVIDER="valkey"))
+
+
+@pytest.mark.parametrize(
+    "content",
+    ["log: {level: 2026-13-45}\n", "x: !!int abc\n", "a: " + "[" * 100000 + "\n"],
+)
+def test_yaml_value_errors_become_settings_errors(tmp_path: Path, content: str) -> None:
+    path = _write_yaml(tmp_path, content)
+    with pytest.raises(SettingsError, match="cannot parse YAML") as excinfo:
+        load_settings(_env(CVESTREAM_SETTINGS_FILE=str(path)))
+    assert str(path) in str(excinfo.value)

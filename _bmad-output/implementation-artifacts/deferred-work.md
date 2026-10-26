@@ -19,7 +19,7 @@ Findings deferred by code reviews, to pick up in a later story or when they bite
 
 ## Deferred from: code review of 1-3-endpoint-configuration-in-yaml.md (2026-10-26)
 
-- **`settings.yaml` loader leaks a bare `ValueError`** (`src/cvestream/settings.py`, `_YamlSource._read_file`): it catches `yaml.YAMLError` only, but PyYAML's constructors raise `ValueError` for an impossible date (`log: {level: 2026-13-45}`) or a bad tagged scalar (`!!int abc`), and deep nesting raises `RecursionError`. `load_settings()` then crashes with a traceback instead of a `SettingsError`. Story 1.3 fixed the same issue in `config/yaml_provider.py`; reuse its loader (or catch `ValueError`/`RecursionError`) when `settings.py` is next touched.
+- ~~**`settings.yaml` loader leaks a bare `ValueError`** (`src/cvestream/settings.py`, `_YamlSource._read_file`): it catches `yaml.YAMLError` only, but PyYAML's constructors raise `ValueError` for an impossible date (`log: {level: 2026-13-45}`) or a bad tagged scalar (`!!int abc`), and deep nesting raises `RecursionError`. `load_settings()` then crashes with a traceback instead of a `SettingsError`. Story 1.3 fixed the same issue in `config/yaml_provider.py`; reuse its loader (or catch `ValueError`/`RecursionError`) when `settings.py` is next touched.~~ Resolved by story 1.5 (`_YamlSource._read_file` catches `ValueError` and `RecursionError`).
 
 ## Deferred from: code review of 1-4-euvd-and-kev-ingestion.md (2026-10-26)
 
