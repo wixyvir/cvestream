@@ -83,7 +83,7 @@ development_status:
   1-1-project-skeleton-container-and-ci: done
   1-2-vulnerability-model-and-matching-engine: done
   1-3-endpoint-configuration-in-yaml: done
-  1-4-euvd-and-kev-ingestion: ready-for-dev
+  1-4-euvd-and-kev-ingestion: review
   1-5-correlation-state-and-publication-decisions: backlog
   1-6-feeds-served-by-the-daemon: backlog
   epic-1-retrospective: optional

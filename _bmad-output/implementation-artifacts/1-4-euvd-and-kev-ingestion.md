@@ -1,6 +1,10 @@
+---
+baseline_commit: 512fd28d0b1d2fd76582a851f3d71e34b089baf7
+---
+
 # Story 1.4: EUVD and KEV ingestion
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -24,60 +28,60 @@ so that my feed is built from the European reference database and flags actively
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Dependencies (AC: 1, 7)**
-  - [ ] 1.1 `uv add "httpx>=0.28.1,<1"` (runtime; 0.28.1 is the latest stable, 1.0 is only in `.dev` releases: the `<1` cap is an architecture rule).
-  - [ ] 1.2 `uv add --dev "respx>=0.23.1"` (0.23.1 is the latest; requires `httpx>=0.25`).
-  - [ ] 1.3 Commit `pyproject.toml` + `uv.lock` together (`chore(story-1.4): add httpx and respx`). Never edit `uv.lock` by hand.
+- [x] **Task 1: Dependencies (AC: 1, 7)**
+  - [x] 1.1 `uv add "httpx>=0.28.1,<1"` (runtime; 0.28.1 is the latest stable, 1.0 is only in `.dev` releases: the `<1` cap is an architecture rule).
+  - [x] 1.2 `uv add --dev "respx>=0.23.1"` (0.23.1 is the latest; requires `httpx>=0.25`).
+  - [x] 1.3 Commit `pyproject.toml` + `uv.lock` together (`chore(story-1.4): add httpx and respx`). Never edit `uv.lock` by hand.
 
-- [ ] **Task 2: `src/cvestream/http.py` (AC: 1)**: see "HTTP client design".
-  - [ ] 2.1 `HttpError(CvestreamError)` and subclasses `HttpTransportError`, `HttpStatusError` (carries `status_code`), `HttpResponseTooLargeError`.
-  - [ ] 2.2 `HttpClient` (async context manager wrapping one `httpx.AsyncClient`) with `async get(url, *, params=None, max_bytes=DEFAULT_MAX_BYTES) -> bytes`.
-  - [ ] 2.3 Retry loop (timeout / 5xx / 429 only), full-jitter capped backoff, `Retry-After` (seconds or HTTP date), injectable `sleep`, `random` and `clock`.
-  - [ ] 2.4 Streaming size limit (checks `Content-Length` first, then counts decoded bytes).
+- [x] **Task 2: `src/cvestream/http.py` (AC: 1)**: see "HTTP client design".
+  - [x] 2.1 `HttpError(CvestreamError)` and subclasses `HttpTransportError`, `HttpStatusError` (carries `status_code`), `HttpResponseTooLargeError`.
+  - [x] 2.2 `HttpClient` (async context manager wrapping one `httpx.AsyncClient`) with `async get(url, *, params=None, max_bytes=DEFAULT_MAX_BYTES) -> bytes`.
+  - [x] 2.3 Retry loop (timeout / 5xx / 429 only), full-jitter capped backoff, `Retry-After` (seconds or HTTP date), injectable `sleep`, `random` and `clock`.
+  - [x] 2.4 Streaming size limit (checks `Content-Length` first, then counts decoded bytes).
 
-- [ ] **Task 3: `src/cvestream/sources/base.py` (AC: 2)**: see "Adapter contract design".
-  - [ ] 3.1 `Cursor` type alias, `FetchResult`, `SourceAdapter` protocol.
-  - [ ] 3.2 `SourceError(CvestreamError)` with a `source` attribute, and `SourceTransportError`, `SourcePayloadError`, `SourceContractError`.
-  - [ ] 3.3 `async get_json(http, source, url, *, params=None, max_bytes=...) -> object`: the single place that turns `HttpError` / JSON decoding errors into `SourceError`s.
+- [x] **Task 3: `src/cvestream/sources/base.py` (AC: 2)**: see "Adapter contract design".
+  - [x] 3.1 `Cursor` type alias, `FetchResult`, `SourceAdapter` protocol.
+  - [x] 3.2 `SourceError(CvestreamError)` with a `source` attribute, and `SourceTransportError`, `SourcePayloadError`, `SourceContractError`.
+  - [x] 3.3 `async get_json(http, source, url, *, params=None, max_bytes=...) -> object`: the single place that turns `HttpError` / JSON decoding errors into `SourceError`s.
 
-- [ ] **Task 4: Domain model addition (AC: 3)**
-  - [ ] 4.1 Append `epss: Sourced[float] | None = None` as the **last** field of `SourceRecord` in `domain/model.py` (defaulted fields last; no other model change). Add one test in `tests/unit/domain/test_model.py` (default `None`, set value round-trips).
+- [x] **Task 4: Domain model addition (AC: 3)**
+  - [x] 4.1 Append `epss: Sourced[float] | None = None` as the **last** field of `SourceRecord` in `domain/model.py` (defaulted fields last; no other model change). Add one test in `tests/unit/domain/test_model.py` (default `None`, set value round-trips).
 
-- [ ] **Task 5: `src/cvestream/sources/euvd.py` (AC: 3, 4, 5)**: see "EUVD adapter design".
-  - [ ] 5.1 Private Pydantic payload models (`extra="ignore"`, camelCase aliases) for a search page, a search item and a KEV dump entry.
-  - [ ] 5.2 Locale-independent EUVD date parser (`"Oct 26, 2026, 6:36:49 PM"` → aware UTC).
-  - [ ] 5.3 Item → `SourceRecord` mapping with every placeholder rule.
-  - [ ] 5.4 Paging loop: `fromUpdatedDate`, `size`, `page`, descending-order check, early stop, page cap, pause between pages.
-  - [ ] 5.5 KEV dump → `eu_kev` records.
-  - [ ] 5.6 Cursor encode/decode and `next_cursor`.
+- [x] **Task 5: `src/cvestream/sources/euvd.py` (AC: 3, 4, 5)**: see "EUVD adapter design".
+  - [x] 5.1 Private Pydantic payload models (`extra="ignore"`, camelCase aliases) for a search page, a search item and a KEV dump entry.
+  - [x] 5.2 Locale-independent EUVD date parser (`"Oct 26, 2026, 6:36:49 PM"` → aware UTC).
+  - [x] 5.3 Item → `SourceRecord` mapping with every placeholder rule.
+  - [x] 5.4 Paging loop: `fromUpdatedDate`, `size`, `page`, descending-order check, early stop, page cap, pause between pages.
+  - [x] 5.5 KEV dump → `eu_kev` records.
+  - [x] 5.6 Cursor encode/decode and `next_cursor`.
 
-- [ ] **Task 6: `src/cvestream/sources/cisa_kev.py` (AC: 6)**: see "CISA KEV adapter design".
+- [x] **Task 6: `src/cvestream/sources/cisa_kev.py` (AC: 6)**: see "CISA KEV adapter design".
 
-- [ ] **Task 7: `src/cvestream/sources/registry.py` (AC: 8)**: see "Registry design".
+- [x] **Task 7: `src/cvestream/sources/registry.py` (AC: 8)**: see "Registry design".
 
-- [ ] **Task 8: Fixtures (AC: 7)**: see "Fixtures: how to record them".
-  - [ ] 8.1 Record from the real APIs into `tests/fixtures/euvd/` and `tests/fixtures/cisa_kev/`.
-  - [ ] 8.2 `tests/fixtures/README.md`: one line per fixture with the recording date, URL and the `jq` selection command used (provenance).
+- [x] **Task 8: Fixtures (AC: 7)**: see "Fixtures: how to record them".
+  - [x] 8.1 Record from the real APIs into `tests/fixtures/euvd/` and `tests/fixtures/cisa_kev/`.
+  - [x] 8.2 `tests/fixtures/README.md`: one line per fixture with the recording date, URL and the `jq` selection command used (provenance).
 
-- [ ] **Task 9: Tests (AC: all)**: see "Testing requirements".
-  - [ ] 9.1 `tests/unit/test_http.py`.
-  - [ ] 9.2 `tests/unit/sources/__init__.py`, `test_base.py`, `test_registry.py`.
-  - [ ] 9.3 `tests/contract/__init__.py`, `tests/contract/euvd/__init__.py` + `test_euvd.py`, `tests/contract/cisa_kev/__init__.py` + `test_cisa_kev.py`, each with its `live` variant.
+- [x] **Task 9: Tests (AC: all)**: see "Testing requirements".
+  - [x] 9.1 `tests/unit/test_http.py`.
+  - [x] 9.2 `tests/unit/sources/__init__.py`, `test_base.py`, `test_registry.py`.
+  - [x] 9.3 `tests/contract/__init__.py`, `tests/contract/euvd/__init__.py` + `test_euvd.py`, `tests/contract/cisa_kev/__init__.py` + `test_cisa_kev.py`, each with its `live` variant.
 
-- [ ] **Task 10: Layering contracts (AC: 1)**
-  - [ ] 10.1 In `[tool.importlinter]`: add `"cvestream.http"` to the `source_modules` of the `sqlalchemy and alembic only in state`, `valkey only in config`, `starlette and uvicorn only in app` and `typer only in cli` contracts; remove the parentheses around `cvestream.http` in the `layers` contract (it now exists); delete the comment line "Add cvestream.http to the non-owner lists in story 1.4 when it exists." Do not change anything else in `[tool.importlinter]`.
+- [x] **Task 10: Layering contracts (AC: 1)**
+  - [x] 10.1 In `[tool.importlinter]`: add `"cvestream.http"` to the `source_modules` of the `sqlalchemy and alembic only in state`, `valkey only in config`, `starlette and uvicorn only in app` and `typer only in cli` contracts; remove the parentheses around `cvestream.http` in the `layers` contract (it now exists); delete the comment line "Add cvestream.http to the non-owner lists in story 1.4 when it exists." Do not change anything else in `[tool.importlinter]`.
 
-- [ ] **Task 11: Docs (AC: 9, same PR)**
-  - [ ] 11.1 New `docs/sources.md` (content listed under "docs/sources.md content").
-  - [ ] 11.2 `architecture.md`: (a) Identifiers table, "Source name" row: add `eu_kev` with a note "(record source of EU KEV entries, emitted by the `euvd` adapter)"; (b) API & Communication Patterns, "Source adapters" bullet: add that the cursor is an opaque string owned by the adapter, and that the `euvd` adapter also loads `/api/kev/dump` in full on every fetch and emits `eu_kev` records.
-  - [ ] 11.3 `_bmad-output/project-context.md`: Identifiers bullet, source names: add `eu_kev` (same note). Sources bullet: add "the cursor is an opaque string; `next_cursor` comes from source data, never from the local clock".
-  - [ ] 11.4 `CLAUDE.md` "Key rules": one line: "Outbound HTTP goes only through `cvestream.http` (`trust_env=False`, system trust store, retries live there and nowhere else)."
-  - [ ] 11.5 `README.md`: add `docs/sources.md` next to the existing "Design:" link (one line). Keep the "Status" paragraph unchanged (there are still no feeds).
+- [x] **Task 11: Docs (AC: 9, same PR)**
+  - [x] 11.1 New `docs/sources.md` (content listed under "docs/sources.md content").
+  - [x] 11.2 `architecture.md`: (a) Identifiers table, "Source name" row: add `eu_kev` with a note "(record source of EU KEV entries, emitted by the `euvd` adapter)"; (b) API & Communication Patterns, "Source adapters" bullet: add that the cursor is an opaque string owned by the adapter, and that the `euvd` adapter also loads `/api/kev/dump` in full on every fetch and emits `eu_kev` records.
+  - [x] 11.3 `_bmad-output/project-context.md`: Identifiers bullet, source names: add `eu_kev` (same note). Sources bullet: add "the cursor is an opaque string; `next_cursor` comes from source data, never from the local clock".
+  - [x] 11.4 `CLAUDE.md` "Key rules": one line: "Outbound HTTP goes only through `cvestream.http` (`trust_env=False`, system trust store, retries live there and nowhere else)."
+  - [x] 11.5 `README.md`: add `docs/sources.md` next to the existing "Design:" link (one line). Keep the "Status" paragraph unchanged (there are still no feeds).
 
-- [ ] **Task 12: Gates (all ACs)**
-  - [ ] 12.1 `uv sync --locked && uv run ruff check && uv run ruff format --check && uv run ty check && uv run lint-imports && uv run pytest` all green; `uv run pytest --collect-only -m live -q tests/contract` lists the live tests and the default run deselects them.
-  - [ ] 12.2 `grep -rn "import httpx\|from httpx" src/` shows only `src/cvestream/http.py` and `src/cvestream/sources/*`.
-  - [ ] 12.3 `docker build --target runtime -t cvestream:local .` then `docker run --rm --entrypoint python cvestream:local -c "import ssl, cvestream.sources.registry; assert ssl.create_default_context().cert_store_stats()['x509_ca'] > 0"` exits 0 (httpx is in the runtime image and the system trust store is populated). If Docker is unavailable, say so in the Completion Notes; do not claim it ran.
+- [x] **Task 12: Gates (all ACs)**
+  - [x] 12.1 `uv sync --locked && uv run ruff check && uv run ruff format --check && uv run ty check && uv run lint-imports && uv run pytest` all green; `uv run pytest --collect-only -m live -q tests/contract` lists the live tests and the default run deselects them.
+  - [x] 12.2 `grep -rn "import httpx\|from httpx" src/` shows only `src/cvestream/http.py` and `src/cvestream/sources/*`.
+  - [x] 12.3 `docker build --target runtime -t cvestream:local .` then `docker run --rm --entrypoint python cvestream:local -c "import ssl, cvestream.sources.registry; assert ssl.create_default_context().cert_store_stats()['x509_ca'] > 0"` exits 0 (httpx is in the runtime image and the system trust store is populated). If Docker is unavailable, say so in the Completion Notes; do not claim it ran.
 
 ## Dev Notes
 
@@ -453,12 +457,55 @@ Recent commits on the base branch: `chore(story-1.2): record code review`, `chor
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+claude-sonnet-5-5
 
 ### Debug Log References
 
+- Gates run from the worktree: `uv sync --locked`, `ruff check`, `ruff format --check`, `ty check`, `lint-imports` (7 contracts kept), `pytest` (414 passed, 2 `live` deselected), `docker build --target runtime` and the `ssl` trust store check (148 CA certificates, exit 0).
+- The two `live` tests (`tests/contract/euvd`, `tests/contract/cisa_kev`) were run once by hand with sockets enabled against the real APIs and passed.
+
 ### Completion Notes List
 
-- Ultimate context engine analysis completed - comprehensive developer guide created.
+- `cvestream/http.py`: `HttpClient` (httpx, `trust_env=False`, `verify=ssl.create_default_context()`, 4 attempts, full-jitter capped backoff, `Retry-After` in seconds or HTTP date up to 60 s, 16 MiB streaming size limit). Retries happen only there; the wrapped client is exposed as `httpx_client` for tests.
+- `sources/base.py`: `Cursor`, `FetchResult`, `SourceAdapter`, the `SourceError` family and `get_json`. Two small shared helpers were added there too (`clean_text`, `parse_calendar_date`) so the two adapters share one placeholder rule instead of duplicating it; there is no `utils.py`.
+- `SourceRecord.epss` added as the last field (`Sourced[float] | None`).
+- `sources/euvd.py`: incremental `/search` paging with the descending-order check, early stop, page cap and de-duplication, plus the full `/kev/dump` on every fetch (`eu_kev` records, `KevCatalog.EU_KEV`). EPSS is `round(percent / 100, 6)` to avoid float noise (`0.46` gives `0.0046`).
+- `sources/cisa_kev.py`: full catalogue load, `Known` gives `True`, anything else `None`, no affected products, `catalogVersion` as the informational cursor.
+- `sources/registry.py`: `build_sources(settings, http, clock)` over `SourcesSettings.model_fields`, factories in the public `ADAPTER_FACTORIES` mapping (a test keeps it in step with the settings; a missing factory raises `LookupError`).
+- Fixtures recorded from the real APIs on 2026-10-26 (provenance in `tests/fixtures/README.md`). Beyond the suggested set: `euvd_total_boundary.json` (recorded page 16 of 51 items, the natural `total` stop) and `euvd_exploited.json` (a record with `exploitedSince`, asserted as ignored).
+- Contract tests cover the cases listed in the story for `http`, `base`, `registry`, EUVD and CISA KEV, with a `live` variant per contract module (deselected by default; `uv run pytest --collect-only -m live -q tests/contract` lists both).
+- Import-linter: `cvestream.http` added to the non-owner lists, parentheses removed in the layers contract. `grep` for `import httpx` in `src/` only finds `src/cvestream/http.py` (the adapters use `HttpClient` only).
+- Docs: `docs/sources.md`, `architecture.md` (Identifiers, Source adapters), `project-context.md`, `CLAUDE.md` and `README.md` amended as listed in Task 11.
+- Deviations from the story text: (1) fixtures `euvd_version_na.json` and `euvd_epss_zero.json` were taken from 2026-10-26 pages, because the closed day 2026-10-20 had no record with a real product and a `-` version nor an `epss` of 0 (documented in the fixtures README); (2) the `total` stop and page-cap tests build synthetic pages by copying a recorded item and changing only its ID and `dateUpdated` (the order check forbids replaying a recorded page).
+- Docker: `docker build --target runtime` succeeded locally and the trust store check passed (httpx is in the runtime image).
 
 ### File List
+
+- `pyproject.toml` (modified)
+- `uv.lock` (modified)
+- `src/cvestream/http.py` (new)
+- `src/cvestream/sources/base.py` (new)
+- `src/cvestream/sources/euvd.py` (new)
+- `src/cvestream/sources/cisa_kev.py` (new)
+- `src/cvestream/sources/registry.py` (new)
+- `src/cvestream/domain/model.py` (modified)
+- `tests/unit/domain/test_model.py` (modified)
+- `tests/unit/test_http.py` (new)
+- `tests/unit/sources/__init__.py` (new)
+- `tests/unit/sources/test_base.py` (new)
+- `tests/unit/sources/test_registry.py` (new)
+- `tests/contract/__init__.py` (new)
+- `tests/contract/euvd/__init__.py` (new)
+- `tests/contract/euvd/test_euvd.py` (new)
+- `tests/contract/cisa_kev/__init__.py` (new)
+- `tests/contract/cisa_kev/test_cisa_kev.py` (new)
+- `tests/fixtures/README.md` (new)
+- `tests/fixtures/euvd/euvd_search_page0.json`, `euvd_search_page1.json`, `euvd_search_last_page.json`, `euvd_no_score.json`, `euvd_total_boundary.json`, `euvd_version_na.json`, `euvd_no_product.json`, `euvd_epss_zero.json`, `euvd_exploited.json`, `euvd_kev_dump.json` (new)
+- `tests/fixtures/cisa_kev/cisa_kev_catalog.json` (new)
+- `docs/sources.md` (new)
+- `README.md`, `CLAUDE.md`, `_bmad-output/planning-artifacts/architecture.md`, `_bmad-output/project-context.md` (modified)
+- `_bmad-output/implementation-artifacts/1-4-euvd-and-kev-ingestion.md`, `_bmad-output/implementation-artifacts/sprint-status.yaml` (modified)
+
+### Change Log
+
+- 2026-10-26: Implemented story 1.4 (outbound HTTP client, adapter contract, EUVD and EU KEV adapter, CISA KEV adapter, registry, recorded fixtures, contract tests, docs) and moved it to review.
