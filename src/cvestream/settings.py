@@ -176,7 +176,15 @@ class _YamlSource(YamlConfigSettingsSource):
     def _read_file(self, file_path: Path | Traversable) -> dict[str, Any]:
         try:
             data = super()._read_file(file_path)
-        except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+        # ValueError: PyYAML constructors reject impossible dates and bad tagged
+        # scalars; RecursionError: pathologically nested documents.
+        except (
+            OSError,
+            UnicodeDecodeError,
+            ValueError,
+            RecursionError,
+            yaml.YAMLError,
+        ) as exc:
             msg = f"settings file {file_path}: cannot parse YAML: {type(exc).__name__}"
             raise SettingsError(msg) from exc
         if not isinstance(data, dict):
