@@ -1,0 +1,273 @@
+"""RSS 2.0 rendering of one endpoint's feed (FR-17, FR-18, FR-24).
+
+Pure and deterministic: no clock, no I/O, no logging, so an unchanged feed
+keeps its ETag and readers get `304`. The document is built with
+`xml.etree.ElementTree`, never by string formatting, and source text is set as
+plain text: the serializer escapes it. Characters XML 1.0 forbids are removed
+first, otherwise no parser would accept the document.
+
+The title says what was published (values recorded at decision time); the body
+shows the current merged data of the vulnerability. Unknown is `unknown`, never
+`0`, `n/a` or an empty string.
+"""
+
+import hashlib
+import re
+import xml.etree.ElementTree as ET
+from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from email.utils import format_datetime
+
+from cvestream.domain.endpoint import Endpoint
+from cvestream.domain.identity import AliasKind, alias_kind
+from cvestream.domain.matcher import PassThrough
+from cvestream.domain.model import KevCatalog, KevEntry, RecordRef, Vulnerability
+from cvestream.domain.publication import KEV, NEW
+from cvestream.domain.severity import Band, band_of, max_score
+
+# RSS 2.0 requires a channel link; the daemon does not know its public base URL.
+CHANNEL_LINK = "https://github.com/wixyvir/cvestream"
+MEDIA_TYPE = "application/rss+xml; charset=utf-8"
+
+UNKNOWN = "unknown"
+_MAX_REFERENCES = 10
+_UPDATE_PREFIX = "[UPDATE] "
+_SOURCE_ORDER = {"euvd": 0, "eu_kev": 1, "cisa_kev": 2}
+_KEV_NAMES = {KevCatalog.CISA_KEV: "CISA KEV", KevCatalog.EU_KEV: "EU KEV"}
+_KEV_ORDER = (KevCatalog.CISA_KEV, KevCatalog.EU_KEV)
+# XML 1.0 `Char` production; also drops lone surrogates.
+_FORBIDDEN = re.compile("[^\t\n\r -퟿-�\U00010000-\U0010ffff]")
+
+
+@dataclass(frozen=True, slots=True)
+class FeedEntry:
+    """One publication of an endpoint, ready to render."""
+
+    guid: str
+    kind: str
+    # Decision-time values (they go in the title).
+    primary_id: str
+    band: Band
+    is_known_exploited: bool
+    products: tuple[str, ...]
+    labels: frozenset[PassThrough]
+    published_at: datetime
+    # Current merged data (it goes in the description).
+    vulnerability: Vulnerability
+
+
+@dataclass(frozen=True, slots=True)
+class RenderedFeed:
+    endpoint_id: str
+    xml: bytes
+    etag: str
+    item_count: int
+    rendered_at: datetime
+    changed_at: datetime
+
+
+def etag_of(xml: bytes) -> str:
+    """Quoted SHA-256 of the document: the only ETag construction site."""
+    return f'"{hashlib.sha256(xml).hexdigest()}"'
+
+
+def _xml_text(value: str) -> str:
+    value = value.replace("\r\n", "\n").replace("\r", "\n")
+    return _FORBIDDEN.sub("", value)
+
+
+def _one_line(value: str) -> str:
+    # Forbidden characters go first: some (`\x0b`, `\x1f`) count as whitespace.
+    return " ".join(_FORBIDDEN.sub("", value).split())
+
+
+def _rfc822(value: datetime) -> str:
+    return format_datetime(value.astimezone(UTC), usegmt=True)
+
+
+def _title(entry: FeedEntry) -> str:
+    product = _one_line(entry.products[0]) if entry.products else UNKNOWN
+    head = f"{entry.primary_id} in {product}"
+    band = entry.band.value
+    exploited = ", known exploited" if entry.is_known_exploited else ""
+    if entry.kind == NEW:
+        return f"{head}: severity {band}{exploited}"
+    if entry.kind == KEV:
+        return f"{_UPDATE_PREFIX}{head}: now known exploited, severity {band}"
+    if entry.kind.startswith("band-"):
+        return f"{_UPDATE_PREFIX}{head}: severity raised to {band}{exploited}"
+    return f"{_UPDATE_PREFIX}{head}: severity {band}{exploited}"
+
+
+def _ordered_records(vulnerability: Vulnerability) -> list[RecordRef]:
+    # Stable: records of one source keep their `record_id` order.
+    return sorted(
+        vulnerability.records,
+        key=lambda r: (_SOURCE_ORDER.get(r.source, len(_SOURCE_ORDER)), r.source),
+    )
+
+
+def _link(records: Sequence[RecordRef]) -> str | None:
+    return next((r.url for r in records if r.url), None)
+
+
+def _ids_line(vulnerability: Vulnerability) -> str:
+    ids: list[str] = []
+    for kind in (AliasKind.CVE, AliasKind.EUVD):
+        ids.extend(sorted(a for a in vulnerability.aliases if alias_kind(a) is kind))
+    return f"IDs: {', '.join(ids) if ids else UNKNOWN}"
+
+
+def _matched_line(entry: FeedEntry) -> str:
+    matched = ", ".join(_one_line(p) for p in entry.products) or UNKNOWN
+    suffix = (
+        " (versions unknown)" if PassThrough.VERSIONS_UNKNOWN in entry.labels else ""
+    )
+    return f"Matched: {matched}{suffix}"
+
+
+def _severity_line(entry: FeedEntry) -> str:
+    score = max_score(entry.vulnerability.scores)
+    band = band_of(score).value
+    if score is None:
+        suffix = (
+            " (no score; let through)"
+            if PassThrough.SCORE_UNKNOWN in entry.labels
+            else ""
+        )
+        return f"Severity: {band}{suffix}"
+    return f"Severity: {band} (highest CVSS {score:.1f})"
+
+
+def _cvss_line(vulnerability: Vulnerability) -> str:
+    parts: list[str] = []
+    for sourced in vulnerability.scores:
+        if sourced.value is None:
+            parts.append(f"{UNKNOWN} ({sourced.source})")
+            continue
+        version = sourced.value.version or UNKNOWN
+        parts.append(f"{sourced.value.score:.1f} (CVSS {version}, {sourced.source})")
+    return f"CVSS: {'; '.join(parts) if parts else UNKNOWN}"
+
+
+def _ransomware(value: bool | None) -> str:
+    if value is None:
+        return UNKNOWN
+    return "known" if value else "no"
+
+
+def _kev_line(vulnerability: Vulnerability) -> str:
+    by_catalog: dict[KevCatalog, bool | None] = {}
+    for sourced in vulnerability.kev:
+        entry: KevEntry = sourced.value
+        known = by_catalog.get(entry.catalog)
+        # One part per catalog; a recorded ransomware use wins over unknown.
+        if entry.catalog not in by_catalog or known is None:
+            by_catalog[entry.catalog] = entry.known_ransomware_use
+        elif entry.known_ransomware_use and not known:
+            by_catalog[entry.catalog] = True
+    if not by_catalog:
+        return "Known exploited: no"
+    parts = [
+        f"{_KEV_NAMES[catalog]} (ransomware use: {_ransomware(by_catalog[catalog])})"
+        for catalog in _KEV_ORDER
+        if catalog in by_catalog
+    ]
+    return f"Known exploited: yes, {', '.join(parts)}"
+
+
+def _affected_line(vulnerability: Vulnerability) -> str:
+    parts: list[str] = []
+    for sourced in vulnerability.affected:
+        affected = sourced.value
+        name = _one_line(affected.product)
+        if affected.vendor:
+            name = f"{_one_line(affected.vendor)} {name}"
+        versions = _one_line(affected.version_text or "") or "versions unknown"
+        part = f"{name} {versions}"
+        if part not in parts:
+            parts.append(part)
+    return f"Affected: {'; '.join(parts) if parts else UNKNOWN}"
+
+
+def _description_line(vulnerability: Vulnerability) -> str:
+    text = (
+        _one_line(vulnerability.descriptions[0].value)
+        if vulnerability.descriptions
+        else ""
+    )
+    return f"Description: {text or UNKNOWN}"
+
+
+def _sources_line(records: Sequence[RecordRef]) -> str:
+    parts = [f"{r.source} {r.url if r.url else r.record_id}" for r in records]
+    return f"Sources: {', '.join(parts) if parts else UNKNOWN}"
+
+
+def _references_line(vulnerability: Vulnerability) -> str | None:
+    urls = list(dict.fromkeys(r.value for r in vulnerability.references))
+    if not urls:
+        return None
+    line = f"References: {', '.join(urls[:_MAX_REFERENCES])}"
+    if len(urls) > _MAX_REFERENCES:
+        line += f" (+{len(urls) - _MAX_REFERENCES} more)"
+    return line
+
+
+def _description(entry: FeedEntry, records: Sequence[RecordRef]) -> str:
+    vulnerability = entry.vulnerability
+    lines = [
+        _ids_line(vulnerability),
+        _matched_line(entry),
+        _severity_line(entry),
+        _cvss_line(vulnerability),
+        _kev_line(vulnerability),
+        _affected_line(vulnerability),
+        _description_line(vulnerability),
+        _sources_line(records),
+    ]
+    references = _references_line(vulnerability)
+    if references is not None:
+        lines.append(references)
+    return "\n".join(lines)
+
+
+def _text(parent: ET.Element, tag: str, value: str) -> ET.Element:
+    element = ET.SubElement(parent, tag)
+    element.text = _xml_text(value)
+    return element
+
+
+def _item(channel: ET.Element, entry: FeedEntry) -> None:
+    records = _ordered_records(entry.vulnerability)
+    item = ET.SubElement(channel, "item")
+    _text(item, "title", _title(entry))
+    link = _link(records)
+    if link is not None:
+        _text(item, "link", link)
+    _text(item, "description", _description(entry, records))
+    guid = _text(item, "guid", entry.guid)
+    guid.set("isPermaLink", "false")
+    _text(item, "pubDate", _rfc822(entry.published_at))
+
+
+def render_feed(endpoint: Endpoint, entries: Sequence[FeedEntry]) -> bytes:
+    """The RSS 2.0 document of `endpoint`; `entries` come newest first."""
+    root = ET.Element("rss", version="2.0")
+    channel = ET.SubElement(root, "channel")
+    _text(channel, "title", f"cvestream: {endpoint.name}")
+    _text(channel, "link", CHANNEL_LINK)
+    _text(
+        channel,
+        "description",
+        f"Vulnerabilities matching the products of {endpoint.name}",
+    )
+    _text(channel, "language", "en")
+    if entries:
+        # The newest item, never the render time: that would change the ETag
+        # at every run.
+        _text(channel, "lastBuildDate", _rfc822(max(e.published_at for e in entries)))
+    for entry in entries:
+        _item(channel, entry)
+    return ET.tostring(root, encoding="utf-8", xml_declaration=True)
