@@ -7,6 +7,10 @@
 # Every key can also be set through the environment: prefix CVESTREAM_, with
 # a double underscore for nesting (log.level -> CVESTREAM_LOG__LEVEL).
 # Environment variables beat this file; values are merged key by key.
+# An unknown top-level CVESTREAM_* variable (for example the typo
+# CVESTREAM_LOG_LEVEL) is ignored for now, while unknown nested keys
+# (CVESTREAM_LOG__LEVL) and unknown keys in this file are rejected. A startup
+# warning for ignored variables is planned.
 #
 # Durations are ISO 8601 in environment variables (PT30M = 30 minutes; a bare
 # number such as 1800 is rejected there). In this file you may write either
