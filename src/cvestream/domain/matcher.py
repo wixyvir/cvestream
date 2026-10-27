@@ -1,0 +1,124 @@
+"""Match a vulnerability against an endpoint (FR-11 to FR-15, FR-24, FR-25).
+
+Recall over precision: unknown data lets the item through with a label, it never
+drops it silently. Matching uses the structured affected-product data and the
+descriptions, case-insensitively on whole words. Titles are never searched.
+"""
+
+import re
+from dataclasses import dataclass
+from enum import StrEnum
+from functools import cache
+
+from cvestream.domain.endpoint import Endpoint, ProductEntry
+from cvestream.domain.model import AffectedProduct, Vulnerability
+from cvestream.domain.severity import max_score
+from cvestream.domain.version import parse_range
+
+
+class PassThrough(StrEnum):
+    """Why an item got through although something could not be checked."""
+
+    VERSIONS_UNKNOWN = "versions_unknown"
+    SCORE_UNKNOWN = "score_unknown"
+
+
+@dataclass(frozen=True, slots=True)
+class ProductMatch:
+    entry: ProductEntry
+    # True: matched affected-product data; False: description only.
+    structured: bool
+    # True only when `entry.min_version` is set and could not be checked.
+    versions_unknown: bool
+
+
+@dataclass(frozen=True, slots=True)
+class MatchResult:
+    endpoint_id: str
+    # `vulnerability.primary_id` at match time (display and logs, not a GUID).
+    vulnerability_id: str
+    # In `endpoint.products` order; `matches[0]` names the item.
+    matches: tuple[ProductMatch, ...]
+    labels: frozenset[PassThrough]
+
+
+@cache
+def _pattern(term: str) -> re.Pattern[str]:
+    words = r"\s+".join(re.escape(word) for word in term.split())
+    return re.compile(rf"(?<!\w){words}(?!\w)", re.IGNORECASE)
+
+
+def _mentions(terms: tuple[str, ...], text: str | None) -> bool:
+    return text is not None and any(_pattern(term).search(text) for term in terms)
+
+
+def _hits(
+    terms: tuple[str, ...], affected: list[AffectedProduct]
+) -> list[AffectedProduct]:
+    return [
+        a for a in affected if _mentions(terms, a.product) or _mentions(terms, a.vendor)
+    ]
+
+
+def _match_entry(
+    entry: ProductEntry,
+    affected: list[AffectedProduct],
+    descriptions: list[str],
+) -> ProductMatch | None:
+    if entry.exclude and (
+        _hits(entry.exclude, affected)
+        or any(_mentions(entry.exclude, d) for d in descriptions)
+    ):
+        return None
+    terms = (entry.name, *entry.aliases)
+    hits = _hits(terms, affected)
+    if not hits and not any(_mentions(terms, d) for d in descriptions):
+        return None
+    if entry.min_version is None:
+        return ProductMatch(entry, structured=bool(hits), versions_unknown=False)
+    if not hits:
+        return ProductMatch(entry, structured=False, versions_unknown=True)
+    # A vendor-only hit carries another product's versions: unusable here.
+    ranges = [
+        parse_range(hit.version_text) if _mentions(terms, hit.product) else None
+        for hit in hits
+    ]
+    if any(r is not None and r.reaches(entry.min_version) for r in ranges):
+        return ProductMatch(entry, structured=True, versions_unknown=False)
+    if any(r is None for r in ranges):
+        return ProductMatch(entry, structured=True, versions_unknown=True)
+    # Every product-name hit has known versions and none reaches the minimum:
+    # structured data wins over a mention in the description.
+    return None
+
+
+def match(vulnerability: Vulnerability, endpoint: Endpoint) -> MatchResult | None:
+    """Match `vulnerability` against `endpoint`; `None` when it does not match."""
+    affected = [a.value for a in vulnerability.affected]
+    descriptions = [d.value for d in vulnerability.descriptions]
+    matches = tuple(
+        m
+        for entry in endpoint.products
+        if (m := _match_entry(entry, affected, descriptions)) is not None
+    )
+    if not matches:
+        return None
+
+    rules = endpoint.rules
+    if rules.kev_only and not vulnerability.is_known_exploited:
+        return None
+    labels: set[PassThrough] = set()
+    if rules.min_cvss is not None:
+        score = max_score(vulnerability.scores)
+        if score is None:
+            labels.add(PassThrough.SCORE_UNKNOWN)
+        elif score < rules.min_cvss:
+            return None
+    if all(m.versions_unknown for m in matches):
+        labels.add(PassThrough.VERSIONS_UNKNOWN)
+    return MatchResult(
+        endpoint_id=endpoint.id,
+        vulnerability_id=vulnerability.primary_id,
+        matches=matches,
+        labels=frozenset(labels),
+    )
