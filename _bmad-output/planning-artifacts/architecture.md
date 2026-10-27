@@ -256,13 +256,14 @@ Not applicable: no UI. RSS is the only output contract.
   - Planning artifacts (brief, PRD, architecture, epics) were committed directly to `main` while bootstrapping the repository.
   - From the first story on, **each story is delivered as one pull request** to `main`, from a branch named `story-<epic>-<story>-<slug>` (no `/` in branch names, e.g. `story-1-1-project-init`).
   - PR title: Conventional Commit style with the story ID (`feat(story-1.1): initialize project skeleton`). The PR description links the story file and ends with the Claude Code attribution line.
+  - The stories of an epic may be delivered as a **linear stack of PRs**: each PR's base is the previous story's branch, and it is retargeted to `main` when its parent merges. `ci.yml` runs on every `pull_request`, whatever its base. A change to a lower PR is propagated by rebasing the upper branches in order (`uv.lock` regenerated with `uv lock`, never merged by hand) and pushing them with `git push --force-with-lease`.
   - Commits inside a PR stay separated by concern and are not squashed.
   - A PR is merged only when `ci.yml` is green. Once story 1 has added CI, `main` is protected: PRs only, required `ci` status check.
 - **GitHub Actions** (versions at decision time: checkout v7.0.1, setup-uv v10.3.2, build-push-action v7.4.0, metadata-action v6.2.0, login-action v4.7.0, setup-buildx-action v4.4.1, setup-qemu-action v4.4.0, attest-build-provenance v4.2.2):
 
 | Workflow | Trigger | Jobs |
 |---|---|---|
-| `ci.yml` | PR, push to `main` | `uv sync --locked` → ruff check + format check → ty → pytest (unit, contract on fixtures, provider tests against a `valkey/valkey:9.1` service) → image build (push `edge` on `main`) |
+| `ci.yml` | PR (any base), push to `main` | `ci` job: `uv sync --locked` → ruff check + format check → ty → import-linter → pytest (unit, contract on fixtures, provider tests against a `valkey/valkey:9.1` service). then build the runtime image (amd64, no push) and smoke-test `--help`, all in the one job, so `ci` stays the only required check and a broken Dockerfile cannot merge. Then `publish` (push to `main`: amd64 + arm64, push `edge` and `sha-<short>`, `packages: write`) |
 | `release.yml` | tag `v*` | tag = `pyproject.toml` version check → multi-arch build → push GHCR → provenance attestation → GitHub Release |
 | `source-drift.yml` | nightly + manual | contract tests against the live APIs; on failure opens/updates an issue labelled `source-drift` |
 
@@ -371,7 +372,7 @@ The "Component boundaries (allowed imports)" list in the Project Structure secti
 - `tests/unit/` mirrors `src/cvestream/`. `tests/contract/<source>/` holds the adapter contract tests. `tests/integration/` covers SQLite and Valkey end to end.
 - `tests/fixtures/<source>/<case>.json|xml` holds payloads recorded from the real APIs, never hand-written. They are named after what they show (`euvd_no_score.json`, `euvd_version_na.json`).
 - Markers: `live` (real network, deselected by default, run by `source-drift.yml`), `valkey` (needs a server).
-- By default, **pytest-socket** blocks the network. HTTP is mocked with respx.
+- By default, **pytest-socket** blocks the network (`--disable-socket --allow-unix-socket`: the asyncio event loop needs a Unix socketpair, TCP and DNS stay blocked). HTTP is mocked with respx.
 
 **Files:** static settings `settings.yaml`, YAML provider `endpoints.yaml`, JSON Schema `schemas/config-v1.json`, Valkey ACLs `deploy/valkey/users.acl`. Docs live in `docs/`. Specs stay in `_bmad-output/`.
 
@@ -433,7 +434,7 @@ The "Component boundaries (allowed imports)" list in the Project Structure secti
 
 **Commits:** Conventional Commits (`feat:`, `fix:`, `chore:`, `docs:`, `test:`, `refactor:`). One concern per commit.
 
-**Branches and PRs:** one story = one branch `story-<epic>-<story>-<slug>` = one PR to `main` (see "Delivery workflow" under Infrastructure & Deployment). No `/` in branch names. No direct pushes to `main` once story 1 is merged.
+**Branches and PRs:** one story = one branch `story-<epic>-<story>-<slug>` = one PR to `main`, or to the previous story's branch when an epic is delivered as a stack of PRs (see "Delivery workflow" under Infrastructure & Deployment). No `/` in branch names. No direct pushes to `main` once story 1 is merged.
 
 ### Enforcement Guidelines
 
@@ -501,7 +502,8 @@ cvestream/
 ├── settings.example.yaml             # static settings, every key documented
 ├── endpoints.example.yaml            # YAML provider example
 ├── .devcontainer/
-│   └── devcontainer.json             # dockerComposeFile: ../compose.yml, service: app
+│   ├── devcontainer.json             # dockerComposeFile: ../compose.yml + compose.devcontainer.yml, service: app
+│   └── compose.devcontainer.yml      # bind-mounts the repository (compose-based devcontainers ignore workspaceMount)
 ├── .github/
 │   ├── dependabot.yml                # uv, github-actions, docker
 │   └── workflows/

@@ -1,0 +1,9 @@
+# Compose-based devcontainers ignore workspaceMount, so the source is
+# bind-mounted here. Relative paths resolve from the first compose file
+# (../compose.yml), i.e. the repository root. The anonymous volume keeps the
+# image's Linux venv from being shadowed by a host .venv.
+services:
+  app:
+    volumes:
+      - .:/app:cached
+      - /app/.venv

@@ -1,0 +1,23 @@
+# Planning and agent tooling
+_bmad/
+_bmad-output/
+.claude/
+.agents/
+
+# VCS, CI and editor config
+.git/
+.github/
+.devcontainer/
+
+# Local environments, caches and runtime files
+.venv/
+**/__pycache__/
+.pytest_cache/
+.ruff_cache/
+.import_linter_cache/
+data/
+settings.yaml
+endpoints.yaml
+
+# README.md, src/, pyproject.toml, uv.lock and .python-version stay in the
+# build context: uv_build needs the readme declared in pyproject.toml.

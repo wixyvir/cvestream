@@ -1,0 +1,43 @@
+# cvestream settings. Copy to settings.yaml (gitignored) and adjust.
+#
+# Lookup: the file named by CVESTREAM_SETTINGS_FILE, else ./settings.yaml.
+# A missing default file is fine; a missing explicit file, invalid YAML or a
+# top level that is not a mapping is an error.
+#
+# Every key can also be set through the environment: prefix CVESTREAM_, with
+# a double underscore for nesting (log.level -> CVESTREAM_LOG__LEVEL).
+# Environment variables beat this file; values are merged key by key.
+# An unknown top-level CVESTREAM_* variable (for example the typo
+# CVESTREAM_LOG_LEVEL) is ignored for now, while unknown nested keys
+# (CVESTREAM_LOG__LEVL) and unknown keys in this file are rejected. A startup
+# warning for ignored variables is planned.
+#
+# Durations are ISO 8601 in environment variables (PT30M = 30 minutes; a bare
+# number such as 1800 is rejected there). In this file you may write either
+# ISO 8601 (PT30M) or a number of seconds (1800).
+#
+# Secrets (none yet) are read from CVESTREAM_<NAME>_FILE variables pointing
+# to a file, nested names included (CVESTREAM_<SECTION>__<NAME>_FILE); setting
+# both CVESTREAM_<NAME> and CVESTREAM_<NAME>_FILE is an error.
+
+log:
+  # Minimum level. One of: debug, info, warning, error.
+  # Env: CVESTREAM_LOG__LEVEL
+  level: info
+  # Output format. One of: json (one object per line), console (human readable).
+  # Env: CVESTREAM_LOG__FORMAT
+  format: json
+
+sources:
+  # Polling settings per source: euvd, cisa_kev.
+  euvd:
+    # Poll this source. Env: CVESTREAM_SOURCES__EUVD__ENABLED
+    enabled: true
+    # Polling interval: greater than 0 and at most 60 minutes (NFR-1).
+    # Env: CVESTREAM_SOURCES__EUVD__INTERVAL
+    interval: PT15M
+  cisa_kev:
+    # Env: CVESTREAM_SOURCES__CISA_KEV__ENABLED
+    enabled: true
+    # Env: CVESTREAM_SOURCES__CISA_KEV__INTERVAL
+    interval: PT15M
