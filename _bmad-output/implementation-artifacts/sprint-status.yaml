@@ -80,7 +80,7 @@ story_location: _bmad-output/implementation-artifacts
 
 development_status:
   epic-1: in-progress
-  1-1-project-skeleton-container-and-ci: in-progress
+  1-1-project-skeleton-container-and-ci: done
   1-2-vulnerability-model-and-matching-engine: backlog
   1-3-endpoint-configuration-in-yaml: backlog
   1-4-euvd-and-kev-ingestion: backlog

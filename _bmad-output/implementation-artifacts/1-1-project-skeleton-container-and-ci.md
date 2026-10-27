@@ -4,7 +4,7 @@ baseline_commit: 20cf3c98f26e2198c6da1aa9ca4d0f40c49f0ae5
 
 # Story 1.1: Project skeleton, container and CI
 
-Status: in-progress
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -86,10 +86,10 @@ so that every following story ships through the same quality gate and runs the s
 
 ### Review Findings
 
-_Code review 2026-10-26 (Blind Hunter, Edge Case Hunter, Acceptance Auditor; branch diff `origin/main...HEAD`). No acceptance criterion is violated; the documented deviations (console `format_exc_info`, runtime copies only `.venv` + `src`, CI split into `ci`/`image`/`publish`) are justified._
+_Code review 2026-10-26 (Blind Hunter, Edge Case Hunter, Acceptance Auditor; branch diff `origin/main...HEAD`). No acceptance criterion is violated; the documented deviations (console `format_exc_info`, runtime copies only `.venv` + `src`, CI split into `ci`/`image`/`publish`, since folded into `ci`/`publish` by decision 1) are justified._
 
-- [ ] [Review][Decision] PR image build is not part of the required `ci` check — architecture.md makes only `ci` the required status check on `main`, and the job named `ci` runs the Python gates only. The `image` job (runtime build + `--help` smoke test) is a separate check, so a PR that breaks the Dockerfile can be merged, and the breakage only shows in `publish` after merge. Options: (1) mark `image` as a second required check in branch protection and say so in architecture.md; (2) fold the image build and smoke test into the `ci` job (one required check, slower job, the `docker` steps need no extra permission); (3) keep as is and accept a post-merge failure. Recommendation: (1). [.github/workflows/ci.yml:41]
-- [ ] [Review][Decision] Top-level environment typos are silently ignored — `CVESTREAM_LOG_LEVEL=debug` (single underscore) or any unknown top-level `CVESTREAM_*` variable is dropped without a word, while unknown YAML keys and unknown nested env keys fail with `extra="forbid"`. An operator typo on a setting (e.g. a future `CVESTREAM_DATADIR`) goes unnoticed. Options: (1) keep pydantic-settings' behaviour and document it in `settings.example.yaml`; (2) reject unknown top-level `CVESTREAM_*` variables in `load_settings` (allow-list `CVESTREAM_SETTINGS_FILE` and the secret `*_FILE` variables), raising `SettingsError`; (3) accept them but log a `config.rejected`-style warning once logging is configured (story 1.6). Recommendation: (2), small and consistent with `extra="forbid"`. [src/cvestream/settings.py:172]
+- [x] [Review][Decision] PR image build is not part of the required `ci` check — architecture.md makes only `ci` the required status check on `main`, and the job named `ci` runs the Python gates only. The `image` job (runtime build + `--help` smoke test) is a separate check, so a PR that breaks the Dockerfile can be merged, and the breakage only shows in `publish` after merge. Options: (1) mark `image` as a second required check in branch protection and say so in architecture.md; (2) fold the image build and smoke test into the `ci` job (one required check, slower job, the `docker` steps need no extra permission); (3) keep as is and accept a post-merge failure. Recommendation: (1). [.github/workflows/ci.yml:41] — resolved 2026-10-27: option (2), the image build and smoke test run in the `ci` job and the `image` job is removed; architecture.md updated
+- [x] [Review][Decision] Top-level environment typos are silently ignored — `CVESTREAM_LOG_LEVEL=debug` (single underscore) or any unknown top-level `CVESTREAM_*` variable is dropped without a word, while unknown YAML keys and unknown nested env keys fail with `extra="forbid"`. An operator typo on a setting (e.g. a future `CVESTREAM_DATADIR`) goes unnoticed. Options: (1) keep pydantic-settings' behaviour and document it in `settings.example.yaml`; (2) reject unknown top-level `CVESTREAM_*` variables in `load_settings` (allow-list `CVESTREAM_SETTINGS_FILE` and the secret `*_FILE` variables), raising `SettingsError`; (3) accept them but log a `config.rejected`-style warning once logging is configured (story 1.6). Recommendation: (2), small and consistent with `extra="forbid"`. [src/cvestream/settings.py:172] — resolved 2026-10-27: option (3), documented in `settings.example.yaml`; the warning is deferred to story 1.6 (`deferred-work.md`)
 - [x] [Review][Patch] `load_settings({})` reads the process environment: `_environ.get() or os.environ` treats an empty mapping as "not given" [src/cvestream/settings.py:188]
 - [x] [Review][Patch] Nested `*_FILE` secrets fail validation: the env source also sees `CVESTREAM_<A>__<B>_FILE` and the nested `extra="forbid"` model rejects `<b>_file` (e.g. a future `CVESTREAM_VALKEY__PASSWORD_FILE`) [src/cvestream/settings.py:80]
 - [x] [Review][Patch] `redact_tokens` crashes on named tuples and struct sequences (`type(value)(generator)` raises `TypeError`, so the log call itself raises); sets are not traversed [src/cvestream/log.py:38]
@@ -398,8 +398,8 @@ claude-sonnet-5-5
 - import-linter: 7 contracts (layers, domain purity, five library ownership rules) all KEPT; a planted `import typer` in `domain` made two contracts BROKEN, then removed.
 - Dockerfile: builder / dev / runtime as designed; one deviation: the runtime stage copies only `/app/.venv` and `/app/src` (architecture: "runtime target holds only `.venv` + `src`") instead of the whole `/app`. Verified locally: `--help` exit 0 (also with no arguments), `uid=999`, no `uv`, ports 8080/9090, volume `/data` writable by UID 999, `/app` root-owned, `docker build --target dev` works and has ruff and pytest.
 - `.dockerignore` also excludes `.import_linter_cache/`.
-- CI: split into `ci` (required check), `image` (pull requests: build + `--help` smoke test, `contents: read`) and `publish` (push to `main`: amd64 + arm64, `edge` + `sha-<short>`, `packages: write`) for strict least privilege. All Action SHAs were re-checked against the tags with `gh api`.
-- Architecture amendments in the same PR: `.devcontainer/compose.devcontainer.yml` in the tree, the `ci`/`image`/`publish` jobs, `--allow-unix-socket`; `project-context.md` pins pytest-socket 0.8.1.
+- CI: split into `ci` (required check; since review decision 1 it also builds the runtime image and runs the `--help` smoke test, which first lived in a separate `image` job) and `publish` (push to `main`: amd64 + arm64, `edge` + `sha-<short>`, `packages: write`) for strict least privilege. All Action SHAs were re-checked against the tags with `gh api`.
+- Architecture amendments in the same PR: `.devcontainer/compose.devcontainer.yml` in the tree, the `ci`/`publish` jobs, `--allow-unix-socket`; `project-context.md` pins pytest-socket 0.8.1.
 - Local gates: `uv sync --locked`, ruff check, ruff format --check, ty check, lint-imports, pytest and `docker build --target runtime` all green. CI result is recorded on the pull request.
 
 ### File List
@@ -435,3 +435,4 @@ claude-sonnet-5-5
 - 2026-10-26: Implemented story 1.1 (project skeleton, tooling, cross-cutting modules, container, dev loop, CI, Dependabot, docs). Status set to review.
 - 2026-10-26: Fixed CLI help assertions that failed under CI color output.
 - 2026-10-26: Code review: 7 patches applied (settings env isolation, nested `*_FILE` secrets, YAML errors as `SettingsError`, redaction crash and coverage, domain purity test, CLI exit code), 6 items deferred to `deferred-work.md`, 2 decisions pending. Status set to in-progress.
+- 2026-10-27: Review decisions settled: image build and smoke test folded into the `ci` job (option 2); unknown top-level `CVESTREAM_*` variables documented as ignored, warning deferred to story 1.6 (option 3). Status set to done.
