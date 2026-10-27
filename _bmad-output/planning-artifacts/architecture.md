@@ -263,7 +263,7 @@ Not applicable: no UI. RSS is the only output contract.
 
 | Workflow | Trigger | Jobs |
 |---|---|---|
-| `ci.yml` | PR (any base), push to `main` | `ci` job: `uv sync --locked` → ruff check + format check → ty → import-linter → pytest (unit, contract on fixtures, provider tests against a `valkey/valkey:9.1` service). Then `image` (PR: build the runtime image, no push, `--help` smoke test, `contents: read`) or `publish` (push to `main`: amd64 + arm64, push `edge` and `sha-<short>`, `packages: write`) |
+| `ci.yml` | PR (any base), push to `main` | `ci` job: `uv sync --locked` → ruff check + format check → ty → import-linter → pytest (unit, contract on fixtures, provider tests against a `valkey/valkey:9.1` service). then build the runtime image (amd64, no push) and smoke-test `--help`, all in the one job, so `ci` stays the only required check and a broken Dockerfile cannot merge. Then `publish` (push to `main`: amd64 + arm64, push `edge` and `sha-<short>`, `packages: write`) |
 | `release.yml` | tag `v*` | tag = `pyproject.toml` version check → multi-arch build → push GHCR → provenance attestation → GitHub Release |
 | `source-drift.yml` | nightly + manual | contract tests against the live APIs; on failure opens/updates an issue labelled `source-drift` |
 
