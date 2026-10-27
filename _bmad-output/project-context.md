@@ -23,7 +23,7 @@ _Versions verified online on 2026-10-26 (architecture.md). Before adding any dep
 - **Python 3.14** (`.python-version`, `requires-python`). Annotations are deferred by default: never add `from __future__ import annotations`. Python 3.15 is deferred.
 - **uv 0.13.5** manages the project. This project uses uv, **not poetry** (this overrides any global poetry preference). Use `uv add`, `uv sync --locked` and `uv run`. Never `pip install`, never edit `uv.lock` by hand. Build backend `uv_build`, `src/cvestream/` layout, console script `cvestream`.
 - **Runtime:** pydantic 2.14 · pydantic-settings 2.16 · SQLAlchemy 2.1.6 (**Core only, no ORM**, sync engine) · Alembic 1.20.1 (configured in code, no `alembic.ini`) · valkey-py 6.2.0 (server `valkey/valkey:9.1`) · Starlette 1.10.0 · uvicorn 0.54.0 · httpx 0.28.1 (pinned `>=0.28,<1`) · Typer 0.27.3 · structlog 26.1 · packaging (version comparison, the only third-party import allowed in `domain`) · feedparser `<to pin>`
-- **Dev:** ruff 0.17.2 · ty 0.0.92 (beta; fallback mypy 2.4.0 in the same CI step) · import-linter 2.15 · pytest 9.1.1 + anyio plugin · respx 0.23.1 · pytest-socket `<to pin>` · watchfiles 1.3.0
+- **Dev:** ruff 0.17.2 · ty 0.0.92 (beta; fallback mypy 2.4.0 in the same CI step) · import-linter 2.15 · pytest 9.1.1 + anyio plugin · respx 0.23.1 · pytest-socket 0.8.1 · watchfiles 1.3.0
 - **Images:** builder `ghcr.io/astral-sh/uv:<pinned>-python3.14-trixie-slim`, runtime `python:3.14-slim-trixie`. Always pin exact tags, never `latest`. Third-party GitHub Actions are pinned by commit SHA, with the version in a comment.
 - **Rejected, do not introduce:** FastAPI, Granian, APScheduler, aiohttp (fallback only if httpx breaks), `redis`, `valkey-glide`, SQLAlchemy ORM, the Valkey JSON module, Litestream, Helm, NVD as a source.
 - **PostgreSQL later:** it will be an optional `psycopg` extra plus a URL change. Never write code that works only on SQLite.
@@ -86,7 +86,7 @@ _Versions verified online on 2026-10-26 (architecture.md). Before adding any dep
 
 - **Layout:** `tests/unit/` mirrors `src/cvestream/` · `tests/contract/<source>/` holds adapter contract tests · `tests/integration/` covers flows across SQLite and Valkey · `tests/fixtures/<source>/<case>.json|xml`.
 - **Fixtures are recorded from the real APIs, never hand-written.** Name them after what they show (`euvd_no_score.json`, `euvd_version_na.json`). Every adapter change adds or updates a fixture. Raw payloads kept 30 days in state are the capture source.
-- **Network blocked by default** (pytest-socket). Mock HTTP with respx. Real network only under the `live` marker.
+- **Network blocked by default** (pytest-socket, with `--allow-unix-socket` so anyio tests can run). Mock HTTP with respx. Real network only under the `live` marker.
 - **Markers:** `live` (deselected by default, run nightly by `source-drift.yml`), `valkey` (needs a server; CI provides a `valkey/valkey:9.1` service).
 - **Async tests** use the anyio pytest plugin, not pytest-asyncio.
 - **No real time, no sleeps:** use `FakeClock` and injected randomness from `tests/conftest.py`, which also provides the tmp SQLite and provider fixtures.
