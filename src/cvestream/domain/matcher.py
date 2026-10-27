@@ -78,13 +78,17 @@ def _match_entry(
         return ProductMatch(entry, structured=bool(hits), versions_unknown=False)
     if not hits:
         return ProductMatch(entry, structured=False, versions_unknown=True)
-    ranges = [parse_range(hit.version_text) for hit in hits]
+    # A vendor-only hit carries another product's versions: unusable here.
+    ranges = [
+        parse_range(hit.version_text) if _mentions(terms, hit.product) else None
+        for hit in hits
+    ]
     if any(r is not None and r.reaches(entry.min_version) for r in ranges):
         return ProductMatch(entry, structured=True, versions_unknown=False)
     if any(r is None for r in ranges):
         return ProductMatch(entry, structured=True, versions_unknown=True)
-    # Every version is known and none reaches the minimum: structured data wins
-    # over a mention in the description.
+    # Every product-name hit has known versions and none reaches the minimum:
+    # structured data wins over a mention in the description.
     return None
 
 
