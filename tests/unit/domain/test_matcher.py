@@ -274,6 +274,35 @@ def test_mixed_hits_none_reaching_one_unparseable_is_unknown(
     assert result.matches[0].versions_unknown is True
 
 
+REDIS_7 = ProductEntry(name="redis", min_version=Version("7.0"))
+
+
+@pytest.mark.parametrize(
+    ("products", "versions_unknown"),
+    [
+        ([("RediSearch", "Redis", "2.0 <2.8.10")], True),
+        (
+            [("RediSearch", "Redis", "2.0 <2.8.10"), ("Redis", "Redis", "7.0 <7.2.5")],
+            False,
+        ),
+        (
+            [("RediSearch", "Redis", "2.0 <2.8.10"), ("Redis", "Redis", "6.0 <6.2.14")],
+            True,
+        ),
+    ],
+    ids=["vendor-only", "product-reaching", "product-below"],
+)
+def test_vendor_only_hit_versions_are_unusable(
+    make_vulnerability: VulnerabilityFactory,
+    products: list[tuple[str, str, str]],
+    versions_unknown: bool,
+) -> None:
+    result = match(make_vulnerability(products=products), _endpoint(REDIS_7))
+    assert result is not None
+    assert result.matches[0].structured is True
+    assert result.matches[0].versions_unknown is versions_unknown
+
+
 def test_structured_versions_win_over_a_description_mention(
     make_vulnerability: VulnerabilityFactory,
 ) -> None:
