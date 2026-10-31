@@ -85,7 +85,7 @@ development_status:
   1-3-endpoint-configuration-in-yaml: done
   1-4-euvd-and-kev-ingestion: done
   1-5-correlation-state-and-publication-decisions: done
-  1-6-feeds-served-by-the-daemon: in-progress
+  1-6-feeds-served-by-the-daemon: done
   epic-1-retrospective: optional
 
   epic-2: backlog
