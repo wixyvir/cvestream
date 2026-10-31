@@ -358,13 +358,21 @@ class EuvdAdapter:
         )
 
     def _start(self, cursor: Cursor | None, now: datetime) -> datetime:
-        if cursor is not None:
-            start = _decode_cursor(cursor)
-            if start is not None and start <= now:
-                return start
+        floor = now - INITIAL_WINDOW
+        if cursor is None:
+            return floor
+        start = _decode_cursor(cursor)
+        if start is None or start > now:
             # Unparseable, naive, or in the future (it would skip every record).
             log.warning("source.cursor_invalid", source=NAME)
-        return now - INITIAL_WINDOW
+            return floor
+        if start < floor:
+            # A backlog older than the feed window (long outage) would exceed
+            # MAX_PAGES on every fetch and stall the source for good: restart
+            # from the window, losing older updates exactly like a first run.
+            log.warning("source.cursor_clamped", source=NAME)
+            return floor
+        return start
 
     async def _fetch_kev(self, observed_at: datetime) -> tuple[list[SourceRecord], int]:
         data = await get_json(self._http, NAME, f"{BASE_URL}/kev/dump")
