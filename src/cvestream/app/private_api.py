@@ -6,6 +6,7 @@ body. Errors are `{"error": {"code", "message"}}`; success has no envelope.
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 
 from starlette.applications import Starlette
 from starlette.exceptions import HTTPException
@@ -20,6 +21,18 @@ from cvestream.clock import Clock
 STALE_AFTER_INTERVALS = 3
 
 
+class SourceActivity(StrEnum):
+    """What a source loop is doing right now."""
+
+    # Waiting for its next fetch (or not started yet).
+    IDLE = "idle"
+    FETCHING = "fetching"
+    # Fetched (or failed); waiting for the pipeline run that carries it.
+    PROCESSING = "processing"
+    # The loop crashed; the supervisor restarts it at `next_fetch_at`.
+    CRASHED = "crashed"
+
+
 @dataclass
 class SourceStatus:
     """Mutated only on the event loop."""
@@ -30,6 +43,20 @@ class SourceStatus:
     last_error_type: str | None = None
     last_error_at: datetime | None = None
     cursor: str | None = None
+    activity: SourceActivity = SourceActivity.IDLE
+    activity_since: datetime | None = None
+    # Set only while `idle` or `crashed`.
+    next_fetch_at: datetime | None = None
+
+    def enter(
+        self,
+        activity: SourceActivity,
+        now: datetime,
+        next_fetch_at: datetime | None = None,
+    ) -> None:
+        self.activity = activity
+        self.activity_since = now
+        self.next_fetch_at = next_fetch_at
 
 
 @dataclass
@@ -50,6 +77,10 @@ class RuntimeStatus:
 
 def _iso(value: datetime) -> str:
     return value.astimezone(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _iso_or_none(value: datetime | None) -> str | None:
+    return _iso(value) if value is not None else None
 
 
 def _error(status_code: int, code: str, message: str) -> JSONResponse:
@@ -86,6 +117,9 @@ def build_private_app(
         now = clock.now()
         sources = {
             name: {
+                "activity": source.activity.value,
+                "activity_since": _iso_or_none(source.activity_since),
+                "next_fetch_at": _iso_or_none(source.next_fetch_at),
                 "interval_seconds": int(source.interval.total_seconds()),
                 "last_success_at": (
                     _iso(source.last_success_at) if source.last_success_at else None

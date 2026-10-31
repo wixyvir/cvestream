@@ -7,7 +7,7 @@ import pytest
 from structlog.testing import capture_logs
 
 from cvestream.app.feed_cache import FeedCacheHolder
-from cvestream.app.private_api import RuntimeStatus, SourceStatus
+from cvestream.app.private_api import RuntimeStatus, SourceActivity, SourceStatus
 from cvestream.app.scheduler import (
     CRASH_BACKOFF_CAP,
     JITTER,
@@ -191,6 +191,78 @@ async def test_a_successful_fetch_is_applied_and_recorded(
     assert cached is not None
     assert cached.item_count == 1
     assert len(_events(logs, "cycle.summary")) == 1
+
+
+class _Recorder:
+    """An adapter wrapper that records the source activity seen while fetching."""
+
+    def __init__(self, adapter: _Adapter, status: RuntimeStatus) -> None:
+        self.name = adapter.name
+        self._adapter = adapter
+        self._status = status
+        self.seen: list[SourceActivity] = []
+
+    async def fetch(self, cursor: str | None) -> FetchResult:
+        self.seen.append(self._status.sources[self.name].activity)
+        return await self._adapter.fetch(cursor)
+
+
+@pytest.mark.anyio
+async def test_the_source_activity_follows_the_loop(
+    state: State,
+    worker: PipelineWorker,
+    status: RuntimeStatus,
+    clock: FakeClock,
+) -> None:
+    recorder = _Recorder(_Adapter("euvd", _result(clock)), status)
+    seen_while_sleeping: list[tuple[SourceActivity, object, object]] = []
+
+    async def sleep(_delay: float) -> None:
+        source = status.sources["euvd"]
+        seen_while_sleeping.append(
+            (source.activity, source.activity_since, source.next_fetch_at)
+        )
+        raise _Stop
+
+    await _run_loop(
+        ScheduledSource(recorder, INTERVAL),
+        worker,
+        state,
+        status,
+        clock,
+        iterations=1,
+        random=lambda: 0.5,
+        sleep=sleep,
+    )
+    assert recorder.seen == [SourceActivity.FETCHING]
+    # Idle until the next fetch: the interval plus the jitter actually drawn.
+    next_fetch = START + INTERVAL * (1 + JITTER * 0.5)
+    assert seen_while_sleeping == [(SourceActivity.IDLE, START, next_fetch)]
+
+
+@pytest.mark.anyio
+async def test_the_source_is_processing_while_its_run_is_pending(
+    state: State,
+    status: RuntimeStatus,
+    clock: FakeClock,
+) -> None:
+    seen: list[SourceActivity] = []
+
+    class _Worker:
+        async def submit(self, _outcome: SourceOutcome) -> bool:
+            seen.append(status.sources["euvd"].activity)
+            return True
+
+    adapter = _Adapter("euvd", _result(clock))
+    await _run_loop(
+        _scheduled(adapter),
+        _Worker(),  # ty: ignore[invalid-argument-type]
+        state,
+        status,
+        clock,
+        iterations=1,
+    )
+    assert seen == [SourceActivity.PROCESSING]
 
 
 @pytest.mark.anyio
@@ -585,13 +657,17 @@ def test_a_crashing_source_never_restarts_more_often_than_it_polls(
 async def test_every_crash_is_handed_to_on_crash() -> None:
     stop = asyncio.Event()
     sleeps = _Sleeps(stop, 3)
-    crashes: list[Exception] = []
+    crashes: list[tuple[type[Exception], float]] = []
 
     async def loop(_done: Callable[[], None]) -> None:
         raise RuntimeError("bug")
 
-    await supervise("euvd", loop, sleep=sleeps, stop=stop, on_crash=crashes.append)
-    assert [type(error) for error in crashes] == [RuntimeError] * 3
+    def on_crash(error: Exception, retry_in: float) -> None:
+        crashes.append((type(error), retry_in))
+
+    await supervise("euvd", loop, sleep=sleeps, stop=stop, on_crash=on_crash)
+    # Each crash is handed over with the wait before its restart.
+    assert crashes == [(RuntimeError, 1.0), (RuntimeError, 2.0), (RuntimeError, 4.0)]
 
 
 def test_a_crash_is_recorded_as_the_last_error(
@@ -600,10 +676,13 @@ def test_a_crash_is_recorded_as_the_last_error(
     status.sources["euvd"] = SourceStatus("euvd", INTERVAL)
     clock.advance(timedelta(minutes=5))
     with capture_logs() as logs:
-        record_crash(status, "euvd", clock, RuntimeError("bug"))
+        record_crash(status, "euvd", clock, RuntimeError("bug"), 4.0)
     source = status.sources["euvd"]
     assert source.last_error_type == "RuntimeError"
     assert source.last_error_at == clock.now()
+    assert source.activity is SourceActivity.CRASHED
+    assert source.activity_since == clock.now()
+    assert source.next_fetch_at == clock.now() + timedelta(seconds=4)
     assert not _events(logs, "source.stale")
 
 
@@ -613,7 +692,7 @@ def test_a_source_that_keeps_crashing_becomes_stale(
     status.sources["euvd"] = SourceStatus("euvd", INTERVAL)
     clock.advance(3 * INTERVAL + timedelta(seconds=1))
     with capture_logs() as logs:
-        record_crash(status, "euvd", clock, RuntimeError("bug"))
+        record_crash(status, "euvd", clock, RuntimeError("bug"), 4.0)
     (stale,) = _events(logs, "source.stale")
     assert stale["log_level"] == "warning"
     assert stale["source"] == "euvd"
@@ -623,7 +702,7 @@ def test_a_source_that_keeps_crashing_becomes_stale(
 def test_a_crash_of_an_unknown_source_is_ignored(
     status: RuntimeStatus, clock: FakeClock
 ) -> None:
-    record_crash(status, "euvd", clock, RuntimeError("bug"))
+    record_crash(status, "euvd", clock, RuntimeError("bug"), 4.0)
     assert status.sources == {}
 
 

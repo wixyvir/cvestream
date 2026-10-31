@@ -6,7 +6,12 @@ import httpx
 import pytest
 
 from cvestream.app.feed_cache import FeedCache, FeedCacheHolder
-from cvestream.app.private_api import RuntimeStatus, SourceStatus, build_private_app
+from cvestream.app.private_api import (
+    RuntimeStatus,
+    SourceActivity,
+    SourceStatus,
+    build_private_app,
+)
 from cvestream.config.provider import ConfigSnapshot
 from cvestream.domain.endpoint import Endpoint, ProductEntry
 from cvestream.pipeline.render import RenderedFeed, etag_of, render_feed
@@ -113,12 +118,18 @@ async def test_status_shape(
         ),
         cursor="2026-10-26T11:00:00Z",
     )
+    status.sources["euvd"].enter(
+        SourceActivity.IDLE, START, START + timedelta(minutes=15)
+    )
     status.sources["cisa_kev"] = SourceStatus("cisa_kev", timedelta(hours=1))
     response = await client.get("/status")
     assert response.status_code == 200
     assert response.json() == {
         "sources": {
             "euvd": {
+                "activity": "idle",
+                "activity_since": "2026-10-26T12:00:00Z",
+                "next_fetch_at": "2026-10-26T12:15:00Z",
                 "interval_seconds": 900,
                 "last_success_at": "2026-10-26T11:55:00Z",
                 "last_error": {
@@ -129,6 +140,9 @@ async def test_status_shape(
                 "stale": False,
             },
             "cisa_kev": {
+                "activity": "idle",
+                "activity_since": None,
+                "next_fetch_at": None,
                 "interval_seconds": 3600,
                 "last_success_at": None,
                 "last_error": None,

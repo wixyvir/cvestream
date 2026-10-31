@@ -63,6 +63,9 @@ No envelope. Datetimes are ISO 8601 with `Z`. No token and no feed path appears 
 {
   "sources": {
     "euvd": {
+      "activity": "idle",
+      "activity_since": "2026-10-26T20:15:02Z",
+      "next_fetch_at": "2026-10-26T20:31:20Z",
       "interval_seconds": 900,
       "last_success_at": "2026-10-26T20:15:00Z",
       "last_error": {"type": "SourceTransportError", "at": "2026-10-26T20:00:00Z"},
@@ -76,8 +79,15 @@ No envelope. Datetimes are ISO 8601 with `Z`. No token and no feed path appears 
 }
 ```
 
+- `activity` says what the source loop is doing now, since `activity_since`:
+  - `fetching`: a fetch is running (an EUVD first fetch pages for several minutes);
+  - `processing`: the fetch is over, successful or not, and its pipeline run is pending or running;
+  - `idle`: waiting for the next fetch at `next_fetch_at` (the interval plus jitter); also the state before the first fetch, with `activity_since` `null`;
+  - `crashed`: the loop crashed and the supervisor restarts it at `next_fetch_at`.
+
+  `next_fetch_at` is `null` unless the source is `idle` or `crashed`. With `last_success_at` `null`, `fetching` tells a first fetch still in progress from one that never started.
 - `stale` is true when the source has had no success for more than three intervals; for a source that has not succeeded yet, the time is counted from the start of the daemon. The daemon logs `source.stale` (warning) at the same moment.
-- `last_success_at` and `last_error` live in memory: they are lost at restart. `last_error` keeps the last failure (a `SourceError`, or the exception type of a crash of the source loop), even after the source recovered.
+- `activity`, `last_success_at` and `last_error` live in memory: they are lost at restart. `last_error` keeps the last failure (a `SourceError`, or the exception type of a crash of the source loop), even after the source recovered.
 - `endpoints` lists the enabled endpoints. `last_render_at` is `null` for an endpoint that no run has rendered yet.
 
 ## Logs

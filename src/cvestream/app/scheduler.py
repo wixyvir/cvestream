@@ -19,7 +19,7 @@ from datetime import datetime, timedelta
 import structlog
 
 from cvestream.app.feed_cache import FeedCache, FeedCacheHolder
-from cvestream.app.private_api import RuntimeStatus, SourceStatus
+from cvestream.app.private_api import RuntimeStatus, SourceActivity, SourceStatus
 from cvestream.clock import Clock
 from cvestream.config.provider import ConfigProvider, ConfigSnapshot
 from cvestream.pipeline.run import CycleResult, SourceOutcome, cycle, load_cursors
@@ -186,6 +186,7 @@ async def source_loop(
     interval = scheduled.interval
     source = status.sources.setdefault(name, SourceStatus(name, interval))
     while True:
+        source.enter(SourceActivity.FETCHING, clock.now())
         # Always the stored cursor: a rolled-back run must not advance it.
         cursor = (await asyncio.to_thread(load_cursors, state)).get(name)
         source.cursor = cursor
@@ -193,6 +194,7 @@ async def source_loop(
         if outcome.result is None:
             source.last_error_type = outcome.error_type
             source.last_error_at = clock.now()
+        source.enter(SourceActivity.PROCESSING, clock.now())
         committed = await worker.submit(outcome)
         if committed and outcome.result is not None:
             source.last_success_at = clock.now()
@@ -200,7 +202,10 @@ async def source_loop(
                 source.cursor = outcome.result.next_cursor
         if not committed or outcome.result is None:
             _warn_if_stale(status, source, clock)
-        await sleep(interval.total_seconds() * (1 + JITTER * random()))
+        delay = interval.total_seconds() * (1 + JITTER * random())
+        now = clock.now()
+        source.enter(SourceActivity.IDLE, now, now + timedelta(seconds=delay))
+        await sleep(delay)
         iteration_done()
 
 
@@ -219,18 +224,21 @@ def crash_backoff_cap(interval: timedelta) -> float:
 
 
 def record_crash(
-    status: RuntimeStatus, name: str, clock: Clock, error: Exception
+    status: RuntimeStatus, name: str, clock: Clock, error: Exception, retry_in: float
 ) -> None:
     """A crashed loop did not succeed either: record it, warn when stale.
 
     The supervisor calls it, so a source that keeps crashing still shows its
-    error in `/status` and still logs `source.stale`.
+    error and its restart time (`retry_in` seconds from now) in `/status` and
+    still logs `source.stale`.
     """
     source = status.sources.get(name)
     if source is None:
         return
+    now = clock.now()
     source.last_error_type = type(error).__name__
-    source.last_error_at = clock.now()
+    source.last_error_at = now
+    source.enter(SourceActivity.CRASHED, now, now + timedelta(seconds=retry_in))
     _warn_if_stale(status, source, clock)
 
 
@@ -240,7 +248,7 @@ async def supervise(
     *,
     sleep: Sleep,
     stop: asyncio.Event,
-    on_crash: Callable[[Exception], None] | None = None,
+    on_crash: Callable[[Exception, float], None] | None = None,
     cap: float = CRASH_BACKOFF_CAP,
 ) -> None:
     """Run a source loop; restart it after a capped exponential backoff.
@@ -248,7 +256,8 @@ async def supervise(
     `cap` is the longest wait (see `crash_backoff_cap`).
     `loop_factory(iteration_done)` builds the loop. The loop calls
     `iteration_done()` after each completed iteration, which resets the backoff.
-    `on_crash(error)` runs after each logged crash (see `record_crash`).
+    `on_crash(error, retry_in)` runs after each logged crash, with the wait
+    before the restart (see `record_crash`).
     """
     backoff = CRASH_BACKOFF_BASE
 
@@ -264,7 +273,7 @@ async def supervise(
         except Exception as exc:
             log.error("source.crashed", source=name, exc_info=True)
             if on_crash is not None:
-                on_crash(exc)
+                on_crash(exc, backoff)
             await sleep(backoff)
             backoff = min(backoff * 2, cap)
         else:

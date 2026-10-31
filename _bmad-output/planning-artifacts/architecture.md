@@ -239,7 +239,7 @@ Rules (story 1.6): every enabled endpoint is rendered at every run, inside the r
 | public | `GET`/`HEAD /feeds/{token}.xml` | `application/rss+xml; charset=utf-8`, `ETag`, `Last-Modified`, `304`, `Cache-Control: max-age=300`, unknown token → `404` |
 | private | `/healthz` | liveness (event loop responds) |
 | private | `/readyz` | configuration loaded from the provider and state store open; independent of sources |
-| private | `/status` | JSON: per source last success/error/cursor; per endpoint item count, last render |
+| private | `/status` | JSON: per source activity (`idle`, `fetching`, `processing`, `crashed`) with its start and the next fetch, last success/error, cursor; per endpoint item count, last render |
 
 - **Source adapters:** `SourceAdapter` protocol (`name`, `async fetch(cursor) -> FetchResult(records, next_cursor)`). Built-in: `euvd`, `cert_eu`, `certfr_alerte`, `cisa_kev`. Generic `rss` and `json` adapters (FR-5) configured in static settings (URL, ID path or regex, text fields, CVE regex). Sequential pages, short pauses, exponential backoff. The cursor is an opaque string owned by the adapter (`next_cursor` comes from source data, never from the local clock; the fetch time only caps it, so a future-dated source record cannot park it ahead). The `euvd` adapter also loads `/api/kev/dump` in full on every fetch and emits `eu_kev` records (an EU KEV addition does not change `dateUpdated`).
 - **Error taxonomy:** `SourceTransportError`, `SourcePayloadError`, `SourceContractError` (source level: logged, cursor not advanced, others continue). Record-level failure: skipped and counted. Invalid config: last valid kept. Unexpected exception in a loop: supervisor logs and restarts the loop with backoff. The process never crashes because of a source.
@@ -431,7 +431,7 @@ The "Component boundaries (allowed imports)" list in the Project Structure secti
 
 **Testability:** time comes from an injected `Clock`, never from calling `datetime.now()` directly. Randomness (tokens, jitter) comes from injectable functions.
 
-**Staleness (replaces "loading states", since there's no UI):** each source exposes `last_success_at` and `last_error` in `/status`. A `source.stale` warning is logged when `now - last_success_at > 3 × interval`.
+**Staleness (replaces "loading states", since there's no UI):** each source exposes `last_success_at` and `last_error` in `/status`, plus its current `activity` (`idle`, `fetching`, `processing`, `crashed`), `activity_since` and `next_fetch_at`, so a long first fetch is told apart from a source that never ran. A `source.stale` warning is logged when `now - last_success_at > 3 × interval`.
 
 **Typing:** all public functions are fully annotated. Don't add `from __future__ import annotations` (annotations are deferred by default in Python 3.14). `ty check` passes in CI.
 
