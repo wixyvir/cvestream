@@ -227,7 +227,7 @@ cvestream:v1:token:{id}               feed token (plaintext; own namespace so co
   - `cvestream poll --once` runs one cycle and exits. SIGTERM: stop loops, finish the current pipeline run, stop servers.
 - **Startup behaviour:** migrate the state store → start the private listener (`/healthz` OK, `/readyz` not ready) → load the configuration from the provider. With the Valkey provider, the daemon **only runs if Valkey is available**: it retries with backoff for `valkey.startup_timeout` (default 60 s), then exits with code 3 and logs `config.unavailable`. Nothing is persisted as a fallback. Once the configuration is loaded: start the source loops and the public listener, `/readyz` becomes ready.
 - **Valkey outage while running:** the in-memory last valid configuration keeps being used, polling and feeds continue, and each pipeline run logs a `config.unavailable` warning until Valkey is back.
-- **First run:** the initial cursor for each source is now − 14 days (the feed window), so the 7-day backfill (FR-16) works from day one. KEV dumps are loaded in full.
+- **First run:** the initial cursor for each source is now − 14 days (the feed window), so the 7-day backfill (FR-16) works from day one. KEV dumps are loaded in full. An incremental cursor older than the feed window (long outage) is clamped to now − 14 days with a `source.cursor_clamped` warning, so a backlog never exceeds the page cap and the source heals itself.
 - **Libraries:** Starlette 1.10.0, uvicorn 0.54.0, httpx 0.28.1 (pinned `>=0.28,<1`, wrapped in `cvestream.http`; httpx 1.0 is in development), Typer 0.27.3, watchfiles 1.3.0 (dev reload). Rejected: FastAPI (OpenAPI unnecessary), Granian (hard to embed), APScheduler (unnecessary), aiohttp (kept as a fallback for httpx).
 - **Routes:**
 
@@ -238,7 +238,7 @@ cvestream:v1:token:{id}               feed token (plaintext; own namespace so co
 | private | `/readyz` | configuration loaded from the provider and state store open; independent of sources |
 | private | `/status` | JSON: per source last success/error/cursor; per endpoint item count, last render |
 
-- **Source adapters:** `SourceAdapter` protocol (`name`, `async fetch(cursor) -> FetchResult(records, next_cursor)`). Built-in: `euvd`, `cert_eu`, `certfr_alerte`, `cisa_kev`. Generic `rss` and `json` adapters (FR-5) configured in static settings (URL, ID path or regex, text fields, CVE regex). Sequential pages, short pauses, exponential backoff.
+- **Source adapters:** `SourceAdapter` protocol (`name`, `async fetch(cursor) -> FetchResult(records, next_cursor)`). Built-in: `euvd`, `cert_eu`, `certfr_alerte`, `cisa_kev`. Generic `rss` and `json` adapters (FR-5) configured in static settings (URL, ID path or regex, text fields, CVE regex). Sequential pages, short pauses, exponential backoff. The cursor is an opaque string owned by the adapter (`next_cursor` comes from source data, never from the local clock; the fetch time only caps it, so a future-dated source record cannot park it ahead). The `euvd` adapter also loads `/api/kev/dump` in full on every fetch and emits `eu_kev` records (an EU KEV addition does not change `dateUpdated`).
 - **Error taxonomy:** `SourceTransportError`, `SourcePayloadError`, `SourceContractError` (source level: logged, cursor not advanced, others continue). Record-level failure: skipped and counted. Invalid config: last valid kept. Unexpected exception in a loop: supervisor logs and restarts the loop with backoff. The process never crashes because of a source.
 - **CLI (Typer):** `run`, `poll --once`, `healthcheck [--ready]`, `endpoint create|list|show|edit|delete`, `product add|remove|list`, `token rotate`, `config validate|schema|export|import`, `db migrate|backup`.
 - **`cvestream healthcheck`:** calls `http://127.0.0.1:9090/healthz` (or `/readyz` with `--ready`) with the standard library (`urllib`, no proxy handler, 2 s timeout) and exits 0 when healthy, 1 otherwise. It is used by the Docker `HEALTHCHECK` and by the Kubernetes `exec` probes, so the image needs no `curl`. It imports neither the app nor the providers, so it stays fast.
@@ -330,7 +330,7 @@ Not applicable: no UI. RSS is the only output contract.
 | Thing | Format | Example |
 |---|---|---|
 | Endpoint ID | slug `[a-z0-9-]{1,40}` | `team-gitlab` |
-| Source name | `snake_case` | `euvd`, `cert_eu`, `certfr_alerte`, `cisa_kev` |
+| Source name | `snake_case` | `euvd`, `cert_eu`, `certfr_alerte`, `cisa_kev`, `eu_kev` (record source of EU KEV entries, emitted by the `euvd` adapter) |
 | Vulnerability aliases | upper-case, normalized | `CVE-2026-109618`, `EUVD-2026-41234`, `CERTFR-2026-ALE-012` |
 | Primary display ID | CVE > EUVD > advisory ID | the first available, in that order |
 | RSS GUID | `cvestream:{endpoint_id}:{primary_id}:{kind}` with `kind` = `new`, `kev`, `band-{band}` | `cvestream:team-gitlab:CVE-2026-109618:kev` |

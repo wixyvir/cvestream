@@ -12,6 +12,7 @@ quality gate, the domain model and the endpoint configuration contract. There
 are no feeds yet.
 
 Design: [`_bmad-output/planning-artifacts/architecture.md`](_bmad-output/planning-artifacts/architecture.md).
+Sources and their assumptions: [`docs/sources.md`](docs/sources.md).
 Static settings: [`settings.example.yaml`](settings.example.yaml) (every key is
 documented there; environment variables use the `CVESTREAM_` prefix, `__` for
 nesting). Endpoint configuration (`endpoints.yaml`) and settings are described
