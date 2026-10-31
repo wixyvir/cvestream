@@ -83,6 +83,8 @@ endpoints:
 
 A product entry has `name` (required), `aliases[]`, `exclude[]` and `min_version`. Names, aliases and exclusion terms are stripped and must not be blank. `min_version` is a quoted version string.
 
+**How an entry matches.** The name and its aliases are matched case-insensitively, on whole words (`php` matches `PHP` and `php-fpm`, not `phpMyAdmin`), against the vulnerability's affected products (product or vendor name). The description is searched only when the vulnerability lists no affected product at all: a WordPress plugin whose description mentions `Module.php` does not match `php`. Such a description-only match cannot check `min_version` and is labelled "versions unknown". An exclusion term found in the affected products or the description drops the entry.
+
 **Shorthand.** `php >= 8.2` means name `php`, minimum version `8.2`. A bare `php` is a name only. Spaces around `>=` are optional and names may contain spaces (`apache http server >= 2.4`). Only `>=` exists.
 
 **Tokens.** The token **is** the access control: anyone who knows a feed URL can read the feed. Generate one per endpoint:

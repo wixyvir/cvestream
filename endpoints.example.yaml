@@ -55,7 +55,9 @@ endpoints:
     token: REPLACE-ME-with-secrets-token-urlsafe-32-team-platform
     products:
       # Full entry. Only `name` is required.
-      - # Product name, matched as a whole word, case-insensitive.
+      - # Product name, matched as a whole word, case-insensitive, against the
+        # affected products (product or vendor), or against the description
+        # when a vulnerability lists no affected product.
         name: gitlab
         # Optional. Other names the same product goes by.
         aliases: [gitlab-ce, gitlab-ee]
