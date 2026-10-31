@@ -131,10 +131,11 @@ async def test_a_feed_goes_from_recorded_payloads_to_a_served_response(
         assert title.startswith(f"{CHROME_CVE} in Google Chrome: severity ")
         description = chrome.findtext("description") or ""
         lines = description.split("\n")
-        assert lines[0].startswith("IDs: ")
+        assert lines[0].startswith("<p><b>IDs:</b> ")
         assert CHROME_CVE in lines[0]
-        assert any(line.startswith("CVSS: ") for line in lines)
-        assert any(line.startswith("Known exploited: ") for line in lines)
+        assert any(line.startswith("<b>CVSS:</b> ") for line in lines)
+        assert any(line.startswith("<b>Known exploited:</b> ") for line in lines)
+        assert '<a href="https://euvd.enisa.europa.eu/vulnerability/' in description
         guid = chrome.find("guid")
         assert guid is not None
         assert guid.attrib == {"isPermaLink": "false"}

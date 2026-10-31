@@ -1,3 +1,5 @@
+import html
+import re
 import xml.etree.ElementTree as ET
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -100,10 +102,19 @@ def _item(entry: FeedEntry) -> ET.Element:
     return item
 
 
-def _lines(entry: FeedEntry) -> list[str]:
+_TAG = re.compile(r"<[^>]+>")
+
+
+def _html(entry: FeedEntry) -> str:
     description = _item(entry).findtext("description")
     assert description is not None
-    return description.split("\n")
+    return description
+
+
+def _lines(entry: FeedEntry) -> list[str]:
+    """The description as a reader shows it: tags dropped, entities decoded."""
+    text = html.unescape(_TAG.sub("", _html(entry)))
+    return [line for line in text.split("\n") if line]
 
 
 def test_the_full_description_one_fact_per_line() -> None:
@@ -117,11 +128,67 @@ def test_the_full_description_one_fact_per_line() -> None:
         "Affected: Google Chrome < 141.0.7390.122; vendor product versions unknown;"
         " lonely versions unknown",
         "Description: First description with lines",
-        f"Sources: euvd {EUVD_URL}, cisa_kev {CISA_URL}, custom X-1",
-        "References: "
-        + ", ".join(f"https://example.test/ref/{i}" for i in range(10))
-        + " (+2 more)",
+        "Sources: euvd, cisa_kev, custom X-1",
+        "References:",
+        *(f"https://example.test/ref/{i}" for i in range(10)),
+        "and 2 more",
     ]
+
+
+def test_the_description_is_an_html_fragment() -> None:
+    assert _html(_entry()) == "\n".join(
+        [
+            "<p><b>IDs:</b> CVE-2026-0999, CVE-2026-1234, EUVD-2026-41234</p>",
+            "<p><b>Matched:</b> php, nodejs<br/>",
+            "<b>Severity:</b> high (highest CVSS 8.1)<br/>",
+            "<b>CVSS:</b> 8.1 (CVSS 3.1, euvd); unknown (cisa_kev);"
+            " 5.0 (CVSS unknown, other)<br/>",
+            "<b>Known exploited:</b> yes, CISA KEV (ransomware use: known),"
+            " EU KEV (ransomware use: unknown)<br/>",
+            "<b>Affected:</b> Google Chrome &lt; 141.0.7390.122;"
+            " vendor product versions unknown; lonely versions unknown</p>",
+            "<p><b>Description:</b> First description with lines</p>",
+            f'<p><b>Sources:</b> <a href="{EUVD_URL}">euvd</a>,'
+            f' <a href="{CISA_URL}">cisa_kev</a>, custom X-1</p>',
+            "<p><b>References:</b></p>",
+            "<ul>",
+            *(
+                f'<li><a href="https://example.test/ref/{i}">'
+                f"https://example.test/ref/{i}</a></li>"
+                for i in range(10)
+            ),
+            "<li>and 2 more</li>",
+            "</ul>",
+        ]
+    )
+
+
+def test_only_http_urls_become_links() -> None:
+    vulnerability = replace(
+        _full_vulnerability(),
+        records=(
+            RecordRef("euvd", "EUVD-1", "javascript:alert(1)"),
+            RecordRef("cisa_kev", "CVE-1", 'https://a.test/?q="x"&y=<1>'),
+        ),
+        references=(
+            _sourced("javascript:alert(1)"),
+            _sourced("ftp://files.test/x"),
+            _sourced("https:no-host"),
+            _sourced("HTTPS://b.test/ok"),
+        ),
+    )
+    body = _html(_entry(vulnerability=vulnerability))
+    assert 'href="javascript' not in body
+    assert 'href="ftp' not in body
+    assert 'href="https:no-host' not in body
+    assert "<p><b>Sources:</b> euvd javascript:alert(1)," in body
+    assert (
+        '<a href="https://a.test/?q=&quot;x&quot;&amp;y=&lt;1&gt;">cisa_kev</a>' in body
+    )
+    assert "<li>javascript:alert(1)</li>" in body
+    assert "<li>ftp://files.test/x</li>" in body
+    assert "<li>https:no-host</li>" in body
+    assert '<li><a href="HTTPS://b.test/ok">HTTPS://b.test/ok</a></li>' in body
 
 
 def test_unknown_everywhere_data_is_missing() -> None:
@@ -173,9 +240,10 @@ def test_few_references_have_no_more_suffix() -> None:
         _full_vulnerability(),
         references=(_sourced("https://a.test"), _sourced("https://a.test", "x")),
     )
-    assert (
-        _lines(_entry(vulnerability=vulnerability))[-1] == "References: https://a.test"
-    )
+    assert _lines(_entry(vulnerability=vulnerability))[-2:] == [
+        "References:",
+        "https://a.test",
+    ]
 
 
 @pytest.mark.parametrize(
@@ -366,10 +434,30 @@ def test_markup_in_source_text_is_escaped_text() -> None:
     )
     xml = render_feed(ENDPOINT, [_entry(vulnerability=vulnerability)])
     assert b"<script>" not in xml
+    assert b"&lt;script&gt;" not in xml  # escaped twice: HTML, then XML
+    assert b"&amp;lt;script&amp;gt;" in xml
     assert b"CDATA" not in xml
-    description = _item(_entry(vulnerability=vulnerability)).findtext("description")
-    assert description is not None
-    assert "Description: <script>alert(1)</script> & <b>more</b>" in description
+    entry = _entry(vulnerability=vulnerability)
+    # A reader parsing the HTML shows the source text literally.
+    assert (
+        "<p><b>Description:</b> &lt;script&gt;alert(1)&lt;/script&gt;"
+        " &amp; &lt;b&gt;more&lt;/b&gt;</p>"
+    ) in _html(entry)
+    assert "Description: <script>alert(1)</script> & <b>more</b>" in _lines(entry)
+
+
+def test_markup_in_product_names_is_escaped_in_the_title_and_body() -> None:
+    vulnerability = replace(
+        _full_vulnerability(),
+        affected=(_sourced(AffectedProduct("php <img src=x onerror=1>", "A&B")),),
+    )
+    entry = _entry(vulnerability=vulnerability)
+    item = _item(entry)
+    # The title is plain text in RSS: XML-escaped once, by the serializer.
+    assert item.findtext("title") == (
+        "CVE-2026-1234 in A&B php <img src=x onerror=1>: severity high"
+    )
+    assert "A&amp;B php &lt;img src=x onerror=1&gt; versions unknown" in _html(entry)
 
 
 def test_the_endpoint_name_is_escaped_too() -> None:
@@ -385,9 +473,7 @@ def test_forbidden_control_characters_are_removed_and_the_output_parses() -> Non
     entry = _entry(vulnerability=vulnerability, guid="g\x00uid")
     item = _item(entry)
     assert item.findtext("guid") == "guid"
-    description = item.findtext("description")
-    assert description is not None
-    assert "Description: abcdef\x7f" in description
+    assert "Description: abcdef\x7f" in _lines(entry)
 
 
 def test_the_edges_of_the_allowed_ranges_are_kept() -> None:
@@ -403,9 +489,9 @@ def test_valid_astral_characters_are_kept() -> None:
     vulnerability = replace(
         _full_vulnerability(), descriptions=(_sourced("rocket \U0001f680 é"),)
     )
-    description = _item(_entry(vulnerability=vulnerability)).findtext("description")
-    assert description is not None
-    assert "Description: rocket \U0001f680 é" in description
+    assert "Description: rocket \U0001f680 é" in _lines(
+        _entry(vulnerability=vulnerability)
+    )
 
 
 def test_carriage_returns_do_not_become_extra_lines() -> None:
