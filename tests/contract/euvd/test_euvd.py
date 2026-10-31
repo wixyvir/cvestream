@@ -81,6 +81,17 @@ def _mock_pages(
     return respx_mock.get(SEARCH_URL).mock(side_effect=answer)
 
 
+def _whole(body: bytes | Page) -> Page:
+    """A recorded page served as the whole result: `total` is its item count.
+
+    Paging stops only on `total` (or on an item older than the cursor), so a
+    single page standing for the whole result must say so.
+    """
+    page: Page = json.loads(body) if isinstance(body, bytes) else copy.deepcopy(body)
+    page["total"] = len(page["items"])
+    return page
+
+
 def _requested_pages(route: respx.Route) -> list[int]:
     return [int(call.request.url.params["page"]) for call in route.calls]
 
@@ -125,7 +136,7 @@ async def test_normal_record_is_fully_mapped(
     clock: FakeClock,
 ) -> None:
     _mock_dump(respx_mock)
-    _mock_pages(respx_mock, {0: _raw("euvd_search_page0.json")})
+    _mock_pages(respx_mock, {0: _whole(_raw("euvd_search_page0.json"))})
     adapter, http = make_adapter(page_size=100)
     async with http:
         result = await adapter.fetch("2026-10-20T00:00:00Z")
@@ -178,7 +189,7 @@ async def test_unscored_record_has_an_unknown_score(
     clock: FakeClock,
 ) -> None:
     _mock_dump(respx_mock)
-    _mock_pages(respx_mock, {0: _raw("euvd_no_score.json")})
+    _mock_pages(respx_mock, {0: _whole(_raw("euvd_no_score.json"))})
     adapter, http = make_adapter()
     async with http:
         result = await adapter.fetch("2026-10-20T00:00:00Z")
@@ -195,7 +206,7 @@ async def test_placeholder_version_becomes_unknown_and_the_product_is_kept(
     clock: FakeClock,
 ) -> None:
     _mock_dump(respx_mock)
-    _mock_pages(respx_mock, {0: _raw("euvd_version_na.json")})
+    _mock_pages(respx_mock, {0: _whole(_raw("euvd_version_na.json"))})
     adapter, http = make_adapter()
     async with http:
         result = await adapter.fetch("2026-10-26T00:00:00Z")
@@ -217,7 +228,7 @@ async def test_missing_and_placeholder_products_are_dropped_but_records_kept(
     make_adapter: Callable[..., tuple[EuvdAdapter, HttpClient]],
 ) -> None:
     _mock_dump(respx_mock)
-    _mock_pages(respx_mock, {0: _raw("euvd_no_product.json")})
+    _mock_pages(respx_mock, {0: _whole(_raw("euvd_no_product.json"))})
     adapter, http = make_adapter()
     async with http:
         result = await adapter.fetch("2026-10-20T00:00:00Z")
@@ -237,7 +248,7 @@ async def test_zero_epss_is_unknown(
     make_adapter: Callable[..., tuple[EuvdAdapter, HttpClient]],
 ) -> None:
     _mock_dump(respx_mock)
-    _mock_pages(respx_mock, {0: _raw("euvd_epss_zero.json")})
+    _mock_pages(respx_mock, {0: _whole(_raw("euvd_epss_zero.json"))})
     adapter, http = make_adapter()
     async with http:
         result = await adapter.fetch("2026-10-26T00:00:00Z")
@@ -255,7 +266,7 @@ async def test_exploited_since_is_ignored(
     page = _json("euvd_exploited.json")
     assert "exploitedSince" in page["items"][0]
     _mock_dump(respx_mock)
-    _mock_pages(respx_mock, {0: page})
+    _mock_pages(respx_mock, {0: _whole(page)})
     adapter, http = make_adapter()
     async with http:
         result = await adapter.fetch("2026-10-26T00:00:00Z")
@@ -288,7 +299,7 @@ async def test_placeholders_and_odd_scores_become_unknown(
         third["baseScoreVector"] = " - "
 
     _mock_dump(respx_mock)
-    _mock_pages(respx_mock, {0: _edited("euvd_search_page0.json", edit)})
+    _mock_pages(respx_mock, {0: _whole(_edited("euvd_search_page0.json", edit))})
     adapter, http = make_adapter()
     async with http:
         result = await adapter.fetch("2026-10-20T00:00:00Z")
@@ -310,7 +321,7 @@ async def test_scores_are_rounded_to_one_decimal(
         page["items"][0]["baseScore"] = 7.34
 
     _mock_dump(respx_mock)
-    _mock_pages(respx_mock, {0: _edited("euvd_search_page0.json", edit)})
+    _mock_pages(respx_mock, {0: _whole(_edited("euvd_search_page0.json", edit))})
     adapter, http = make_adapter()
     async with http:
         result = await adapter.fetch("2026-10-20T00:00:00Z")
@@ -330,7 +341,7 @@ async def test_unparseable_publication_date_keeps_the_record(
         del page["items"][1]["datePublished"]
 
     _mock_dump(respx_mock)
-    _mock_pages(respx_mock, {0: _edited("euvd_search_page0.json", edit)})
+    _mock_pages(respx_mock, {0: _whole(_edited("euvd_search_page0.json", edit))})
     adapter, http = make_adapter()
     async with http:
         result = await adapter.fetch("2026-10-20T00:00:00Z")
@@ -450,8 +461,42 @@ async def test_records_older_than_the_cursor_are_dropped_and_paging_stops_early(
     assert result.next_cursor == "2026-10-20T23:41:12Z"
 
 
+def _synthetic_page(number: int, total: int, size: int = 3) -> Page:
+    """`size` descending records on Oct 21 (newer than every recorded fixture)."""
+    template = _json("euvd_search_page0.json")["items"][0]
+    items = []
+    for offset in range(size):
+        position = number * size + offset
+        item = copy.deepcopy(template)
+        item["id"] = f"EUVD-2026-{900_000 + position}"
+        item["dateUpdated"] = f"Oct 21, 2026, 11:{59 - position:02d}:00 PM"
+        items.append(item)
+    return {"items": items, "total": total}
+
+
 @pytest.mark.anyio
-async def test_paging_goes_on_until_a_short_page(
+async def test_a_short_page_does_not_stop_paging(
+    respx_mock: respx.MockRouter,
+    make_adapter: Callable[..., tuple[EuvdAdapter, HttpClient]],
+    sleeps: Sleeps,
+) -> None:
+    # The server applies a smaller page size than requested (it caps `size`
+    # silently): every page is short, only `total` tells where the end is.
+    pages: dict[int, bytes | Page] = {
+        n: _synthetic_page(n, 6, size=2) for n in range(3)
+    }
+    _mock_dump(respx_mock)
+    route = _mock_pages(respx_mock, pages)
+    adapter, http = make_adapter(page_size=3)
+    async with http:
+        result = await adapter.fetch("2026-10-20T00:00:00Z")
+    assert len([r for r in result.records if r.source == "euvd"]) == 6
+    assert _requested_pages(route) == [0, 1, 2]
+    assert sleeps.delays == [euvd.PAGE_PAUSE, euvd.PAGE_PAUSE]
+
+
+@pytest.mark.anyio
+async def test_paging_stops_on_a_short_page_that_reaches_total(
     respx_mock: respx.MockRouter,
     make_adapter: Callable[..., tuple[EuvdAdapter, HttpClient]],
     sleeps: Sleeps,
@@ -460,47 +505,42 @@ async def test_paging_goes_on_until_a_short_page(
     route = _mock_pages(
         respx_mock,
         {
-            0: _raw("euvd_search_page0.json"),
-            1: _raw("euvd_search_page1.json"),
-            2: _raw("euvd_search_last_page.json"),
+            0: _synthetic_page(0, 7),
+            1: _synthetic_page(1, 7),
+            2: _whole(_raw("euvd_search_last_page.json")) | {"total": 7},
         },
     )
     adapter, http = make_adapter(page_size=3)
     async with http:
         result = await adapter.fetch("2026-10-20T00:00:00Z")
-    search = [r.record_id for r in result.records if r.source == "euvd"]
-    assert len(search) == 7
+    assert len([r for r in result.records if r.source == "euvd"]) == 7
     assert _requested_pages(route) == [0, 1, 2]
     assert sleeps.delays == [euvd.PAGE_PAUSE, euvd.PAGE_PAUSE]
-    assert result.next_cursor == "2026-10-20T23:41:12Z"
 
 
 @pytest.mark.anyio
-async def test_paging_stops_on_a_short_first_page(
+async def test_an_empty_page_before_total_keeps_the_records_and_the_cursor(
     respx_mock: respx.MockRouter,
     make_adapter: Callable[..., tuple[EuvdAdapter, HttpClient]],
-    sleeps: Sleeps,
 ) -> None:
+    # A stale or erroneous page must not fail the fetch, nor move the cursor
+    # past the items announced by `total` but never served.
     _mock_dump(respx_mock)
-    route = _mock_pages(respx_mock, {0: _raw("euvd_search_last_page.json")})
+    route = _mock_pages(
+        respx_mock, {0: _synthetic_page(0, 9), 1: {"items": [], "total": 9}}
+    )
     adapter, http = make_adapter(page_size=3)
-    async with http:
-        await adapter.fetch("2026-10-20T00:00:00Z")
-    assert _requested_pages(route) == [0]
-    assert sleeps.delays == []
-
-
-def _synthetic_page(number: int, total: int) -> Page:
-    """Three descending records on Oct 21 (newer than every recorded fixture)."""
-    template = _json("euvd_search_page0.json")["items"][0]
-    items = []
-    for offset in range(3):
-        position = number * 3 + offset
-        item = copy.deepcopy(template)
-        item["id"] = f"EUVD-2026-{900_000 + position}"
-        item["dateUpdated"] = f"Oct 21, 2026, 11:{59 - position:02d}:00 PM"
-        items.append(item)
-    return {"items": items, "total": total}
+    with capture_logs() as logs:
+        async with http:
+            result = await adapter.fetch("2026-10-20T00:00:00Z")
+    assert len([r for r in result.records if r.source == "euvd"]) == 3
+    assert result.next_cursor == "2026-10-20T00:00:00Z"
+    assert _requested_pages(route) == [0, 1]
+    assert [
+        (entry["source"], entry["count"], entry["total"])
+        for entry in logs
+        if entry["event"] == "source.paging_incomplete"
+    ] == [("euvd", 3, 9)]
 
 
 @pytest.mark.anyio
@@ -536,7 +576,7 @@ async def test_duplicates_across_pages_are_emitted_once(
         "total": page0["total"],
     }
     _mock_dump(respx_mock)
-    _mock_pages(respx_mock, {0: page0, 1: shifted, 2: {"items": [], "total": 1519}})
+    _mock_pages(respx_mock, {0: page0, 1: shifted, 2: {"items": [], "total": 6}})
     adapter, http = make_adapter(page_size=3)
     async with http:
         result = await adapter.fetch("2026-10-20T23:41:10Z")
@@ -561,7 +601,7 @@ async def test_insertions_while_paging_are_not_an_order_violation(
     page1 = _json("euvd_search_page1.json")
     _mock_dump(respx_mock)
     route = _mock_pages(
-        respx_mock, {0: page0, 1: page0, 2: page1, 3: {"items": [], "total": 1519}}
+        respx_mock, {0: page0, 1: page0, 2: page1, 3: {"items": [], "total": 9}}
     )
     adapter, http = make_adapter(page_size=3)
     async with http:
@@ -587,7 +627,7 @@ async def test_future_update_date_does_not_park_the_cursor_ahead(
     page = _json("euvd_search_last_page.json")
     page["items"][0]["dateUpdated"] = "Jan 1, 2099, 1:00:00 AM"
     _mock_dump(respx_mock)
-    _mock_pages(respx_mock, {0: page})
+    _mock_pages(respx_mock, {0: _whole(page)})
     adapter, http = make_adapter(page_size=3)
     async with http:
         result = await adapter.fetch("2026-10-20T00:00:00Z")
@@ -605,7 +645,7 @@ async def test_next_cursor_is_the_newest_update_not_the_local_clock(
     clock: FakeClock,
 ) -> None:
     _mock_dump(respx_mock)
-    _mock_pages(respx_mock, {0: _raw("euvd_search_last_page.json")})
+    _mock_pages(respx_mock, {0: _whole(_raw("euvd_search_last_page.json"))})
     adapter, http = make_adapter(page_size=3)
     clock.set(datetime(2027, 1, 1, tzinfo=UTC))
     async with http:
@@ -619,7 +659,7 @@ async def test_without_new_records_the_cursor_does_not_move(
     make_adapter: Callable[..., tuple[EuvdAdapter, HttpClient]],
 ) -> None:
     _mock_dump(respx_mock)
-    _mock_pages(respx_mock, {0: _raw("euvd_search_last_page.json")})
+    _mock_pages(respx_mock, {0: _whole(_raw("euvd_search_last_page.json"))})
     adapter, http = make_adapter(page_size=3)
     async with http:
         result = await adapter.fetch("2026-10-21T00:00:00Z")
@@ -713,7 +753,7 @@ async def test_kev_records_come_before_search_records(
     make_adapter: Callable[..., tuple[EuvdAdapter, HttpClient]],
 ) -> None:
     _mock_dump(respx_mock)
-    _mock_pages(respx_mock, {0: _raw("euvd_search_last_page.json")})
+    _mock_pages(respx_mock, {0: _whole(_raw("euvd_search_last_page.json"))})
     adapter, http = make_adapter(page_size=3)
     async with http:
         result = await adapter.fetch("2026-10-20T00:00:00Z")
@@ -893,7 +933,7 @@ async def test_records_that_fail_validation_are_skipped_and_counted(
         del page["items"][1]["id"]
 
     _mock_dump(respx_mock)
-    _mock_pages(respx_mock, {0: _edited("euvd_search_page0.json", edit)})
+    _mock_pages(respx_mock, {0: _whole(_edited("euvd_search_page0.json", edit))})
     adapter, http = make_adapter(page_size=10)
     async with http:
         result = await adapter.fetch("2026-10-20T00:00:00Z")
@@ -915,7 +955,7 @@ async def test_unusable_ids_and_wrong_types_are_skipped(
         page["items"].append(None)
 
     _mock_dump(respx_mock)
-    _mock_pages(respx_mock, {0: _edited("euvd_search_page0.json", edit)})
+    _mock_pages(respx_mock, {0: _whole(_edited("euvd_search_page0.json", edit))})
     adapter, http = make_adapter(page_size=10)
     async with http:
         result = await adapter.fetch("2026-10-20T00:00:00Z")
@@ -932,7 +972,7 @@ async def test_id_is_stripped_before_the_pattern_check(
         page["items"][0]["id"] = " EUVD-2026-105619 \n"
 
     _mock_dump(respx_mock)
-    _mock_pages(respx_mock, {0: _edited("euvd_search_page0.json", edit)})
+    _mock_pages(respx_mock, {0: _whole(_edited("euvd_search_page0.json", edit))})
     adapter, http = make_adapter(page_size=10)
     async with http:
         result = await adapter.fetch("2026-10-20T00:00:00Z")
