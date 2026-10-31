@@ -96,6 +96,7 @@ One JSON object per line on stdout (`CVESTREAM_LOG__FORMAT=console` for humans).
 | `pipeline.failed` | error | a cycle raised (with traceback): the run is rolled back, the previous feeds keep being served | `error_type` |
 | `pipeline.completed` | info | a run committed | `count`, `records`, `changed`, `touched`, `duration_ms` |
 | `publish.decided` | info | an item was published to an endpoint | `endpoint_id`, `vuln_id`, `kind` |
+| `publish.skipped` | warning | a decision was dropped because its GUID is already stored for another vulnerability (two advisory-only vulnerabilities sharing a primary ID); the run goes on | `reason` (`guid_collision`), `endpoint_id`, `vuln_id`, `kind` |
 | `config.reloaded` | info | a changed `endpoints.yaml` was loaded | `count` |
 | `config.rejected` | warning (error at startup) | the new content is invalid; the last valid configuration stays | `errors` (field errors, never a token) |
 | `config.unavailable` | warning (error at startup) | the file cannot be read; the last valid configuration stays | `error_type` |
