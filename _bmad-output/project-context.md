@@ -78,7 +78,7 @@ _Versions verified online on 2026-10-26 (architecture.md). Before adding any dep
 
 **CLI (Typer):** kebab-case, noun then verb (`endpoint create --min-cvss 7.0`). A user error prints one line to stderr and exits with code 2. An unexpected error exits with code 1 and shows the traceback only with `--debug`. `cvestream healthcheck` uses only the stdlib `urllib` and imports neither the app nor the providers.
 
-**Settings:** pydantic-settings, prefix `CVESTREAM_`, nesting with `__`, secrets through `*_FILE` variables. Source interval ≤ 60 min (NFR-1).
+**Settings:** pydantic-settings, prefix `CVESTREAM_`, nesting with `__`, secrets through `*_FILE` variables. Source interval ≤ 60 min (NFR-1). `sources.euvd.page_pause` (default 1.5 s, at most 60 s) paces EUVD paging below its gateway rate limit.
 
 **Logging (structlog):** events named `<area>.<past-participle>`, area ∈ {`app`, `source`, `pipeline`, `config`, `publish`, `feed`, `http`, `state`}. Standard fields: `source`, `endpoint_id`, `vuln_id`, `count`, `duration_ms`, `error_type`. One `cycle.summary` per run (token rule: see Security below).
 

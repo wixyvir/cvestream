@@ -80,6 +80,10 @@ sources:
     # Polling interval: greater than 0 and at most 60 minutes (NFR-1).
     # Env: CVESTREAM_SOURCES__EUVD__INTERVAL
     interval: PT15M
+    # Pause between two EUVD result pages, from 0 to 60 seconds. EUVD answers
+    # HTTP 403 when paged faster than about 40 to 60 requests a minute.
+    # Env: CVESTREAM_SOURCES__EUVD__PAGE_PAUSE
+    page_pause: PT1.5S
   cisa_kev:
     # Env: CVESTREAM_SOURCES__CISA_KEV__ENABLED
     enabled: true

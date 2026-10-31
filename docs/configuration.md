@@ -22,6 +22,7 @@ cvestream has two configuration layers:
   | `http.private.port` | `9090` | port of the private listener, 1 to 65535 |
   | `sources.<name>.enabled` | `true` | poll this source (`euvd`, `cisa_kev`) |
   | `sources.<name>.interval` | `PT15M` | polling interval, greater than 0 and at most 60 minutes |
+  | `sources.euvd.page_pause` | `PT1.5S` | pause between two EUVD result pages, 0 to 60 seconds; EUVD answers 403 when paged faster than about 40 to 60 requests a minute (see [sources](sources.md)) |
   | `config_provider` | `yaml` | where endpoints come from; only `yaml` exists for now |
   | `endpoints_file` | `endpoints.yaml` | path of the endpoints file, relative to the working directory |
   | `data_dir` | `data` | directory for runtime data, the state database included (`/data` in the image) |
