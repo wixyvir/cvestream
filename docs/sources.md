@@ -43,10 +43,15 @@ Public record page: `https://euvd.enisa.europa.eu/vulnerability/{EUVD-ID}`.
 - **Day granularity.** `fromUpdatedDate` accepts only `yyyy-MM-dd`; a time of day
   is rejected with HTTP 400. The adapter queries from the UTC day of the cursor and
   drops the records older than the cursor itself.
-- **Pagination.** `size` is at most 100; `page` starts at 0; a page past the end
-  has no items. Pages are fetched one after the other with a 0.5 s pause, up to
-  1,000 pages (about 5 times a 14-day catch-up); reaching that cap is a contract
-  error, because the cursor must not advance past data that was not read.
+- **Pagination.** `size` is at most 100 and the server caps a larger value
+  silently (101 gives 100); `page` starts at 0; a page past the end has no items.
+  The adapter assumes the server pages with the size it actually applies, so it
+  counts the items it read against `total` instead of trusting the requested
+  `size`: a page shorter than requested is not taken as the last one, and a lower
+  server maximum costs more requests, not records. Pages are fetched one after the
+  other with a 0.5 s pause, up to 1,000 pages (about 5 times a 14-day catch-up);
+  reaching that cap is a contract error, because the cursor must not advance past
+  data that was not read.
 - **Order.** Items come sorted by `dateUpdated`, newest first. The adapter relies
   on it to stop early (a page whose oldest item is older than the cursor is the last
   one) and checks it on every item: any item newer than the one before it is a
@@ -54,10 +59,19 @@ Public record page: `https://euvd.enisa.europa.eu/vulnerability/{EUVD-ID}`.
   almost everything. Items already seen earlier in the same fetch are skipped
   before the check: records inserted on top while paging push older items onto
   the next page, which is not an ordering change.
-- **Stop conditions.** An empty page, a page shorter than `size`, reaching
-  `total`, or an item older than the cursor.
+- **Stop conditions.** The items read reach `total`, or an item is older than
+  the cursor. An empty page before `total` is reached (a stale cached response or
+  a glitch) does not fail the fetch: the records already read are kept, a
+  `source.paging_incomplete` warning is logged, and the cursor does not move, so
+  the next fetch reads the same window again and the unread items are not lost.
+  Bad pagination must not take the source down.
 - **First run.** With no cursor, the fetch starts at now minus 14 days (the feed
   window), from the injected clock.
+- **Stale cursor.** A stored cursor older than now minus 14 days (a long outage) is
+  clamped to the first-run window and logged (`source.cursor_clamped`): updates
+  older than the feed window are given up, exactly like on a first run. Without
+  the clamp a backlog above the 1,000-page cap would fail on every fetch and the
+  cursor would never move again.
 - **Cursor.** The newest `dateUpdated` seen, as ISO 8601 UTC with second precision
   (`2026-10-26T18:36:49Z`), capped at the fetch time: a `dateUpdated` in the future
   (bad source data) must not park the cursor ahead of every real record. The cap
