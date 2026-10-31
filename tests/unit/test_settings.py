@@ -242,3 +242,30 @@ def test_plain_secret_from_env_still_works() -> None:
     assert isinstance(settings, _SettingsWithSecret)
     assert settings.api_key is not None
     assert settings.api_key.get_secret_value() == "plain"
+
+
+def test_config_defaults() -> None:
+    settings = load_settings({})
+    assert settings.config_provider == "yaml"
+    assert settings.endpoints_file == Path("endpoints.yaml")
+
+
+def test_endpoints_file_from_environment_is_not_a_secret_file() -> None:
+    settings = load_settings(_env(CVESTREAM_ENDPOINTS_FILE="/x/e.yaml"))
+    assert settings.endpoints_file == Path("/x/e.yaml")
+
+
+def test_endpoints_file_from_yaml(tmp_path: Path) -> None:
+    path = _write_yaml(tmp_path, "endpoints_file: conf/teams.yaml\n")
+    settings = load_settings(_env(CVESTREAM_SETTINGS_FILE=str(path)))
+    assert settings.endpoints_file == Path("conf/teams.yaml")
+
+
+def test_config_provider_from_environment() -> None:
+    settings = load_settings(_env(CVESTREAM_CONFIG_PROVIDER="yaml"))
+    assert settings.config_provider == "yaml"
+
+
+def test_valkey_config_provider_is_rejected_until_it_exists() -> None:
+    with pytest.raises(ValidationError):
+        load_settings(_env(CVESTREAM_CONFIG_PROVIDER="valkey"))
