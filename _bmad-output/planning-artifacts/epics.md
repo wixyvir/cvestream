@@ -335,6 +335,7 @@ So that urgent European advisories (like PHP2Shell) reach my channel before anyo
 **Given** the `certfr_alerte` adapter, off by default in settings
 **When** it is enabled and fetches the alerte RSS + JSON
 **Then** each revision is identified by reference + revision number (`CERTFR-2026-ALE-012` rev. N), merges into the existing vulnerability, and does not trigger a re-publish by itself (FR-2b)
+**And** revisions of the same reference merge even when no CVE is known yet, so two vulnerabilities never share an advisory primary ID and never build the same publication GUID (review of wixyvir/cvestream#5); the `publish.skipped` safety net of `pipeline/run.py` stays silent in the contract and pipeline tests
 **And** French free-text version data that cannot be parsed yields `None` (versions unknown), never a crash
 
 **Given** recorded fixtures in `tests/fixtures/cert_eu/` and `tests/fixtures/certfr_alerte/`
