@@ -1,8 +1,12 @@
-"""Shared fixtures: deterministic clock and anyio backend."""
+"""Shared fixtures: deterministic clock, anyio backend and a temporary state."""
 
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
+
+from cvestream.state.db import State
 
 
 class FakeClock:
@@ -36,3 +40,12 @@ def fake_clock() -> FakeClock:
 @pytest.fixture
 def anyio_backend() -> str:
     return "asyncio"
+
+
+@pytest.fixture
+def state(tmp_path: Path) -> Iterator[State]:
+    """A migrated SQLite state database in a temporary directory."""
+    database = State(f"sqlite:///{tmp_path / 'state.db'}")
+    database.migrate()
+    yield database
+    database.dispose()

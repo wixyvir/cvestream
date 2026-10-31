@@ -125,8 +125,10 @@ _Versions verified online on 2026-10-26 (architecture.md). Before adding any dep
 **Publish once (NFR-3 / SM-4):**
 - GUID = `cvestream:{endpoint_id}:{primary_id}:{kind}` with `kind` = `new`, `kev` or `band-{band}`. It is computed **once** at decision time, stored in `publication.guid`, and **never recomputed**. The renderer reads stored GUIDs. A CVE ID arriving later changes the primary ID, not the GUID.
 - The publication decision and its row are written in the same transaction.
-- Re-publish **only** when the vulnerability becomes known-exploited or its severity band rises (including `unknown` → rated). Nothing else re-publishes it: not a score change within the band, a new source, a description edit, or a CERT-FR revision. An update is a new item with its own GUID and an `[UPDATE]` title prefix.
+- A GUID is unique across all endpoints and vulnerabilities. `pipeline/run.py` skips a decision whose GUID is already stored (`publish.skipped`, `reason=guid_collision`) rather than letting the unique index abort the run.
+- Re-publish **only** when the vulnerability becomes known-exploited or its severity band rises (including `unknown` → rated, `none` included). Nothing else re-publishes it: not a score change within the band, a new source, a description edit, or a CERT-FR revision. An update is a new item with its own GUID and an `[UPDATE]` title prefix.
 - First match after late data arrives (FR-26) → published as `new`, not as an update. New endpoint → backfill of the last 7 days. Feed window: 14 days.
+- Only vulnerabilities active in the last 14 days are decided; an endpoint without any publication is backfilled with the last 7 days.
 
 **Recall over volume (FR-25): when in doubt, let it through.**
 - No score → never dropped by `min_cvss`.
@@ -136,7 +138,7 @@ _Versions verified online on 2026-10-26 (architecture.md). Before adding any dep
 
 **Matching (FR-12):** case-insensitive and whole-word (`php` must not match `phpMyAdmin`). Match on structured product data **and** the description, never on the title alone. Aliases count as names. An exclusion term found in the vulnerability → that entry does not match.
 
-**Identity (FR-8):** never key anything on a URL (a source changing its domain must not create a duplicate). Merge via CVE/EUVD aliases. A record without a CVE ID is not merged.
+**Identity (FR-8):** never key anything on a URL (a source changing its domain must not create a duplicate). Merge via CVE/EUVD aliases. A record without a CVE ID is not merged. Merge keys are CVE and EUVD aliases only; aliases are never removed.
 
 **Security:**
 - Never log a feed token or a full feed path; access logs carry `endpoint_id`. Unknown or revoked token → `404`, never `401`/`403`.

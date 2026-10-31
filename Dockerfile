@@ -21,7 +21,7 @@ RUN groupadd --system --gid 999 cvestream \
 # only the venv and src: the project is installed in editable mode (a .pth to /app/src)
 COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app/src /app/src
-ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1
+ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1 CVESTREAM_DATA_DIR=/data
 VOLUME /data
 EXPOSE 8080 9090
 USER 999:999

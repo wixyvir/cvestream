@@ -8,8 +8,10 @@ in each item.
 
 **Status:** pre-release. Epic 1 (a first working pipeline) is in progress; this
 repository currently holds the project skeleton, the container image, the CI
-quality gate, the domain model and the endpoint configuration contract. There
-are no feeds yet.
+quality gate, the domain model, the endpoint configuration contract, the EUVD
+and CISA KEV source adapters, and the state store with the correlation and
+publication decisions (each vulnerability is merged across sources and decided
+once per endpoint, surviving restarts). There are no feeds yet.
 
 Design: [`_bmad-output/planning-artifacts/architecture.md`](_bmad-output/planning-artifacts/architecture.md).
 Sources and their assumptions: [`docs/sources.md`](docs/sources.md).
@@ -28,6 +30,7 @@ uv sync                    # create .venv with runtime and dev dependencies
 uv run cvestream --help    # root command
 cp endpoints.example.yaml endpoints.yaml   # then replace the placeholder tokens
 uv run cvestream config validate endpoints.yaml
+uv run cvestream db migrate                # creates ./data/cvestream.db (gitignored)
 ```
 
 ### Quality gate
