@@ -14,7 +14,7 @@ import asyncio
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import structlog
 
@@ -30,6 +30,7 @@ from cvestream.state.db import State
 # Up to +10 % of the interval, so sources do not all fire together.
 JITTER = 0.1
 CRASH_BACKOFF_BASE = 1.0
+# The floor of the cap: a source polled more often than this still waits it.
 CRASH_BACKOFF_CAP = 300.0
 
 type Sleep = Callable[[float], Awaitable[None]]
@@ -212,6 +213,11 @@ def _warn_if_stale(status: RuntimeStatus, source: SourceStatus, clock: Clock) ->
         )
 
 
+def crash_backoff_cap(interval: timedelta) -> float:
+    """A crashing source is never restarted more often than a healthy one polls."""
+    return max(CRASH_BACKOFF_CAP, interval.total_seconds())
+
+
 def record_crash(
     status: RuntimeStatus, name: str, clock: Clock, error: Exception
 ) -> None:
@@ -235,9 +241,11 @@ async def supervise(
     sleep: Sleep,
     stop: asyncio.Event,
     on_crash: Callable[[Exception], None] | None = None,
+    cap: float = CRASH_BACKOFF_CAP,
 ) -> None:
     """Run a source loop; restart it after a capped exponential backoff.
 
+    `cap` is the longest wait (see `crash_backoff_cap`).
     `loop_factory(iteration_done)` builds the loop. The loop calls
     `iteration_done()` after each completed iteration, which resets the backoff.
     `on_crash(error)` runs after each logged crash (see `record_crash`).
@@ -258,6 +266,6 @@ async def supervise(
             if on_crash is not None:
                 on_crash(exc)
             await sleep(backoff)
-            backoff = min(backoff * 2, CRASH_BACKOFF_CAP)
+            backoff = min(backoff * 2, cap)
         else:
             return

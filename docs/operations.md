@@ -92,7 +92,7 @@ One JSON object per line on stdout (`CVESTREAM_LOG__FORMAT=console` for humans).
 | `source.fetched` | info | a fetch succeeded | `source`, `count`, `skipped`, `duration_ms` |
 | `source.failed` | warning | a fetch failed (`SourceError`): its cursor does not advance, the other sources are unaffected | `source`, `error_type`, `message` |
 | `source.stale` | warning | no success for more than 3 intervals, checked after a failed fetch, a rolled-back run or a crash | `source`, `last_success_at` |
-| `source.crashed` | error | an unexpected exception in a source loop (with traceback); the loop restarts after 1, 2, 4... s, capped at 300 s | `source` |
+| `source.crashed` | error | an unexpected exception in a source loop (with traceback); the loop restarts after 1, 2, 4... s, capped at 300 s or the source interval, whichever is longer, so a crashing source never polls more often than a healthy one | `source` |
 | `pipeline.failed` | error | a cycle raised (with traceback): the run is rolled back, the previous feeds keep being served | `error_type` |
 | `pipeline.completed` | info | a run committed | `count`, `records`, `changed`, `touched`, `duration_ms` |
 | `publish.decided` | info | an item was published to an endpoint | `endpoint_id`, `vuln_id`, `kind` |

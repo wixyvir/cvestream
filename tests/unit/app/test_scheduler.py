@@ -12,6 +12,7 @@ from cvestream.app.scheduler import (
     CRASH_BACKOFF_CAP,
     JITTER,
     PipelineWorker,
+    crash_backoff_cap,
     fetch_outcome,
     record_crash,
     source_loop,
@@ -550,6 +551,34 @@ async def test_a_crashing_loop_is_logged_and_restarted_with_a_capped_backoff() -
     assert crashed[0]["log_level"] == "error"
     assert crashed[0]["source"] == "euvd"
     assert crashed[0]["exc_info"] is True
+
+
+@pytest.mark.anyio
+async def test_the_backoff_cap_can_be_raised_to_the_source_interval() -> None:
+    stop = asyncio.Event()
+    sleeps = _Sleeps(stop, 13)
+
+    async def loop(_done: Callable[[], None]) -> None:
+        raise RuntimeError("bug")
+
+    await supervise("euvd", loop, sleep=sleeps, stop=stop, cap=900.0)
+    assert sleeps.delays[9] == 512.0
+    assert sleeps.delays[10:] == [900.0, 900.0, 900.0]
+
+
+@pytest.mark.parametrize(
+    ("interval", "cap"),
+    [
+        (timedelta(minutes=1), CRASH_BACKOFF_CAP),
+        (timedelta(minutes=5), CRASH_BACKOFF_CAP),
+        (timedelta(minutes=15), 900.0),
+        (timedelta(minutes=60), 3600.0),
+    ],
+)
+def test_a_crashing_source_never_restarts_more_often_than_it_polls(
+    interval: timedelta, cap: float
+) -> None:
+    assert crash_backoff_cap(interval) == cap
 
 
 @pytest.mark.anyio
