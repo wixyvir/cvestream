@@ -289,6 +289,17 @@ def test_the_same_guid_cannot_be_published_twice(state: State) -> None:
         repo.add_publication(one, _decision("same"), NOW)
 
 
+def test_publication_guid_exists_across_endpoints_and_vulnerabilities(
+    state: State,
+) -> None:
+    with state.transaction() as repo:
+        one = _vulnerability(repo)
+        assert repo.publication_guid_exists("g1") is False
+        repo.add_publication(one, _decision("g1", "team-a"), NOW)
+        assert repo.publication_guid_exists("g1") is True
+        assert repo.publication_guid_exists("g2") is False
+
+
 def test_cursors_store_none_as_null(state: State) -> None:
     with state.transaction() as repo:
         repo.set_cursor("cisa_kev", None, NOW)

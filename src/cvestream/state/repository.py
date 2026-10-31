@@ -299,6 +299,15 @@ class Repository:
                 )
         return history
 
+    def publication_guid_exists(self, guid: str) -> bool:
+        """Whether any endpoint and vulnerability already published `guid`."""
+        row = self._connection.execute(
+            select(schema.publication.c.id)
+            .where(schema.publication.c.guid == guid)
+            .limit(1)
+        ).first()
+        return row is not None
+
     def add_publication(
         self,
         vulnerability_id: int,
