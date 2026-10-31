@@ -25,6 +25,7 @@ from cvestream.app.private_api import RuntimeStatus, SourceStatus, build_private
 from cvestream.app.public_api import build_public_app
 from cvestream.app.scheduler import (
     PipelineWorker,
+    crash_backoff_cap,
     fetch_outcome,
     record_crash,
     source_loop,
@@ -215,7 +216,14 @@ async def _start(
         on_crash = functools.partial(record_crash, status, name, clock)
         running.loops.append(
             asyncio.create_task(
-                supervise(name, factory, sleep=sleep, stop=stop, on_crash=on_crash)
+                supervise(
+                    name,
+                    factory,
+                    sleep=sleep,
+                    stop=stop,
+                    on_crash=on_crash,
+                    cap=crash_backoff_cap(scheduled.interval),
+                )
             )
         )
     log.info("app.started", sources=[s.adapter.name for s in sources])
