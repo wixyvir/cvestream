@@ -647,7 +647,7 @@ async def test_next_cursor_is_the_newest_update_not_the_local_clock(
     _mock_dump(respx_mock)
     _mock_pages(respx_mock, {0: _whole(_raw("euvd_search_last_page.json"))})
     adapter, http = make_adapter(page_size=3)
-    clock.set(datetime(2027, 1, 1, tzinfo=UTC))
+    clock.set(NOW + timedelta(days=3))  # far ahead, yet within the 14-day window
     async with http:
         result = await adapter.fetch("2026-10-20T00:00:00Z")
     assert result.next_cursor == "2026-10-20T00:50:04Z"
@@ -689,6 +689,35 @@ async def test_invalid_cursor_falls_back_to_the_initial_window(
         entry["event"] == "source.cursor_invalid" and entry["source"] == "euvd"
         for entry in logs
     )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("cursor", "clamped"),
+    [
+        ("2026-08-01T00:00:00Z", True),  # a long outage
+        ("2026-10-12T19:59:59Z", True),  # one second beyond the window
+        ("2026-10-12T20:00:00Z", False),  # exactly now - 14 days
+    ],
+)
+async def test_a_cursor_older_than_the_window_is_clamped(
+    respx_mock: respx.MockRouter,
+    make_adapter: Callable[..., tuple[EuvdAdapter, HttpClient]],
+    cursor: str,
+    clamped: bool,
+) -> None:
+    _mock_dump(respx_mock)
+    route = _mock_pages(respx_mock, {0: {"items": [], "total": 0}})
+    adapter, http = make_adapter()
+    with capture_logs() as logs:
+        async with http:
+            result = await adapter.fetch(cursor)
+    assert route.calls.last.request.url.params["fromUpdatedDate"] == "2026-10-12"
+    assert result.next_cursor == "2026-10-12T20:00:00Z"
+    warnings = [entry for entry in logs if entry["event"] == "source.cursor_clamped"]
+    assert len(warnings) == int(clamped)
+    assert all(entry["source"] == "euvd" for entry in warnings)
+    assert not any(entry["event"] == "source.cursor_invalid" for entry in logs)
 
 
 @pytest.mark.anyio
