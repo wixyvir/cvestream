@@ -39,7 +39,10 @@ EU_KEV_SOURCE = "eu_kev"
 BASE_URL = "https://euvdservices.enisa.europa.eu/api"
 RECORD_URL = "https://euvd.enisa.europa.eu/vulnerability/{id}"
 PAGE_SIZE = 100  # API maximum
-PAGE_PAUSE = 0.5  # seconds between pages: sequential pages, short pauses
+# Seconds between pages. The EUVD gateway answers 403 (no `Retry-After`) past
+# about 40 to 60 requests a minute (observed 2026-10-31); 1.5 s plus the request
+# time stays below that. A 14-day first fetch (about 180 pages) takes ~5 min.
+PAGE_PAUSE = 1.5
 MAX_PAGES = 1000  # safety cap (14 days is about 200 pages)
 INITIAL_WINDOW = timedelta(days=14)
 
