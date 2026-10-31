@@ -340,14 +340,17 @@ class EuvdAdapter:
         observed_at = self._clock.now()
         start = self._start(cursor, observed_at)
         kev_records, kev_skipped = await self._fetch_kev(observed_at)
-        search_records, search_skipped = await self._fetch_search(start, observed_at)
+        search_records, search_skipped, complete = await self._fetch_search(
+            start, observed_at
+        )
         newest = max(
             (r.updated_at for r in search_records if r.updated_at), default=start
         )
         # Capped at the fetch time: a future `dateUpdated` (bad source data) must
         # not park the cursor ahead of every real record. The cap can only cause
-        # re-delivery (duplicates), never a gap.
-        next_start = min(max(start, newest), observed_at)
+        # re-delivery (duplicates), never a gap. An incomplete paging keeps the
+        # cursor where it was: the unread items are older than the ones read.
+        next_start = min(max(start, newest), observed_at) if complete else start
         return FetchResult(
             records=(*kev_records, *search_records),
             next_cursor=_encode_cursor(next_start),
@@ -387,9 +390,11 @@ class EuvdAdapter:
 
     async def _fetch_search(
         self, start: datetime, observed_at: datetime
-    ) -> tuple[list[SourceRecord], int]:
+    ) -> tuple[list[SourceRecord], int, bool]:
+        """Records, skipped count, and whether paging read the whole window."""
         records: dict[str, SourceRecord] = {}
         skipped = 0
+        read = 0  # items read so far, whatever page size the server applied
         previous: datetime | None = None
         for page in range(MAX_PAGES):
             params = {
@@ -399,6 +404,7 @@ class EuvdAdapter:
             }
             data = await get_json(self._http, NAME, f"{BASE_URL}/search", params=params)
             items, total = _search_page(data)
+            read += len(items)
             oldest: datetime | None = None
             for raw in items:
                 try:
@@ -420,13 +426,17 @@ class EuvdAdapter:
                 previous = oldest = updated_at
                 if updated_at >= start:
                     records.setdefault(record.record_id, record)
-            if (
-                not items
-                or len(items) < self._page_size
-                or (page + 1) * self._page_size >= total
-                or (oldest is not None and oldest < start)
-            ):
-                return list(records.values()), skipped
+            # No short-page stop: EUVD silently caps `size`, so a page shorter
+            # than requested is not the last one. Only `total` says so.
+            if read >= total or (oldest is not None and oldest < start):
+                return list(records.values()), skipped, True
+            if not items:
+                # Stale cache or a glitch: keep what was read, without failing the
+                # fetch, but do not move the cursor past the unread items.
+                log.warning(
+                    "source.paging_incomplete", source=NAME, count=read, total=total
+                )
+                return list(records.values()), skipped, False
             await self._sleep(PAGE_PAUSE)
         msg = f"EUVD /search still returned data after {MAX_PAGES} pages"
         raise SourceContractError(NAME, msg)
