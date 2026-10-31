@@ -59,7 +59,7 @@ _Versions verified online on 2026-10-26 (architecture.md). Before adding any dep
 - Exactly one `with state.transaction():` per pipeline run, covering decisions, publication rows, cursors and `feed_cache`. Opened only by `pipeline/run.py` (and `cli db`). No `commit()` anywhere else.
 - Portable types only: `Boolean`, `JSON`, `Text`, `Integer`, `UTCDateTime` (rejects naive datetimes). No dialect SQL (`INSERT OR REPLACE`, `PRAGMA`, unchecked `RETURNING`). Upserts only via `_upsert()`. SQLite pragmas only in the SQLite connect event.
 - Alembic revisions `state/migrations/versions/NNNN_<verb>_<object>.py`, `render_as_batch=True`. Never edit a merged migration.
-- A source cursor advances only after a successful fetch. Initial cursor = now − 14 days.
+- A source cursor advances only after a successful fetch. Initial cursor = now − 14 days; an incremental cursor older than that is clamped to it (`source.cursor_clamped`). Paging stops on `total`, never on a short page.
 
 **Configuration (Valkey / YAML):**
 - `config/models.py` (Pydantic, `extra="forbid"`) is the single source of truth, shared by both providers and the CLI.
