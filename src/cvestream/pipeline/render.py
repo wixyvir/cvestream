@@ -2,9 +2,11 @@
 
 Pure and deterministic: no clock, no I/O, no logging, so an unchanged feed
 keeps its ETag and readers get `304`. The document is built with
-`xml.etree.ElementTree`, never by string formatting, and source text is set as
-plain text: the serializer escapes it. Characters XML 1.0 forbids are removed
-first, otherwise no parser would accept the document.
+`xml.etree.ElementTree`, never by string formatting; the serializer escapes
+every text. The item description is an HTML fragment (RSS 2.0 reads it as
+entity-encoded HTML) in which every value is HTML-escaped first, so source text
+shows literally and only http(s) URLs become links. Characters XML 1.0 forbids
+are removed, otherwise no parser would accept the document.
 
 The title says what was published: the severity band and the known-exploited
 flag recorded at decision time, and the affected product the first matched
@@ -14,12 +16,14 @@ Unknown is `unknown`, never `0`, `n/a` or an empty string.
 """
 
 import hashlib
+import html
 import re
 import xml.etree.ElementTree as ET
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import format_datetime
+from urllib.parse import urlsplit
 
 from cvestream.domain.endpoint import Endpoint, ProductEntry
 from cvestream.domain.identity import AliasKind, alias_kind
@@ -34,6 +38,7 @@ MEDIA_TYPE = "application/rss+xml; charset=utf-8"
 
 UNKNOWN = "unknown"
 _MAX_REFERENCES = 10
+_LINK_SCHEMES = frozenset({"http", "https"})
 _UPDATE_PREFIX = "[UPDATE] "
 _EXPLOITED = "EXPLOITED"
 _SEPARATORS = re.compile(r"[\s_-]+")
@@ -144,22 +149,22 @@ def _link(records: Sequence[RecordRef]) -> str | None:
     return next((r.url for r in records if r.url), None)
 
 
-def _ids_line(vulnerability: Vulnerability) -> str:
+def _ids(vulnerability: Vulnerability) -> str:
     ids: list[str] = []
     for kind in (AliasKind.CVE, AliasKind.EUVD):
         ids.extend(sorted(a for a in vulnerability.aliases if alias_kind(a) is kind))
-    return f"IDs: {', '.join(ids) if ids else UNKNOWN}"
+    return ", ".join(ids) if ids else UNKNOWN
 
 
-def _matched_line(entry: FeedEntry) -> str:
+def _matched(entry: FeedEntry) -> str:
     matched = ", ".join(_one_line(p) for p in entry.products) or UNKNOWN
     suffix = (
         " (versions unknown)" if PassThrough.VERSIONS_UNKNOWN in entry.labels else ""
     )
-    return f"Matched: {matched}{suffix}"
+    return f"{matched}{suffix}"
 
 
-def _severity_line(entry: FeedEntry) -> str:
+def _severity(entry: FeedEntry) -> str:
     score = max_score(entry.vulnerability.scores)
     band = band_of(score).value
     if score is None:
@@ -168,11 +173,11 @@ def _severity_line(entry: FeedEntry) -> str:
             if PassThrough.SCORE_UNKNOWN in entry.labels
             else ""
         )
-        return f"Severity: {band}{suffix}"
-    return f"Severity: {band} (highest CVSS {score:.1f})"
+        return f"{band}{suffix}"
+    return f"{band} (highest CVSS {score:.1f})"
 
 
-def _cvss_line(vulnerability: Vulnerability) -> str:
+def _cvss(vulnerability: Vulnerability) -> str:
     parts: list[str] = []
     for sourced in vulnerability.scores:
         if sourced.value is None:
@@ -180,7 +185,7 @@ def _cvss_line(vulnerability: Vulnerability) -> str:
             continue
         version = sourced.value.version or UNKNOWN
         parts.append(f"{sourced.value.score:.1f} (CVSS {version}, {sourced.source})")
-    return f"CVSS: {'; '.join(parts) if parts else UNKNOWN}"
+    return "; ".join(parts) if parts else UNKNOWN
 
 
 def _ransomware(value: bool | None) -> str:
@@ -189,7 +194,7 @@ def _ransomware(value: bool | None) -> str:
     return "known" if value else "no"
 
 
-def _kev_line(vulnerability: Vulnerability) -> str:
+def _kev(vulnerability: Vulnerability) -> str:
     by_catalog: dict[KevCatalog, bool | None] = {}
     for sourced in vulnerability.kev:
         entry: KevEntry = sourced.value
@@ -200,16 +205,16 @@ def _kev_line(vulnerability: Vulnerability) -> str:
         elif entry.known_ransomware_use and not known:
             by_catalog[entry.catalog] = True
     if not by_catalog:
-        return "Known exploited: no"
+        return "no"
     parts = [
         f"{_KEV_NAMES[catalog]} (ransomware use: {_ransomware(by_catalog[catalog])})"
         for catalog in _KEV_ORDER
         if catalog in by_catalog
     ]
-    return f"Known exploited: yes, {', '.join(parts)}"
+    return f"yes, {', '.join(parts)}"
 
 
-def _affected_line(vulnerability: Vulnerability) -> str:
+def _affected(vulnerability: Vulnerability) -> str:
     parts: list[str] = []
     for sourced in vulnerability.affected:
         affected = sourced.value
@@ -220,49 +225,96 @@ def _affected_line(vulnerability: Vulnerability) -> str:
         part = f"{name} {versions}"
         if part not in parts:
             parts.append(part)
-    return f"Affected: {'; '.join(parts) if parts else UNKNOWN}"
+    return "; ".join(parts) if parts else UNKNOWN
 
 
-def _description_line(vulnerability: Vulnerability) -> str:
+def _summary(vulnerability: Vulnerability) -> str:
     text = (
         _one_line(vulnerability.descriptions[0].value)
         if vulnerability.descriptions
         else ""
     )
-    return f"Description: {text or UNKNOWN}"
+    return text or UNKNOWN
 
 
-def _sources_line(records: Sequence[RecordRef]) -> str:
-    parts = [f"{r.source} {r.url if r.url else r.record_id}" for r in records]
-    return f"Sources: {', '.join(parts) if parts else UNKNOWN}"
+# --- HTML ------------------------------------------------------------------------
+# RSS 2.0 `description` is entity-encoded HTML. Every value goes through `_h`,
+# so source text shows literally (`<b>` stays text) and cannot inject markup;
+# only the tags below are ours. The serializer then entity-encodes the whole
+# fragment once more as XML text.
 
 
-def _references_line(vulnerability: Vulnerability) -> str | None:
-    urls = list(dict.fromkeys(r.value for r in vulnerability.references))
+def _h(value: str) -> str:
+    return html.escape(value, quote=False)
+
+
+def _safe_url(value: str) -> str | None:
+    """`value` when it is an absolute http(s) URL, else `None` (never a link)."""
+    url = _one_line(value)
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return None
+    if parts.scheme.lower() not in _LINK_SCHEMES or not parts.netloc:
+        return None
+    return url
+
+
+def _anchor(url: str, text: str) -> str:
+    return f'<a href="{html.escape(url, quote=True)}">{_h(text)}</a>'
+
+
+def _field(label: str, value: str) -> str:
+    """One labelled fact; `value` is HTML already."""
+    return f"<b>{label}:</b> {value}"
+
+
+def _sources(records: Sequence[RecordRef]) -> str:
+    parts: list[str] = []
+    for record in records:
+        url = _safe_url(record.url) if record.url else None
+        if url is not None:
+            parts.append(_anchor(url, record.source))
+        else:
+            parts.append(
+                _h(f"{record.source} {_one_line(record.url or record.record_id)}")
+            )
+    return ", ".join(parts) if parts else _h(UNKNOWN)
+
+
+def _references(vulnerability: Vulnerability) -> str | None:
+    urls = list(dict.fromkeys(_one_line(r.value) for r in vulnerability.references))
     if not urls:
         return None
-    line = f"References: {', '.join(urls[:_MAX_REFERENCES])}"
+    items = []
+    for value in urls[:_MAX_REFERENCES]:
+        url = _safe_url(value)
+        items.append(f"<li>{_anchor(url, url) if url else _h(value)}</li>")
     if len(urls) > _MAX_REFERENCES:
-        line += f" (+{len(urls) - _MAX_REFERENCES} more)"
-    return line
+        items.append(f"<li>and {len(urls) - _MAX_REFERENCES} more</li>")
+    return "\n".join(["<p><b>References:</b></p>", "<ul>", *items, "</ul>"])
 
 
 def _description(entry: FeedEntry, records: Sequence[RecordRef]) -> str:
+    """The item body: an HTML fragment, one fact per line."""
     vulnerability = entry.vulnerability
-    lines = [
-        _ids_line(vulnerability),
-        _matched_line(entry),
-        _severity_line(entry),
-        _cvss_line(vulnerability),
-        _kev_line(vulnerability),
-        _affected_line(vulnerability),
-        _description_line(vulnerability),
-        _sources_line(records),
+    facts = (
+        ("Matched", _matched(entry)),
+        ("Severity", _severity(entry)),
+        ("CVSS", _cvss(vulnerability)),
+        ("Known exploited", _kev(vulnerability)),
+        ("Affected", _affected(vulnerability)),
+    )
+    blocks = [
+        f"<p>{_field('IDs', _h(_ids(vulnerability)))}</p>",
+        "<p>" + "<br/>\n".join(_field(k, _h(v)) for k, v in facts) + "</p>",
+        f"<p>{_field('Description', _h(_summary(vulnerability)))}</p>",
+        f"<p>{_field('Sources', _sources(records))}</p>",
     ]
-    references = _references_line(vulnerability)
+    references = _references(vulnerability)
     if references is not None:
-        lines.append(references)
-    return "\n".join(lines)
+        blocks.append(references)
+    return "\n".join(blocks)
 
 
 def _text(parent: ET.Element, tag: str, value: str) -> ET.Element:
