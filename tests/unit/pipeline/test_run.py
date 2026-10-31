@@ -356,6 +356,56 @@ def test_a_failure_rolls_everything_back(
     assert _count(state, schema.vulnerability) == 0
 
 
+ADVISORY = "CERTFR-2026-ALE-012"
+
+
+def _advisory_revision(clock: FakeClock, revision: int) -> SourceRecord:
+    # Advisory IDs never merge: two revisions without a CVE or EUVD alias are
+    # two vulnerabilities with the same primary ID, hence the same GUID.
+    return replace(
+        _euvd(clock, cve=None),
+        source="certfr_alerte",
+        record_id=f"{ADVISORY}-R{revision}",
+        aliases=(ADVISORY,),
+    )
+
+
+def test_a_guid_collision_in_one_run_is_skipped_and_logged(
+    state: State, fake_clock: FakeClock
+) -> None:
+    batch = _batch(_advisory_revision(fake_clock, 1), _advisory_revision(fake_clock, 2))
+    with capture_logs() as logs:
+        result = run(state, _snapshot(_endpoint()), [batch], fake_clock)
+    assert _kinds(result) == [("team-php", "new")]
+    assert _count(state, schema.vulnerability) == 2
+    assert _count(state, schema.publication) == 1
+    skipped = [entry for entry in logs if entry["event"] == "publish.skipped"]
+    assert skipped == [
+        {
+            "event": "publish.skipped",
+            "log_level": "warning",
+            "reason": "guid_collision",
+            "endpoint_id": "team-php",
+            "vuln_id": ADVISORY,
+            "kind": "new",
+        }
+    ]
+
+
+def test_a_guid_collision_with_an_earlier_run_is_skipped(
+    state: State, fake_clock: FakeClock
+) -> None:
+    snapshot = _snapshot(_endpoint())
+    run(state, snapshot, [_batch(_advisory_revision(fake_clock, 1))], fake_clock)
+    fake_clock.advance(timedelta(minutes=15))
+    again = run(
+        state, snapshot, [_batch(_advisory_revision(fake_clock, 2))], fake_clock
+    )
+    assert again.decisions == ()
+    assert again.changed == 1
+    assert _count(state, schema.publication) == 1
+
+
 def test_decisions_and_completion_are_logged(
     state: State, fake_clock: FakeClock
 ) -> None:

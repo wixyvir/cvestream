@@ -110,6 +110,19 @@ def run(
                 )
                 if decision is None:
                     continue
+                # Safety net: `decide()` checks the GUID against the history of
+                # this vulnerability only. Two vulnerabilities sharing an
+                # advisory-only primary ID build the same GUID, and inserting it
+                # twice would roll back this run and every next one. Skip it.
+                if repository.publication_guid_exists(decision.guid):
+                    log.warning(
+                        "publish.skipped",
+                        reason="guid_collision",
+                        endpoint_id=decision.endpoint_id,
+                        vuln_id=decision.primary_id,
+                        kind=decision.kind,
+                    )
+                    continue
                 repository.add_publication(vulnerability_id, decision, now)
                 decided.append(decision)
                 log.info(
