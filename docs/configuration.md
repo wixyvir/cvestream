@@ -73,6 +73,8 @@ A product entry has `name` (required), `aliases[]`, `exclude[]` and `min_version
 python -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
+The `REPLACE-ME-...` tokens of `endpoints.example.yaml` are valid tokens: nothing rejects them, and a copied example serves its feeds at URLs anyone can guess from this repository. Replace every one of them before you expose the daemon. Tokens are stored in plain text, so keep `endpoints.yaml` readable by the daemon's user only (`chmod 600 endpoints.yaml`).
+
 **YAML pitfalls.** PyYAML follows YAML 1.1: `8.10` is the number 8.1 (quote versions), `yes`/`no`/`on`/`off` are booleans, `2026-10-26` is a date, and an all-digit `id` is an integer (quote it). The contract is strict: `min_cvss: "7.0"` and `kev_only: "yes"` are rejected, a version must be quoted, and unknown or duplicate keys are errors. Anchors, aliases and merge keys (`<<: *defaults`) work.
 
 ### Validate
