@@ -49,9 +49,17 @@ Public record page: `https://euvd.enisa.europa.eu/vulnerability/{EUVD-ID}`.
   counts the items it read against `total` instead of trusting the requested
   `size`: a page shorter than requested is not taken as the last one, and a lower
   server maximum costs more requests, not records. Pages are fetched one after the
-  other with a 0.5 s pause, up to 1,000 pages (about 5 times a 14-day catch-up);
+  other with a 1.5 s pause, up to 1,000 pages (about 5 times a 14-day catch-up);
   reaching that cap is a contract error, because the cursor must not advance past
   data that was not read.
+- **Rate limit.** Not documented. Observed on 2026-10-31 from one IP: about 40
+  to 60 sequential requests a minute get through; faster paging is blocked by the
+  gateway (`Server: Microsoft-Azure-Application-Gateway/v2`) with HTTP 403, an
+  HTML body and no `Retry-After`, for a few seconds to about 20 s. Any single page
+  answers 200 and the User-Agent does not matter. A 403 is not retried (EUVD also
+  answers 403 to malformed parameters), so it fails the whole fetch. With a 0.5 s
+  pause a 14-day first fetch (about 180 pages) never completed; with 1.5 s it
+  takes about 5 minutes and incremental fetches are a few pages.
 - **Order.** Items come sorted by `dateUpdated`, newest first. The adapter relies
   on it to stop early (a page whose oldest item is older than the cursor is the last
   one) and checks it on every item: any item newer than the one before it is a
