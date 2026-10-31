@@ -16,7 +16,7 @@
 # number such as 1800 is rejected there). In this file you may write either
 # ISO 8601 (PT30M) or a number of seconds (1800).
 #
-# Secrets (none yet) are read from CVESTREAM_<NAME>_FILE variables pointing
+# Secrets (state.url for now) are read from CVESTREAM_<NAME>_FILE variables pointing
 # to a file, nested names included (CVESTREAM_<SECTION>__<NAME>_FILE); setting
 # both CVESTREAM_<NAME> and CVESTREAM_<NAME>_FILE is an error.
 
@@ -30,6 +30,21 @@ config_provider: yaml
 # a secret: CVESTREAM_ENDPOINTS_FILE holds the path itself.
 # Env: CVESTREAM_ENDPOINTS_FILE
 endpoints_file: endpoints.yaml
+
+# Directory for runtime data. The state database lives in it unless state.url
+# says otherwise: <data_dir>/cvestream.db (created by `cvestream db migrate`).
+# The image sets it to /data.
+# Env: CVESTREAM_DATA_DIR
+data_dir: data
+
+# SQLAlchemy URL of the state database (state.url). Default: the SQLite file
+# <data_dir>/cvestream.db (a relative data_dir is relative to the working
+# directory; an absolute one gives sqlite:////data/cvestream.db). SQLite needs
+# block storage (never NFS, SMB or CIFS). A PostgreSQL URL carries a password,
+# so this is a secret: prefer the file form.
+# Env: CVESTREAM_STATE__URL, or CVESTREAM_STATE__URL_FILE=/path/to/file
+# state:
+#   url: sqlite:///data/cvestream.db
 
 log:
   # Minimum level. One of: debug, info, warning, error.

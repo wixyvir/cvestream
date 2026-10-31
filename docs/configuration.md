@@ -20,6 +20,8 @@ cvestream has two configuration layers:
   | `sources.<name>.interval` | `PT15M` | polling interval, greater than 0 and at most 60 minutes |
   | `config_provider` | `yaml` | where endpoints come from; only `yaml` exists for now |
   | `endpoints_file` | `endpoints.yaml` | path of the endpoints file, relative to the working directory |
+  | `data_dir` | `data` | directory for runtime data, the state database included (`/data` in the image) |
+  | `state.url` | `sqlite:///<data_dir>/cvestream.db` | SQLAlchemy URL of the state database; a **secret** |
 
 - **Durations:** ISO 8601 in environment variables (`PT30M`; a bare number is rejected there). In YAML, either ISO 8601 or a number of seconds (`1800`).
 
@@ -27,8 +29,18 @@ cvestream has two configuration layers:
 
 - Every setting can be set through a variable with the `CVESTREAM_` prefix. A double underscore nests: `CVESTREAM_SOURCES__EUVD__INTERVAL=PT30M` sets `sources.euvd.interval`.
 - **Precedence**, highest first: environment variables, secret files (`*_FILE`), `settings.yaml`. Values merge key by key.
-- **Secrets** are read from a file with `CVESTREAM_<NAME>_FILE=/path`, nested names included. This applies to secret fields only, and there is none yet (the Valkey password arrives with the Valkey provider). Setting both `CVESTREAM_<NAME>` and `CVESTREAM_<NAME>_FILE` is an error.
-- `CVESTREAM_ENDPOINTS_FILE` is a plain path, **not** a secret file: it sets `endpoints_file`. `CVESTREAM_CONFIG_PROVIDER` sets `config_provider`.
+- **Secrets** are read from a file with `CVESTREAM_<NAME>_FILE=/path`, nested names included. This applies to secret fields only: `state.url` is the first one (`CVESTREAM_STATE__URL_FILE`), and the Valkey password will follow with the Valkey provider. Setting both `CVESTREAM_<NAME>` and `CVESTREAM_<NAME>_FILE` is an error.
+- `CVESTREAM_ENDPOINTS_FILE` is a plain path, **not** a secret file: it sets `endpoints_file`. `CVESTREAM_CONFIG_PROVIDER` sets `config_provider`. `CVESTREAM_DATA_DIR` sets `data_dir`.
+
+## State database
+
+The state (vulnerabilities, source records, publications and source cursors) lives in a database that survives restarts: it is what keeps an item from being posted twice.
+
+- **Default:** the SQLite file `<data_dir>/cvestream.db` (`./data/cvestream.db`, or `/data/cvestream.db` in the image). It runs in WAL mode with foreign keys on and a 5 s busy timeout.
+- **Storage:** SQLite needs block storage (a local disk or a block volume). Never put it on NFS, SMB or CIFS: file locking is not reliable there.
+- **Create or upgrade:** `cvestream db migrate` brings the database to the latest revision and creates the data directory when it is missing. Running it again changes nothing. The daemon does the same at startup (story 1.6).
+- **Back up:** `cvestream db backup <file>` copies the database with the SQLite online backup API (a consistent snapshot, WAL included, while the daemon runs). It refuses to overwrite an existing file. For PostgreSQL use `pg_dump`.
+- **PostgreSQL:** planned. It will be an optional `psycopg` extra and a `state.url` change; the code is already portable.
 
 ## `endpoints.yaml`
 

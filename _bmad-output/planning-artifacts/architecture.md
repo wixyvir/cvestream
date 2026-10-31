@@ -200,6 +200,7 @@ cvestream:v1:token:{id}               feed token (plaintext; own namespace so co
 - Migrations: **Alembic 1.20.1**, scripts in `state/migrations/versions/`, `render_as_batch=True` so `ALTER`s work on SQLite. Run at startup and by `cvestream db migrate`.
 - PostgreSQL later: add `psycopg` as an optional extra, set `CVESTREAM_STATE__URL=postgresql+psycopg://…`, add PostgreSQL to the CI matrix. No repository or migration rewrite expected.
 - Logical tables: `vulnerability`, `alias`, `source_record`, `publication`, `source_cursor`, `feed_cache`.
+- Correlation and publication rules (story 1.5): merge keys are CVE and EUVD aliases only (GHSA and advisory IDs never merge, a record without either is never merged); aliases are append-only (a source dropping an alias never splits a vulnerability); a record whose content is unchanged (hash ignoring `observed_at`) does not touch its vulnerability; only vulnerabilities active in the last 14 days (source activity time) are decided; an endpoint without any publication is backfilled with the last 7 days at every run until its first publication, and a product-list edit on an existing endpoint does not backfill; `kev` wins over a band rise in the same run (the decision records the current band); `unknown` to any rated band, `none` included, counts as a band rise. A decision whose GUID is already stored for another vulnerability (two advisory-only vulnerabilities sharing a primary ID) is skipped with a `publish.skipped` warning instead of aborting the run; story 2.1 must make advisory revisions merge so that this never happens in practice.
 - Storage: the SQLite volume must be block storage (not NFS/SMB/CIFS, whose file locking is unreliable for SQLite).
 - Retention: vulnerabilities and publications kept indefinitely (late KEV additions). Raw payloads kept 30 days (configurable) for debugging and fixture capture.
 
@@ -364,7 +365,7 @@ cli ──────────▶ app ──────────▶ pipe
 The "Component boundaries (allowed imports)" list in the Project Structure section is the authoritative rule. This diagram illustrates it.
 
 - `domain`: pure (no I/O, no third-party imports apart from the standard library and `packaging`, the only allowed exception, used by `domain/version.py` and whitelisted in the import-linter contract). It holds the model, matching, version parsing, bands and the publication decision.
-- Only `sources/*` and `cvestream.http` import `httpx`. Only `state/` imports `sqlalchemy` and `alembic`. Only `config/valkey_provider.py` imports `valkey`. Only `app/` imports `starlette`/`uvicorn`. Only `cli/` imports `typer`.
+- Only `sources/*` and `cvestream.http` import `httpx`. Only `state/` imports `sqlalchemy` and `alembic`. Only `config/valkey_provider.py` imports `valkey`. Only `app/` imports `starlette`/`uvicorn`. Only `cli/` imports `typer`. Ownership is about direct imports: the import-linter ownership contracts set `allow_indirect_imports = true` (a `pipeline` module may import `state`, which imports `sqlalchemy`); the `layers` contract still forbids upward imports.
 - `pipeline` orchestrates synchronously. `app` owns asyncio, the loops and the servers.
 
 **Tests:**
@@ -576,6 +577,7 @@ cvestream/
 │   │   ├── __init__.py
 │   │   ├── db.py                     # engine from state.url, SQLite connect pragmas, transaction(), migrate()
 │   │   ├── schema.py                 # MetaData + naming convention, tables, UTCDateTime
+│   │   ├── codec.py                  # SourceRecord ⇄ JSON, content hash
 │   │   ├── repository.py             # every query lives here; _upsert() per dialect
 │   │   ├── backup.py                 # SQLite online backup API
 │   │   └── migrations/               # Alembic, configured in code (no alembic.ini)
