@@ -49,7 +49,7 @@ Public record page: `https://euvd.enisa.europa.eu/vulnerability/{EUVD-ID}`.
   counts the items it read against `total` instead of trusting the requested
   `size`: a page shorter than requested is not taken as the last one, and a lower
   server maximum costs more requests, not records. Pages are fetched one after the
-  other with a 1.5 s pause, up to 1,000 pages (about 5 times a 14-day catch-up);
+  other with a 1.5 s pause (setting `sources.euvd.page_pause`), up to 1,000 pages (about 5 times a 14-day catch-up);
   reaching that cap is a contract error, because the cursor must not advance past
   data that was not read.
 - **Rate limit.** Not documented. Observed on 2026-10-31 from one IP: about 40

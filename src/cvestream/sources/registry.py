@@ -15,12 +15,15 @@ from cvestream.sources.base import SourceAdapter
 from cvestream.sources.cisa_kev import CisaKevAdapter
 from cvestream.sources.euvd import EuvdAdapter
 
-type AdapterFactory = Callable[[HttpClient, Clock], SourceAdapter]
+# A factory gets every source's settings and reads its own entry.
+type AdapterFactory = Callable[[HttpClient, Clock, SourcesSettings], SourceAdapter]
 
 # One factory per `SourcesSettings` field; a unit test keeps the two in step.
 ADAPTER_FACTORIES: dict[str, AdapterFactory] = {
-    "euvd": lambda http, clock: EuvdAdapter(http, clock),
-    "cisa_kev": lambda http, clock: CisaKevAdapter(http, clock),
+    "euvd": lambda http, clock, settings: EuvdAdapter(
+        http, clock, page_pause=settings.euvd.page_pause.total_seconds()
+    ),
+    "cisa_kev": lambda http, clock, _settings: CisaKevAdapter(http, clock),
 }
 
 
@@ -45,6 +48,6 @@ def build_sources(
             msg = f"no adapter factory for the settings source {name!r}"
             raise LookupError(msg) from None
         scheduled.append(
-            ScheduledSource(factory(http, clock), source_settings.interval)
+            ScheduledSource(factory(http, clock, settings), source_settings.interval)
         )
     return tuple(scheduled)
