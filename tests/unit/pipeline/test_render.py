@@ -182,17 +182,17 @@ def test_few_references_have_no_more_suffix() -> None:
     ("kind", "known", "title"),
     [
         ("new", False, "CVE-2026-1234 in php: severity high"),
-        ("new", True, "CVE-2026-1234 in php: severity high, known exploited"),
+        ("new", True, "CVE-2026-1234 in php: severity high, EXPLOITED"),
         (
             "kev",
             True,
-            "[UPDATE] CVE-2026-1234 in php: now known exploited, severity high",
+            "[UPDATE] CVE-2026-1234 in php: now EXPLOITED, severity high",
         ),
         ("band-high", False, "[UPDATE] CVE-2026-1234 in php: severity raised to high"),
         (
             "band-high",
             True,
-            "[UPDATE] CVE-2026-1234 in php: severity raised to high, known exploited",
+            "[UPDATE] CVE-2026-1234 in php: severity raised to high, EXPLOITED",
         ),
         ("future", False, "[UPDATE] CVE-2026-1234 in php: severity high"),
     ],
@@ -206,6 +206,85 @@ def test_the_title_names_the_first_matched_product() -> None:
     assert _item(_entry(products=("nodejs", "php"))).findtext("title") == (
         "CVE-2026-1234 in nodejs: severity high"
     )
+
+
+def _with_affected(*products: AffectedProduct) -> Vulnerability:
+    return replace(_full_vulnerability(), affected=tuple(_sourced(p) for p in products))
+
+
+@pytest.mark.parametrize(
+    ("products", "name"),
+    [
+        ((AffectedProduct("PHP", "PHP Group", "8.1.0 <8.2.29"),), "PHP Group PHP"),
+        ((AffectedProduct("php-fpm", "PHP Group"),), "PHP Group php-fpm"),
+        ((AffectedProduct("PHP", "PHP"),), "PHP"),
+        ((AffectedProduct("php", None),), "php"),
+        (
+            (AffectedProduct("Login", "Acme"), AffectedProduct("PHP", "PHP Group")),
+            "PHP Group PHP",
+        ),
+        (
+            (AffectedProduct("Zend Engine", "PHP"), AffectedProduct("PHP", "Zend")),
+            "Zend PHP",
+        ),
+        ((AffectedProduct("Zend Engine", "PHP"),), "PHP Zend Engine"),
+    ],
+    ids=[
+        "vendor-and-product",
+        "sub-product",
+        "vendor-repeated",
+        "no-vendor",
+        "first-hit",
+        "product-hit-first",
+        "vendor-only-hit",
+    ],
+)
+def test_the_title_names_the_matched_affected_product(
+    products: tuple[AffectedProduct, ...], name: str
+) -> None:
+    entry = _entry(vulnerability=_with_affected(*products), is_known_exploited=True)
+    assert _item(entry).findtext("title") == (
+        f"CVE-2026-1234 in {name}: severity high, EXPLOITED"
+    )
+
+
+def test_a_vendor_written_with_hyphens_is_not_repeated() -> None:
+    vulnerability = _with_affected(
+        AffectedProduct("Wild Apricot Login", "wild-apricot")
+    )
+    endpoint = replace(ENDPOINT, products=(ProductEntry("wild apricot"),))
+    entry = _entry(vulnerability=vulnerability, products=("wild apricot",))
+    item = _parse(render_feed(endpoint, [entry])).find("channel/item")
+    assert item is not None
+    assert item.findtext("title") == (
+        "CVE-2026-1234 in Wild Apricot Login: severity high"
+    )
+
+
+def test_the_title_uses_the_aliases_of_the_configured_entry() -> None:
+    vulnerability = _with_affected(AffectedProduct("php-src", "PHP Group"))
+    endpoint = replace(
+        ENDPOINT, products=(ProductEntry("hypertext", aliases=("php-src",)),)
+    )
+    entry = _entry(vulnerability=vulnerability, products=("hypertext",))
+    item = _parse(render_feed(endpoint, [entry])).find("channel/item")
+    assert item is not None
+    assert item.findtext("title") == (
+        "CVE-2026-1234 in PHP Group php-src: severity high"
+    )
+
+
+def test_a_removed_entry_still_names_its_affected_product() -> None:
+    vulnerability = _with_affected(AffectedProduct("Redis", "Redis Ltd"))
+    entry = _entry(vulnerability=vulnerability, products=("redis",))
+    assert _item(entry).findtext("title") == (
+        "CVE-2026-1234 in Redis Ltd Redis: severity high"
+    )
+
+
+def test_without_a_matching_affected_product_the_entry_name_is_used() -> None:
+    assert _item(_entry()).findtext("title") == "CVE-2026-1234 in php: severity high"
+    assert _item(_bare()).findtext("title") == "CVE-2026-1234 in php: severity high"
 
 
 def test_guid_is_the_stored_value_and_not_a_permalink() -> None:

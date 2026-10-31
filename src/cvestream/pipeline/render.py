@@ -6,9 +6,11 @@ keeps its ETag and readers get `304`. The document is built with
 plain text: the serializer escapes it. Characters XML 1.0 forbids are removed
 first, otherwise no parser would accept the document.
 
-The title says what was published (values recorded at decision time); the body
-shows the current merged data of the vulnerability. Unknown is `unknown`, never
-`0`, `n/a` or an empty string.
+The title says what was published: the severity band and the known-exploited
+flag recorded at decision time, and the affected product the first matched
+entry names in the current merged data (the entry's own name when there is no
+such product). The body shows the current merged data of the vulnerability.
+Unknown is `unknown`, never `0`, `n/a` or an empty string.
 """
 
 import hashlib
@@ -19,9 +21,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import format_datetime
 
-from cvestream.domain.endpoint import Endpoint
+from cvestream.domain.endpoint import Endpoint, ProductEntry
 from cvestream.domain.identity import AliasKind, alias_kind
-from cvestream.domain.matcher import PassThrough
+from cvestream.domain.matcher import PassThrough, affected_hits
 from cvestream.domain.model import KevCatalog, KevEntry, RecordRef, Vulnerability
 from cvestream.domain.publication import KEV, NEW
 from cvestream.domain.severity import Band, band_of, max_score
@@ -33,6 +35,8 @@ MEDIA_TYPE = "application/rss+xml; charset=utf-8"
 UNKNOWN = "unknown"
 _MAX_REFERENCES = 10
 _UPDATE_PREFIX = "[UPDATE] "
+_EXPLOITED = "EXPLOITED"
+_SEPARATORS = re.compile(r"[\s_-]+")
 _SOURCE_ORDER = {"euvd": 0, "eu_kev": 1, "cisa_kev": 2}
 _KEV_NAMES = {KevCatalog.CISA_KEV: "CISA KEV", KevCatalog.EU_KEV: "EU KEV"}
 _KEV_ORDER = (KevCatalog.CISA_KEV, KevCatalog.EU_KEV)
@@ -87,15 +91,42 @@ def _rfc822(value: datetime) -> str:
     return format_datetime(value.astimezone(UTC), usegmt=True)
 
 
-def _title(entry: FeedEntry) -> str:
-    product = _one_line(entry.products[0]) if entry.products else UNKNOWN
-    head = f"{entry.primary_id} in {product}"
+def _words(value: str) -> str:
+    return f" {_SEPARATORS.sub(' ', value).strip().casefold()} "
+
+
+def _product_label(name: str, vendor: str | None) -> str:
+    product = _one_line(name)
+    vendor = _one_line(vendor or "")
+    # `PHP Group PHP` reads fine; `wild-apricot Wild Apricot Login` does not.
+    if not vendor or _words(vendor) in _words(product):
+        return product
+    return f"{vendor} {product}"
+
+
+def _title_product(entry: FeedEntry, endpoint: Endpoint) -> str:
+    if not entry.products:
+        return UNKNOWN
+    name = entry.products[0]
+    # The entry as configured now; a removed entry still has its name.
+    product_entry = next(
+        (p for p in endpoint.products if p.name == name), ProductEntry(name)
+    )
+    affected = [a.value for a in entry.vulnerability.affected]
+    hits = affected_hits(product_entry, affected)
+    if not hits:
+        return _one_line(name)
+    return _product_label(hits[0].product, hits[0].vendor)
+
+
+def _title(entry: FeedEntry, endpoint: Endpoint) -> str:
+    head = f"{entry.primary_id} in {_title_product(entry, endpoint)}"
     band = entry.band.value
-    exploited = ", known exploited" if entry.is_known_exploited else ""
+    exploited = f", {_EXPLOITED}" if entry.is_known_exploited else ""
     if entry.kind == NEW:
         return f"{head}: severity {band}{exploited}"
     if entry.kind == KEV:
-        return f"{_UPDATE_PREFIX}{head}: now known exploited, severity {band}"
+        return f"{_UPDATE_PREFIX}{head}: now {_EXPLOITED}, severity {band}"
     if entry.kind.startswith("band-"):
         return f"{_UPDATE_PREFIX}{head}: severity raised to {band}{exploited}"
     return f"{_UPDATE_PREFIX}{head}: severity {band}{exploited}"
@@ -240,10 +271,10 @@ def _text(parent: ET.Element, tag: str, value: str) -> ET.Element:
     return element
 
 
-def _item(channel: ET.Element, entry: FeedEntry) -> None:
+def _item(channel: ET.Element, entry: FeedEntry, endpoint: Endpoint) -> None:
     records = _ordered_records(entry.vulnerability)
     item = ET.SubElement(channel, "item")
-    _text(item, "title", _title(entry))
+    _text(item, "title", _title(entry, endpoint))
     link = _link(records)
     if link is not None:
         _text(item, "link", link)
@@ -270,5 +301,5 @@ def render_feed(endpoint: Endpoint, entries: Sequence[FeedEntry]) -> bytes:
         # at every run.
         _text(channel, "lastBuildDate", _rfc822(max(e.published_at for e in entries)))
     for entry in entries:
-        _item(channel, entry)
+        _item(channel, entry, endpoint)
     return ET.tostring(root, encoding="utf-8", xml_declaration=True)
