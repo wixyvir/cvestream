@@ -191,7 +191,7 @@ cvestream:v1:token:{id}               feed token (plaintext; own namespace so co
 - Read protocol (daemon): check `revision` at each pipeline run. If it changed, read a consistent snapshot: read `revision`, read all keys in one pipelined batch, read `revision` again; if it moved, retry (up to 3 times), otherwise keep the last valid configuration. Validate the whole snapshot. If invalid, keep the last valid configuration and log `config.rejected` (FR-23). Full reload every N cycles as a safety net. YAML provider: revision = SHA-256 of the file content.
 - The configuration is never persisted by the daemon: the provider is the only source of truth (see startup behaviour under API & Communication Patterns).
 - Values are plain JSON strings (no Valkey JSON module). Persistence: AOF (`appendonly yes`, `appendfsync everysec`).
-- Schema: Pydantic models are the single source of truth. JSON Schema is exported to `schemas/config-v1.json`. `cvestream config validate` is available for other tools' CI. The YAML provider (`endpoints.yaml`) uses the same models.
+- Schema: Pydantic models are the single source of truth. JSON Schema is exported to `schemas/config-v1.json`. `cvestream config validate` is available for other tools' CI. The YAML provider (`endpoints.yaml`) uses the same models. The document is `version: 1` plus `endpoints: [...]`, each endpoint carrying its feed `token` inline and a product list where an item is a full entry or the shorthand `name >= version`.
 
 **State store: SQLite (WAL)** by default, `CVESTREAM_STATE__URL=sqlite:////data/cvestream.db`. **Designed to move to PostgreSQL later** with a driver and a URL change.
 
@@ -557,7 +557,7 @@ cvestream/
 │   ├── config/
 │   │   ├── __init__.py
 │   │   ├── models.py                 # Pydantic contract models v1 (extra="forbid") → domain objects
-│   │   ├── provider.py               # ConfigProvider protocol, ConfigSnapshot, revision
+│   │   ├── provider.py               # ConfigProvider protocol, ConfigSnapshot, ConfigError family, build_snapshot()
 │   │   ├── keys.py                   # Valkey key layout constants and builders
 │   │   ├── yaml_provider.py
 │   │   ├── valkey_provider.py        # snapshot read; WATCH/MULTI/INCR write protocol

@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "EndpointConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Unique slug identifying the endpoint: lowercase letters, digits and hyphens, 1 to 40 characters.",
+          "pattern": "^[a-z0-9-]{1,40}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "description": "Human-readable endpoint name.",
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "description": "A disabled endpoint is kept but not served.",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "min_cvss": {
+          "anyOf": [
+            {
+              "maximum": 10,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Minimum CVSS score, 0 to 10; omit for no threshold.",
+          "title": "Min Cvss"
+        },
+        "kev_only": {
+          "default": false,
+          "description": "Only vulnerabilities known to be exploited (CISA KEV).",
+          "title": "Kev Only",
+          "type": "boolean"
+        },
+        "token": {
+          "description": "Secret that gives access to the feed, unique across endpoints: 32 to 128 URL-safe characters (A-Z a-z 0-9 _ -).",
+          "pattern": "^[A-Za-z0-9_-]{32,128}$",
+          "title": "Token",
+          "type": "string"
+        },
+        "products": {
+          "default": [],
+          "description": "Products to watch: a shorthand string or a full entry. An endpoint without products matches nothing.",
+          "items": {
+            "oneOf": [
+              {
+                "description": "Shorthand product: \"<name>\" or \"<name> >= <minimum version>\", for example \"php >= 8.2\".",
+                "maxLength": 200,
+                "pattern": "^\\s*([^<>=\\s](?:[^<>=]*[^<>=\\s])?)(?:\\s*>=\\s*([^<>=\\s]+))?\\s*$",
+                "type": "string"
+              },
+              {
+                "$ref": "#/$defs/ProductEntryConfig"
+              }
+            ]
+          },
+          "title": "Products",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "token"
+      ],
+      "title": "EndpointConfig",
+      "type": "object"
+    },
+    "ProductEntryConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "Product name, matched as a whole word.",
+          "maxLength": 200,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "aliases": {
+          "default": [],
+          "description": "Other names the same product goes by.",
+          "items": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Aliases",
+          "type": "array"
+        },
+        "exclude": {
+          "default": [],
+          "description": "Terms that rule this entry out when they appear in the affected products or in the description.",
+          "items": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Exclude",
+          "type": "array"
+        },
+        "min_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Minimum version of interest, as a quoted string (YAML reads 8.10 as the number 8.1).",
+          "title": "Min Version"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "ProductEntryConfig",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": 1,
+      "description": "Contract version. Must be 1.",
+      "title": "Version",
+      "type": "integer"
+    },
+    "endpoints": {
+      "default": [],
+      "description": "The endpoints, each with its own feed.",
+      "items": {
+        "$ref": "#/$defs/EndpointConfig"
+      },
+      "title": "Endpoints",
+      "type": "array"
+    }
+  },
+  "required": [
+    "version"
+  ],
+  "title": "cvestream configuration v1",
+  "type": "object"
+}

@@ -6,6 +6,7 @@ from typing import Annotated
 import typer
 
 from cvestream import __version__
+from cvestream.cli.config import config_app
 
 
 @dataclass
@@ -16,6 +17,7 @@ class CliState:
 
 
 app = typer.Typer(name="cvestream", no_args_is_help=True, add_completion=False)
+app.add_typer(config_app, name="config")
 
 
 def _version_callback(value: bool) -> None:

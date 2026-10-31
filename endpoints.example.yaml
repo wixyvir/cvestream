@@ -1,0 +1,68 @@
+# cvestream endpoints. Copy to endpoints.yaml (gitignored) and adjust.
+#
+# Each endpoint is one team's feed: a product list, rules and a secret token.
+# The token IS the access control: anyone who knows it can read the feed.
+# Generate one per endpoint with:
+#   python -c "import secrets; print(secrets.token_urlsafe(32))"
+# The REPLACE-ME tokens below pass validation: nothing rejects them, so
+# replace every one before exposing the daemon. Keep endpoints.yaml private
+# (chmod 600): tokens are stored in plain text.
+#
+# Check the file with:   uv run cvestream config validate endpoints.yaml
+# JSON Schema (editors, other tools' CI): schemas/config-v1.json
+#
+# Unknown keys, duplicate keys, duplicate ids and duplicate tokens are errors.
+# Once the daemon exists, a change is applied at the next poll cycle; an
+# invalid change is rejected and the last valid configuration stays active.
+#
+# YAML pitfalls: quote versions ("8.10", not 8.10, which YAML reads as the
+# number 8.1) and numeric ids; yes/no/on/off are booleans.
+
+# Contract version. Required; must be the integer 1.
+version: 1
+
+# List of endpoints; may be empty.
+endpoints:
+  # Shorthand products and a CVSS threshold.
+  - # Unique slug: lowercase letters, digits and hyphens, 1 to 40 characters.
+    id: team-php
+    # Display name, 1 to 200 characters.
+    name: PHP team
+    # Optional, default true. A disabled endpoint is kept in the
+    # configuration but not served.
+    enabled: true
+    # Optional, default none (no threshold). Number from 0 to 10.
+    min_cvss: 7.0
+    # Optional, default false. true keeps only vulnerabilities known to be
+    # exploited (CISA KEV).
+    kev_only: false
+    # Required. 32 to 128 characters from A-Z a-z 0-9 _ -, unique across
+    # endpoints. This is a PLACEHOLDER: replace it with your own token.
+    token: REPLACE-ME-with-secrets-token-urlsafe-32-team-php
+    # Optional, default empty (matches nothing). Each item is either:
+    #   - a shorthand string: "<name>" or "<name> >= <minimum version>"
+    #   - a full entry (see the next endpoint)
+    products:
+      - php >= 8.2
+      - nodejs
+
+  # Full product entries, KEV-only, currently disabled.
+  - id: team-platform
+    name: Platform team
+    enabled: false
+    kev_only: true
+    # PLACEHOLDER, distinct from every other token.
+    token: REPLACE-ME-with-secrets-token-urlsafe-32-team-platform
+    products:
+      # Full entry. Only `name` is required.
+      - # Product name, matched as a whole word, case-insensitive.
+        name: gitlab
+        # Optional. Other names the same product goes by.
+        aliases: [gitlab-ce, gitlab-ee]
+        # Optional. A vulnerability mentioning one of these terms is dropped.
+        exclude: [gitlab-runner]
+        # Optional, default none. Quoted string; items below this version
+        # are ignored.
+        min_version: "17.0"
+      - name: apache http server
+        aliases: [httpd]
