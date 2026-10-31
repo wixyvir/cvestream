@@ -128,7 +128,7 @@ async def test_a_feed_goes_from_recorded_payloads_to_a_served_response(
             if i.findtext("guid") == f"cvestream:team-browser:{CHROME_CVE}:new"
         )
         title = chrome.findtext("title") or ""
-        assert title.startswith(f"{CHROME_CVE} in Chrome: severity ")
+        assert title.startswith(f"{CHROME_CVE} in Google Chrome: severity ")
         description = chrome.findtext("description") or ""
         lines = description.split("\n")
         assert lines[0].startswith("IDs: ")

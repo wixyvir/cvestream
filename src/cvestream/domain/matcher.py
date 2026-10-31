@@ -65,6 +65,20 @@ def _hits(
     ]
 
 
+def affected_hits(
+    entry: ProductEntry, affected: list[AffectedProduct]
+) -> list[AffectedProduct]:
+    """The affected products that `entry` names: product-name hits first.
+
+    The same rule as matching, for display: the render names the product a
+    vulnerability was matched on, not the endpoint's term. A vendor-only hit
+    (another product of the vendor) comes after every product-name hit.
+    """
+    terms = (entry.name, *entry.aliases)
+    hits = _hits(terms, affected)
+    return sorted(hits, key=lambda a: not _mentions(terms, a.product))
+
+
 def _match_entry(
     entry: ProductEntry,
     affected: list[AffectedProduct],
