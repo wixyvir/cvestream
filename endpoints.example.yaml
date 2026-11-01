@@ -57,7 +57,8 @@ endpoints:
       # Full entry. Only `name` is required.
       - # Product name, matched as a whole word, case-insensitive, against the
         # affected products (product or vendor), or against the description
-        # when a vulnerability lists no affected product.
+        # when a vulnerability lists no affected product. In the description,
+        # a name inside a file name or path (`x/maintenance.php`) does not count.
         name: gitlab
         # Optional. Other names the same product goes by.
         aliases: [gitlab-ce, gitlab-ee]
@@ -66,5 +67,9 @@ endpoints:
         # Optional, default none. Quoted string; items below this version
         # are ignored.
         min_version: "17.0"
+        # Optional, default true. false matches on the affected products only,
+        # never on the description: fewer false positives, but a vulnerability
+        # known only from CISA KEV (no products) waits for EUVD data.
+        match_description: true
       - name: apache http server
         aliases: [httpd]
