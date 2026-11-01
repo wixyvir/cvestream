@@ -161,7 +161,9 @@ Public record page: `https://euvd.enisa.europa.eu/vulnerability/{EUVD-ID}`.
 - **No affected products.** `vendorProject` and `product` are coarse labels without
   versions (for example "Netlogon (ZeroLogon)"). As structured products they would
   make every KEV item an unusable match for endpoints that have a minimum version.
-  The description still feeds description matching.
+  The description still feeds description matching, except for a name inside a file
+  name or path, which does not count. Entries with `match_description: false` ignore
+  it, so such a KEV-only vulnerability waits for EUVD product data.
 - **Not mapped.** `dueDate`, `requiredAction`, `notes`, `cwes` and `forensicTriage`
   are not required and `KevEntry` has no fields for them.
 - **Dates.** `dateAdded` is a calendar date, stored as midnight UTC (display only).

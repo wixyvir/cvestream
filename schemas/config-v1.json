@@ -122,6 +122,12 @@
           "default": null,
           "description": "Minimum version of interest, as a quoted string (YAML reads 8.10 as the number 8.1).",
           "title": "Min Version"
+        },
+        "match_description": {
+          "default": true,
+          "description": "Search the description when a vulnerability lists no affected product; false matches on affected-product data only.",
+          "title": "Match Description",
+          "type": "boolean"
         }
       },
       "required": [

@@ -150,6 +150,14 @@ def test_product_entry_config_to_domain_defaults() -> None:
     assert entry.aliases == []
     assert entry.exclude == []
     assert entry.min_version is None
+    assert entry.match_description is True
+
+
+def test_match_description_maps_to_the_domain() -> None:
+    domain = _only_endpoint(
+        products=[{"name": "php", "match_description": False}, {"name": "gitlab"}]
+    ).to_domain()
+    assert [e.match_description for e in domain.products] == [False, True]
 
 
 def test_repr_hides_token() -> None:
@@ -197,6 +205,10 @@ def test_repr_hides_token() -> None:
             "endpoints.0.products.0.entry.min_version",
         ),
         (
+            _document(_endpoint(products=[{"name": "a", "match_description": "no"}])),
+            "endpoints.0.products.0.entry.match_description",
+        ),
+        (
             _document(_endpoint(products=["php > 8.2"])),
             "endpoints.0.products.0.shorthand",
         ),
@@ -234,6 +246,7 @@ def test_repr_hides_token() -> None:
         "blank-exclude",
         "blank-product-name",
         "bad-min-version",
+        "match-description-string",
         "shorthand-gt",
         "shorthand-no-name",
         "shorthand-bad-version",

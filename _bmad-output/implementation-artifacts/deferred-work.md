@@ -42,3 +42,7 @@ Findings deferred by code reviews, to pick up in a later story or when they bite
 ## Deferred from: trial of 1-6-feeds-served-by-the-daemon.md (2026-10-31)
 
 - **A rate-limited EUVD fetch starts over** (`src/cvestream/sources/euvd.py`, `_search`): the gateway answers 403 when paged too fast, and a 403 fails the whole fetch, so every page already read is lost. The 1.5 s `page_pause` stays below the limit observed on 2026-10-31, but the limit is not documented. Option 2 of the trial comment on wixyvir/cvestream#6, not chosen for now: after at least one successful page, treat a 403 on `/search` as rate limiting, back off (30 s, then 60 s) and resume from the same page. Not every 403 (EUVD also answers 403 to malformed parameters).
+
+## Deferred from: code review of 1-7-description-fallback-precision.md (2026-11-01)
+
+- **A name between hyphens inside a path segment still counts** (`src/cvestream/domain/matcher.py`, `_description_pattern`): rule B only looks at the one character on each side of the hit, so `php` in `wp-content/plugins/insert-php-code-snippet/readme.txt` or `class-php-mailer.php` still matches in the description fallback. Outside the rule agreed on 2026-11-01; none of the 6 measured false positives had this shape. Revisit with trial data if WordPress-plugin paths keep leaking into `php` feeds (for example: a hit inside a whitespace-free token that contains `/` or `\` does not count).
