@@ -55,8 +55,8 @@ cvestream is a small, self-hosted daemon. It pulls vulnerability data from Europ
 
 - **FR-10** Support multiple endpoints. Each endpoint has its own product list and its own rules.
 - **FR-11** A product entry is a vendor/product name, optionally followed by a minimum version (e.g. `php >= 8.2`). It can also list aliases (e.g. `php-src`) and exclusion terms (e.g. `wordpress`).
-- **FR-12** Match against structured affected-product data and the description text, never against the title alone. Matching ignores case and works on whole words, so `php` does not match "phpMyAdmin". A vulnerability that mentions an exclusion term does not match that entry.
-- **FR-13** When an entry has a minimum version, a vulnerability matches only if its affected versions reach that version or higher. A vulnerability without usable version data matches anyway and is labelled "versions unknown". Version data is unusable when it is missing, "n/a", or free text that can't be parsed, or when the match was found only in the description.
+- **FR-12** Match against structured affected-product data, never against the title alone. When a vulnerability has affected-product data, that data alone decides; the description text is searched only when it has none (a WordPress plugin whose description mentions `Module.php` or "PHP Object Injection" is not a PHP vulnerability). Matching ignores case and works on whole words, so `php` does not match "phpMyAdmin". A vulnerability that mentions an exclusion term does not match that entry.
+- **FR-13** When an entry has a minimum version, a vulnerability matches only if its affected versions reach that version or higher. A vulnerability without usable version data matches anyway and is labelled "versions unknown". Version data is unusable when it is missing, "n/a", or free text that can't be parsed, or when the match was found only in the description (a vulnerability without affected-product data).
 - **FR-14** An endpoint can set a minimum CVSS score. Vulnerabilities with no score are never dropped by this threshold.
 - **FR-15** An endpoint can be set to show only known-exploited vulnerabilities.
 - **FR-16** A new endpoint starts with the vulnerabilities it would have matched in the last 7 days.
@@ -65,7 +65,7 @@ cvestream is a small, self-hosted daemon. It pulls vulnerability data from Europ
 ### F4. RSS output
 
 - **FR-17** Serve each endpoint as a valid RSS 2.0 feed, readable by any RSS client and with no Slack-specific markup. Slack's RSS app is the reference consumer. [ASSUMPTION] Each feed carries the feed items from the last 14 days.
-- **FR-18** Each feed item's title names the matched product and the severity. Its body shows the CVE and EUVD IDs, each source's CVSS score with its version, KEV status, affected versions, and links to every source.
+- **FR-18** Each feed item's title names the matched product and the severity. Its body shows the CVE and EUVD IDs, when the vulnerability was first published and last updated, each source's CVSS score with its version, KEV status with the date each list added it, affected versions, and links to every source.
 - **FR-19** A vulnerability is published once per endpoint. It is published again as an update only when it becomes known-exploited or when its severity band rises (e.g. High → Critical, including unknown → rated). Other changes do not re-publish it. [ASSUMPTION: Slack's RSS app ignores items whose GUID it has already seen] Each update is therefore a new feed item, with its own GUID and a title prefixed `[UPDATE]`.
 - **FR-26** A vulnerability that first matches an endpoint only after late data arrives (e.g. product data added later) is published as new on that endpoint.
 - **FR-20** Each feed URL contains an unguessable token. A token can be rotated, which invalidates the old URL.

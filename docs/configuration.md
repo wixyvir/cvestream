@@ -16,8 +16,13 @@ cvestream has two configuration layers:
   |---|---|---|
   | `log.level` | `info` | `debug`, `info`, `warning` or `error` |
   | `log.format` | `json` | `json` (one object per line) or `console` |
+  | `http.public.host` | `0.0.0.0` | address the public listener (feeds) binds |
+  | `http.public.port` | `8080` | port of the public listener, 1 to 65535 |
+  | `http.private.host` | `0.0.0.0` | address the private listener (`/healthz`, `/readyz`, `/status`) binds |
+  | `http.private.port` | `9090` | port of the private listener, 1 to 65535 |
   | `sources.<name>.enabled` | `true` | poll this source (`euvd`, `cisa_kev`) |
   | `sources.<name>.interval` | `PT15M` | polling interval, greater than 0 and at most 60 minutes |
+  | `sources.euvd.page_pause` | `PT1.5S` | pause between two EUVD result pages, 0 to 60 seconds; EUVD answers 403 when paged faster than about 40 to 60 requests a minute (see [sources](sources.md)) |
   | `config_provider` | `yaml` | where endpoints come from; only `yaml` exists for now |
   | `endpoints_file` | `endpoints.yaml` | path of the endpoints file, relative to the working directory |
   | `data_dir` | `data` | directory for runtime data, the state database included (`/data` in the image) |
@@ -30,6 +35,7 @@ cvestream has two configuration layers:
 - Every setting can be set through a variable with the `CVESTREAM_` prefix. A double underscore nests: `CVESTREAM_SOURCES__EUVD__INTERVAL=PT30M` sets `sources.euvd.interval`.
 - **Precedence**, highest first: environment variables, secret files (`*_FILE`), `settings.yaml`. Values merge key by key.
 - **Secrets** are read from a file with `CVESTREAM_<NAME>_FILE=/path`, nested names included. This applies to secret fields only: `state.url` is the first one (`CVESTREAM_STATE__URL_FILE`), and the Valkey password will follow with the Valkey provider. Setting both `CVESTREAM_<NAME>` and `CVESTREAM_<NAME>_FILE` is an error.
+- `http.*` values are not secrets: `CVESTREAM_HTTP__PUBLIC__PORT=18080`, `CVESTREAM_HTTP__PRIVATE__HOST=127.0.0.1`.
 - `CVESTREAM_ENDPOINTS_FILE` is a plain path, **not** a secret file: it sets `endpoints_file`. `CVESTREAM_CONFIG_PROVIDER` sets `config_provider`. `CVESTREAM_DATA_DIR` sets `data_dir`.
 
 ## State database
@@ -38,7 +44,7 @@ The state (vulnerabilities, source records, publications and source cursors) liv
 
 - **Default:** the SQLite file `<data_dir>/cvestream.db` (`./data/cvestream.db`, or `/data/cvestream.db` in the image). It runs in WAL mode with foreign keys on and a 5 s busy timeout.
 - **Storage:** SQLite needs block storage (a local disk or a block volume). Never put it on NFS, SMB or CIFS: file locking is not reliable there.
-- **Create or upgrade:** `cvestream db migrate` brings the database to the latest revision and creates the data directory when it is missing. Running it again changes nothing. The daemon does the same at startup (story 1.6).
+- **Create or upgrade:** `cvestream db migrate` brings the database to the latest revision and creates the data directory when it is missing. Running it again changes nothing. The daemon does the same at startup.
 - **Back up:** `cvestream db backup <file>` copies the database with the SQLite online backup API (a consistent snapshot, WAL included, while the daemon runs). It refuses to overwrite an existing file. For PostgreSQL use `pg_dump`.
 - **PostgreSQL:** planned. It will be an optional `psycopg` extra and a `state.url` change; the code is already portable.
 
@@ -77,6 +83,8 @@ endpoints:
 
 A product entry has `name` (required), `aliases[]`, `exclude[]` and `min_version`. Names, aliases and exclusion terms are stripped and must not be blank. `min_version` is a quoted version string.
 
+**How an entry matches.** The name and its aliases are matched case-insensitively, on whole words (`php` matches `PHP` and `php-fpm`, not `phpMyAdmin`), against the vulnerability's affected products (product or vendor name). The description is searched only when the vulnerability lists no affected product at all: a WordPress plugin whose description mentions `Module.php` does not match `php`. Such a description-only match cannot check `min_version` and is labelled "versions unknown". An exclusion term found in the affected products or the description drops the entry.
+
 **Shorthand.** `php >= 8.2` means name `php`, minimum version `8.2`. A bare `php` is a name only. Spaces around `>=` are optional and names may contain spaces (`apache http server >= 2.4`). Only `>=` exists.
 
 **Tokens.** The token **is** the access control: anyone who knows a feed URL can read the feed. Generate one per endpoint:
@@ -103,4 +111,6 @@ Exit code 0 when valid (one line on stdout). Exit code 2 when invalid or unreada
 
 ### Reloading
 
-The revision of the file is the SHA-256 of its bytes: any change, comments included, triggers a reload. When the new content is invalid, the daemon keeps the last valid configuration and logs `config.rejected` (once the daemon exists, story 1.6).
+The daemon reloads the file by itself, without a restart. The revision of the file is the SHA-256 of its bytes: any change, comments included, triggers a reload. The check runs at the start of every pipeline cycle, so a change applies at the next cycle, that is the next source fetch (within the polling interval, 15 minutes by default). It covers endpoints, product lists, rules, `enabled` flags and tokens: a rotated token serves the new URL at once and the old one answers `404`.
+
+When the new content is invalid, the daemon keeps the last valid configuration and logs `config.rejected` with the field errors (never a token). When the file cannot be read, it keeps it too and logs `config.unavailable`. See [operations.md](operations.md).

@@ -12,8 +12,8 @@
 # JSON Schema (editors, other tools' CI): schemas/config-v1.json
 #
 # Unknown keys, duplicate keys, duplicate ids and duplicate tokens are errors.
-# Once the daemon exists, a change is applied at the next poll cycle; an
-# invalid change is rejected and the last valid configuration stays active.
+# A change is applied at the next poll cycle, without restart; an invalid
+# change is rejected and the last valid configuration stays active.
 #
 # YAML pitfalls: quote versions ("8.10", not 8.10, which YAML reads as the
 # number 8.1) and numeric ids; yes/no/on/off are booleans.
@@ -55,7 +55,9 @@ endpoints:
     token: REPLACE-ME-with-secrets-token-urlsafe-32-team-platform
     products:
       # Full entry. Only `name` is required.
-      - # Product name, matched as a whole word, case-insensitive.
+      - # Product name, matched as a whole word, case-insensitive, against the
+        # affected products (product or vendor), or against the description
+        # when a vulnerability lists no affected product.
         name: gitlab
         # Optional. Other names the same product goes by.
         aliases: [gitlab-ce, gitlab-ee]

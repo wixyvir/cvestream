@@ -1,0 +1,41 @@
+# Self-hosted cvestream: one container, the YAML configuration provider.
+#
+# Setup:
+#   mkdir config && cp ../../endpoints.example.yaml config/endpoints.yaml
+#   # edit config/endpoints.yaml: one secret token per endpoint
+#   #   python -c "import secrets; print(secrets.token_urlsafe(32))"
+#   docker compose up -d
+#
+# Feed URL: http://<host>:8080/feeds/<token>.xml. Put an HTTPS reverse proxy in
+# front of port 8080; its access logs contain the token (see docs/operations.md).
+# Never commit config/endpoints.yaml: it holds the tokens (it is gitignored).
+services:
+  cvestream:
+    # Pin a release tag (X.Y.Z) once release.yml publishes one (story 3.3).
+    image: ghcr.io/wixyvir/cvestream:edge
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # Lets the pipeline run in progress finish on `docker compose stop`.
+    stop_grace_period: 60s
+    # Only the public listener is published; 9090 (health, status) stays inside.
+    ports:
+      - "8080:8080"
+    environment:
+      CVESTREAM_CONFIG_PROVIDER: yaml
+      CVESTREAM_ENDPOINTS_FILE: /config/endpoints.yaml
+    volumes:
+      # The state database (/data is the image's CVESTREAM_DATA_DIR).
+      - data:/data
+      # A directory, not the file: an editor that saves by replacing the file
+      # gives it a new inode, and a single-file bind mount would keep showing
+      # the old content, silently breaking hot reload.
+      - ./config:/config:ro
+
+volumes:
+  data:

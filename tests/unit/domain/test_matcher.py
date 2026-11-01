@@ -120,6 +120,65 @@ def test_description_only_match_is_not_structured(
     assert result.matches[0].structured is False
 
 
+@pytest.mark.parametrize(
+    ("products", "description"),
+    [
+        (
+            [("Wild Apricot Login", "wild-apricot", "0 ≤1.0.18")],
+            "The Wild Apricot Login plugin for WordPress falls back to a lookup in"
+            " `Module.php` to resolve a WordPress user.",
+        ),
+        (
+            [("PHPOK", "PHPOK", "4.5.000 <5.4.081")],
+            "PHPOK, a PHP content management system, allows SQL injection.",
+        ),
+        (
+            [("Kirki", "Themeum", "n/a")],
+            "The Kirki plugin for WordPress is vulnerable to PHP Object Injection.",
+        ),
+    ],
+    ids=["php-file-name", "php-made-product", "php-object-injection"],
+)
+def test_a_description_mention_does_not_match_another_product(
+    make_vulnerability: VulnerabilityFactory,
+    products: list[tuple[str, str, str]],
+    description: str,
+) -> None:
+    vulnerability = make_vulnerability(description=description, products=products)
+    assert match(vulnerability, _endpoint(PHP)) is None
+    assert match(vulnerability, _endpoint(PHP_8_2)) is None
+
+
+@pytest.mark.parametrize(
+    "products",
+    [
+        [("PHP", "PHP Group", "8.1.0 <8.2.29")],
+        [("php-fpm", "PHP Group", "8.1.0 <8.2.29")],
+        [("Zend Engine", "PHP", "8.1.0 <8.2.29")],
+    ],
+    ids=["product", "sub-product", "vendor"],
+)
+def test_php_and_its_sub_products_still_match(
+    make_vulnerability: VulnerabilityFactory, products: list[tuple[str, str, str]]
+) -> None:
+    vulnerability = make_vulnerability(
+        description="A flaw in a WordPress plugin", products=products
+    )
+    result = match(vulnerability, _endpoint(PHP))
+    assert result is not None
+    assert result.matches[0].structured is True
+
+
+def test_the_description_is_a_fallback_without_affected_data(
+    make_vulnerability: VulnerabilityFactory,
+) -> None:
+    vulnerability = make_vulnerability(description="A flaw in PHP 8.3")
+    result = match(vulnerability, _endpoint(PHP_8_2))
+    assert result is not None
+    assert result.matches[0].structured is False
+    assert result.labels == frozenset({PassThrough.VERSIONS_UNKNOWN})
+
+
 def test_title_alone_never_matches(make_vulnerability: VulnerabilityFactory) -> None:
     vulnerability = make_vulnerability(
         title="PHP remote code execution", description="Remote code execution"
@@ -327,7 +386,7 @@ def test_versions_unknown_label_only_when_every_match_is_unknown(
 ) -> None:
     redis = ProductEntry(name="redis", min_version=Version("7.0"))
     vulnerability = make_vulnerability(
-        description="redis flaw", products=[("PHP", None, "8.0 <8.2.29")]
+        products=[("PHP", None, "8.0 <8.2.29"), ("Redis", None, "n/a")]
     )
     result = match(vulnerability, _endpoint(PHP_8_2, redis))
     assert result is not None

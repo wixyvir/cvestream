@@ -35,6 +35,9 @@ SETTINGS_FILE_ENV = "CVESTREAM_SETTINGS_FILE"
 DEFAULT_SETTINGS_FILE = Path("settings.yaml")
 MAX_SOURCE_INTERVAL = timedelta(minutes=60)  # NFR-1
 DEFAULT_SOURCE_INTERVAL = timedelta(minutes=15)
+# EUVD's gateway rate limit (see `sources/euvd.py` `PAGE_PAUSE`).
+DEFAULT_EUVD_PAGE_PAUSE = timedelta(seconds=1.5)
+MAX_EUVD_PAGE_PAUSE = timedelta(seconds=60)
 DATABASE_FILE = "cvestream.db"
 
 # The environment seen by the next `Settings()` construction. `load_settings`
@@ -64,10 +67,19 @@ class SourceSettings(BaseModel):
     )
 
 
+class EuvdSourceSettings(SourceSettings):
+    # Pause between two `/search` pages: EUVD answers 403 when paged too fast.
+    page_pause: timedelta = Field(
+        default=DEFAULT_EUVD_PAGE_PAUSE,
+        ge=timedelta(0),
+        le=MAX_EUVD_PAGE_PAUSE,
+    )
+
+
 class SourcesSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    euvd: SourceSettings = Field(default_factory=SourceSettings)
+    euvd: EuvdSourceSettings = Field(default_factory=EuvdSourceSettings)
     cisa_kev: SourceSettings = Field(default_factory=SourceSettings)
 
 
@@ -77,6 +89,31 @@ class StateSettings(BaseModel):
     # SQLAlchemy URL. Secret: a PostgreSQL URL carries a password
     # (CVESTREAM_STATE__URL_FILE).
     url: SecretStr | None = None
+
+
+class ListenerSettings(BaseModel):
+    """One HTTP listener. Each listener has its own default port."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # The container's network namespace is the boundary: only 8080 is published.
+    host: str = "0.0.0.0"  # noqa: S104
+    port: int = Field(ge=1, le=65535)
+
+
+class PublicListenerSettings(ListenerSettings):
+    port: int = Field(default=8080, ge=1, le=65535)
+
+
+class PrivateListenerSettings(ListenerSettings):
+    port: int = Field(default=9090, ge=1, le=65535)
+
+
+class HttpSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    public: PublicListenerSettings = Field(default_factory=PublicListenerSettings)
+    private: PrivateListenerSettings = Field(default_factory=PrivateListenerSettings)
 
 
 class _EnvironSource(EnvSettingsSource):
@@ -224,6 +261,7 @@ class Settings(BaseSettings):
     endpoints_file: Path = Path("endpoints.yaml")
     data_dir: Path = Path("data")
     state: StateSettings = Field(default_factory=StateSettings)
+    http: HttpSettings = Field(default_factory=HttpSettings)
 
     @classmethod
     def settings_customise_sources(

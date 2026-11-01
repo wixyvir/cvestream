@@ -34,6 +34,7 @@ docker build --target runtime -t cvestream:local .
 - Unknown is `None`, never `0`, `""` or `"n/a"`.
 - Free-text versions are parsed only by `domain/version.py`; `packaging` is the only third-party import allowed in `domain`.
 - Publication GUIDs are built only in `domain/publication.py`, stored in `publication.guid` and never recomputed; state is written only inside `State.transaction()`.
+- Only `pipeline/run.py` opens `State.transaction()`: `app/` reads state through `pipeline.run` functions in a thread, and HTTP handlers read only the in-memory feed cache.
 - Time is aware UTC from the injected `Clock`; never call `datetime.now()` elsewhere.
 - Every exception inherits from `CvestreamError` and its name ends in `Error`.
 - All tool configuration lives in `pyproject.toml` (no `ruff.toml`, `pytest.ini`, `.importlinter`).

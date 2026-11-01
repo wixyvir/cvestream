@@ -38,7 +38,7 @@ This document provides the complete epic and story breakdown for cvestream, deco
 - FR-15: Per-endpoint "known-exploited only" option.
 - FR-16: A new endpoint starts with the vulnerabilities it would have matched in the last 7 days.
 - FR-17: Serve each endpoint as a valid RSS 2.0 feed, no Slack-specific markup, 14-day item window.
-- FR-18: Item title names the matched product and severity; body shows CVE/EUVD IDs, each source's CVSS score + version, KEV status, affected versions, links to every source.
+- FR-18: Item title names the matched product and severity; body shows CVE/EUVD IDs, first published and last updated dates, each source's CVSS score + version, KEV status with the date each list added it, affected versions, links to every source.
 - FR-19: Publish once per endpoint; re-publish as `[UPDATE]` (new GUID) only when it becomes known-exploited or its severity band rises (including unknown → rated).
 - FR-20: Each feed URL contains an unguessable token; a token can be rotated, invalidating the old URL.
 - FR-21: Configuration comes from a key-value datastore (preferred) or a YAML file.
@@ -285,7 +285,7 @@ So that I can subscribe my Slack channel once and receive relevant alerts within
 **Given** `pipeline/render.py`
 **When** an endpoint's feed is rendered
 **Then** it is valid RSS 2.0 built with an XML serializer (source text escaped, no Slack markup) with the items of the last 14 days (FR-17)
-**And** each item title names the matched product and severity band, updates are prefixed `[UPDATE]`, and the body shows CVE/EUVD IDs, each source's CVSS score with version, KEV status with its list and ransomware use, affected versions or "versions unknown", and links to every source; unknown values render as `unknown` (FR-18, FR-24)
+**And** each item title names the matched product and severity band, updates are prefixed `[UPDATE]`, and the body shows CVE/EUVD IDs, the first published and last updated dates, each source's CVSS score with version, KEV status with its list, the date it was added and ransomware use, affected versions or "versions unknown", and links to every source; unknown values render as `unknown` (FR-18, FR-24)
 **And** the rendered XML is stored in a new `feed_cache` table (migration `0002_add_feed_cache.py`) inside the run's transaction
 
 **Given** `cvestream run`

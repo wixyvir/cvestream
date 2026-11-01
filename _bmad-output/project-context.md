@@ -78,7 +78,7 @@ _Versions verified online on 2026-10-26 (architecture.md). Before adding any dep
 
 **CLI (Typer):** kebab-case, noun then verb (`endpoint create --min-cvss 7.0`). A user error prints one line to stderr and exits with code 2. An unexpected error exits with code 1 and shows the traceback only with `--debug`. `cvestream healthcheck` uses only the stdlib `urllib` and imports neither the app nor the providers.
 
-**Settings:** pydantic-settings, prefix `CVESTREAM_`, nesting with `__`, secrets through `*_FILE` variables. Source interval ≤ 60 min (NFR-1).
+**Settings:** pydantic-settings, prefix `CVESTREAM_`, nesting with `__`, secrets through `*_FILE` variables. Source interval ≤ 60 min (NFR-1). `sources.euvd.page_pause` (default 1.5 s, at most 60 s) paces EUVD paging below its gateway rate limit.
 
 **Logging (structlog):** events named `<area>.<past-participle>`, area ∈ {`app`, `source`, `pipeline`, `config`, `publish`, `feed`, `http`, `state`}. Standard fields: `source`, `endpoint_id`, `vuln_id`, `count`, `duration_ms`, `error_type`. One `cycle.summary` per run (token rule: see Security below).
 
@@ -132,11 +132,11 @@ _Versions verified online on 2026-10-26 (architecture.md). Before adding any dep
 
 **Recall over volume (FR-25): when in doubt, let it through.**
 - No score → never dropped by `min_cvss`.
-- Unusable version data (missing, `n/a`, unparsable, or a match found only in the description) → matches anyway, labelled "versions unknown".
+- Unusable version data (missing, `n/a`, unparsable, or a match found only in the description of a vulnerability without affected-product data) → matches anyway, labelled "versions unknown".
 - The highest available score drives the threshold, the title severity and the re-publish triggers. Every source's score is kept (`Sourced`) and shown; `max_score()`/`band()` compute from them, never overwrite.
 - Pass-throughs on unknown data are counted in `cycle.summary`.
 
-**Matching (FR-12):** case-insensitive and whole-word (`php` must not match `phpMyAdmin`). Match on structured product data **and** the description, never on the title alone. Aliases count as names. An exclusion term found in the vulnerability → that entry does not match.
+**Matching (FR-12):** case-insensitive and whole-word (`php` must not match `phpMyAdmin`). Structured affected-product data decides whenever a vulnerability has any; the description is searched only when it has none (so `php` does not match a WordPress plugin mentioning `Module.php`). Never match on the title. Aliases count as names. An exclusion term found in the vulnerability → that entry does not match.
 
 **Identity (FR-8):** never key anything on a URL (a source changing its domain must not create a duplicate). Merge via CVE/EUVD aliases. A record without a CVE ID is not merged. Merge keys are CVE and EUVD aliases only; aliases are never removed.
 

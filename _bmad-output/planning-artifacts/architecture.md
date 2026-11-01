@@ -38,7 +38,7 @@ _This document builds collaboratively through step-by-step discovery. Sections a
 |---|---|---|
 | F1 Source ingestion | FR-1, 2, 2b, 3, 4, 5, 6 | One adapter per source (EUVD, CERT-EU, CERT-FR alerte, CISA KEV, generic RSS/JSON). Each has its own schedule and its own failure isolation. Incremental polling (EUVD `fromUpdatedDate`) needs a cursor per source that survives restarts. A generic source has a minimum contract (stable ID + text) and degrades gracefully when fields are missing. |
 | F2 Correlation and identity | FR-7, 8, 9, 24 | A canonical vulnerability, keyed by CVE/EUVD/advisory ID aliases and never by URL. Every value records which source supplied it. "Unknown" is a value in its own right. The highest score wins for decisions, but every source's score is kept. |
-| F3 Endpoints and filtering | FR-10 to 16, 25 | A matching engine: case-insensitive whole-word matching on structured product data and the description, aliases, exclusion terms, minimum versions parsed from free text, and fail-open labels ("versions unknown"). Filters: CVSS threshold and KEV-only. A new endpoint is backfilled with 7 days of matches. Recall wins over volume. |
+| F3 Endpoints and filtering | FR-10 to 16, 25 | A matching engine: case-insensitive whole-word matching on structured product data, the description only as a fallback for a vulnerability without affected-product data, aliases, exclusion terms, minimum versions parsed from free text, and fail-open labels ("versions unknown"). Filters: CVSS threshold and KEV-only. A new endpoint is backfilled with 7 days of matches. Recall wins over volume. |
 | F4 RSS output | FR-17 to 20, 26 | A publication engine that decides new, update (`[UPDATE]` with its own GUID) or nothing, per vulnerability and endpoint. It needs history: last severity band and last KEV state. An RSS 2.0 renderer with a 14-day window and no Slack-specific markup. Feed URLs carry a token that can be rotated. |
 | F5 Configuration | FR-21, 22, 23 | Pluggable providers (Valkey or YAML). A CLI that performs create/list/edit/delete through the active provider. Changes apply at the next poll. Invalid configuration means keeping the last valid one and logging the error. |
 
@@ -207,6 +207,7 @@ cvestream:v1:token:{id}               feed token (plaintext; own namespace so co
 **Validation and model:** Pydantic 2.14 at boundaries (config models, per-source payload models inside adapters; validation failure → source error). Internal domain model as `@dataclass(frozen=True, slots=True)`.
 
 **Feed cache:** after each pipeline run, the RSS XML for each endpoint is rendered, stored in `feed_cache` and swapped into memory. Served with `ETag`/`Last-Modified`. The last good content survives source failures (FR-6) and restarts.
+Rules (story 1.6): every enabled endpoint is rendered at every run, inside the run's transaction, so the 14-day window slides even when nothing is published. The ETag is the quoted SHA-256 of the XML bytes; `Last-Modified` is the last time the ETag changed (`feed_cache.changed_at`), never the render time; the channel `lastBuildDate` is the newest item's date and is absent without items, so an unchanged feed keeps its ETag and readers get `304`. An item's title takes the band and the known-exploited flag recorded at decision time, and names the affected product (vendor and product, from the current merged data) that the first matched entry hits, product-name hits before vendor-only ones, or the entry's name when none does; known-exploited reads `EXPLOITED`. Its body comes from the current merged data of the vulnerability (dates included: the earliest `published_at` and the newest `updated_at` of the sources, and each KEV list's earliest `added_at`, as UTC days), as an HTML fragment (RSS 2.0 `description` is entity-encoded HTML): bold labels, `<br/>` between facts, source records and references as links; every value is HTML-escaped before the tags are added and only `http`/`https` URLs become links, so source text never injects markup. A known token whose endpoint has no stored feed yet (first start, new endpoint) gets an empty channel until its first run.
 
 ### Authentication & Security
 
@@ -225,6 +226,7 @@ cvestream:v1:token:{id}               feed token (plaintext; own namespace so co
   - one pipeline worker, serialized, executed with `asyncio.to_thread`: reload config if revision changed → normalize → correlate → match → decide publications → SQLite transaction → render → swap in-memory feed cache;
   - embedded `uvicorn.Server` × 2 (public, private) in the same loop.
   - HTTP handlers only read the in-memory feed cache, so asyncio code never touches SQLite.
+  - a source loop reads its cursor from the state before each fetch and waits for the run that carries its outcome; every fetch outcome, failed ones included, triggers one cycle (the worker drains a backlog into a single run).
   - `cvestream poll --once` runs one cycle and exits. SIGTERM: stop loops, finish the current pipeline run, stop servers.
 - **Startup behaviour:** migrate the state store → start the private listener (`/healthz` OK, `/readyz` not ready) → load the configuration from the provider. With the Valkey provider, the daemon **only runs if Valkey is available**: it retries with backoff for `valkey.startup_timeout` (default 60 s), then exits with code 3 and logs `config.unavailable`. Nothing is persisted as a fallback. Once the configuration is loaded: start the source loops and the public listener, `/readyz` becomes ready.
 - **Valkey outage while running:** the in-memory last valid configuration keeps being used, polling and feeds continue, and each pipeline run logs a `config.unavailable` warning until Valkey is back.
@@ -237,7 +239,7 @@ cvestream:v1:token:{id}               feed token (plaintext; own namespace so co
 | public | `GET`/`HEAD /feeds/{token}.xml` | `application/rss+xml; charset=utf-8`, `ETag`, `Last-Modified`, `304`, `Cache-Control: max-age=300`, unknown token → `404` |
 | private | `/healthz` | liveness (event loop responds) |
 | private | `/readyz` | configuration loaded from the provider and state store open; independent of sources |
-| private | `/status` | JSON: per source last success/error/cursor; per endpoint item count, last render |
+| private | `/status` | JSON: per source activity (`idle`, `fetching`, `processing`, `crashed`) with its start and the next fetch, last success/error, cursor; per endpoint item count, last render |
 
 - **Source adapters:** `SourceAdapter` protocol (`name`, `async fetch(cursor) -> FetchResult(records, next_cursor)`). Built-in: `euvd`, `cert_eu`, `certfr_alerte`, `cisa_kev`. Generic `rss` and `json` adapters (FR-5) configured in static settings (URL, ID path or regex, text fields, CVE regex). Sequential pages, short pauses, exponential backoff. The cursor is an opaque string owned by the adapter (`next_cursor` comes from source data, never from the local clock; the fetch time only caps it, so a future-dated source record cannot park it ahead). The `euvd` adapter also loads `/api/kev/dump` in full on every fetch and emits `eu_kev` records (an EU KEV addition does not change `dateUpdated`).
 - **Error taxonomy:** `SourceTransportError`, `SourcePayloadError`, `SourceContractError` (source level: logged, cursor not advanced, others continue). Record-level failure: skipped and counted. Invalid config: last valid kept. Unexpected exception in a loop: supervisor logs and restarts the loop with backoff. The process never crashes because of a source.
@@ -276,7 +278,7 @@ Not applicable: no UI. RSS is the only output contract.
   - Local: `uv run cvestream run` with the YAML provider and `./data`.
 - **Backups:** Valkey RDB snapshot + `cvestream config export` (YAML, can live in git). SQLite: `cvestream db backup <file>` (SQLite online backup API; SQLite only, PostgreSQL would use `pg_dump`).
 - **Scaling:** single replica by design (documented). RWO volume prevents two writers.
-- **Runtime configuration:** pydantic-settings 2.16: `CVESTREAM_*` env vars override an optional `settings.yaml` (`CVESTREAM_SETTINGS_FILE`). Static settings: listeners, `data_dir`, `state.url` (SQLAlchemy URL, default SQLite under `data_dir`), `config_provider` (`valkey` | `yaml`), `valkey.url` + password file + `valkey.startup_timeout`, sources with intervals (default 15 min, max 60 for NFR-1), adapter settings, log level/format. `endpoints.yaml` (YAML provider) is a separate file.
+- **Runtime configuration:** pydantic-settings 2.16: `CVESTREAM_*` env vars override an optional `settings.yaml` (`CVESTREAM_SETTINGS_FILE`). Static settings: listeners (`http.public.host`/`port`, default `0.0.0.0:8080`, and `http.private.host`/`port`, default `0.0.0.0:9090`), `data_dir`, `state.url` (SQLAlchemy URL, default SQLite under `data_dir`), `config_provider` (`valkey` | `yaml`), `valkey.url` + password file + `valkey.startup_timeout`, sources with intervals (default 15 min, max 60 for NFR-1), adapter settings, log level/format. `endpoints.yaml` (YAML provider) is a separate file.
 - **Logging:** structlog 26.1, JSON in production, console in dev, dot-separated event names (`poll.completed`, `source.failed`, `publish.decided`, `config.rejected`). `cycle.summary` per run: per-source result, per-endpoint published count, pass-throughs on unknown score and unknown versions (NFR-4).
 - **Code quality and tests:** ruff 0.17.2, ty 0.0.92 (beta; fallback mypy 2.4.0 with the same CI step), pytest 9.1.1 + anyio plugin, respx 0.23.1. Recorded payloads in `tests/fixtures/<source>/`. Pre-commit optional; CI is the gate.
 
@@ -324,7 +326,7 @@ Not applicable: no UI. RSS is the only output contract.
 - JSON columns: SQLAlchemy `JSON`, suffix `_json` (`products_json`).
 - Constraint names come from the `MetaData` naming convention: `pk_<table>`, `fk_<table>_<col>_<ref>`, `ix_<table>_<col>`, `ux_<table>_<col>`, `ck_<table>_<name>`.
 - Portability rules: no raw dialect-specific SQL in the repository (no `INSERT OR REPLACE`, no `PRAGMA`, no `RETURNING` without a check), no SQLite-only types. Upserts only through `_upsert()`.
-- Migrations: Alembic revisions in `state/migrations/versions/`, named `NNNN_<verb>_<object>.py` (`0003_add_feed_cache.py`), with batch operations. Never edit a migration that has been merged.
+- Migrations: Alembic revisions in `state/migrations/versions/`, named `NNNN_<verb>_<object>.py` (`0002_add_feed_cache.py`), with batch operations. Never edit a migration that has been merged.
 
 **Identifiers:**
 
@@ -429,7 +431,7 @@ The "Component boundaries (allowed imports)" list in the Project Structure secti
 
 **Testability:** time comes from an injected `Clock`, never from calling `datetime.now()` directly. Randomness (tokens, jitter) comes from injectable functions.
 
-**Staleness (replaces "loading states", since there's no UI):** each source exposes `last_success_at` and `last_error` in `/status`. A `source.stale` warning is logged when `now - last_success_at > 3 × interval`.
+**Staleness (replaces "loading states", since there's no UI):** each source exposes `last_success_at` and `last_error` in `/status`, plus its current `activity` (`idle`, `fetching`, `processing`, `crashed`), `activity_since` and `next_fetch_at`, so a long first fetch is told apart from a source that never ran. A `source.stale` warning is logged when `now - last_success_at > 3 × interval`.
 
 **Typing:** all public functions are fully annotated. Don't add `from __future__ import annotations` (annotations are deferred by default in Python 3.14). `ty check` passes in CI.
 
@@ -778,7 +780,7 @@ sources/* ──fetch──▶ SourceRecord ─▶ normalize ─▶ correlate �
 - **Minor (open):**
   - M1: project licence not chosen.
   - ~~M2: GHCR owner and repository name~~: resolved. Repository `github.com/wixyvir/cvestream`, image `ghcr.io/wixyvir/cvestream`.
-  - M3: Slack RSS app behaviour (polling cadence, GUID de-duplication) is still a PRD `[ASSUMPTION]`, to check during the trial. The design copes either way (each update has its own GUID).
+  - M3: Slack RSS app behaviour (polling cadence, GUID de-duplication) is still a PRD `[ASSUMPTION]`, to check during the trial. The design copes either way (each update has its own GUID). Also check how Slack shows the HTML item description (expected: text without formatting).
   - M4: deferred items: Prometheus metrics, image scanning/signing, Litestream, Helm, HTTP configuration provider, PostgreSQL backend, Python 3.15.
 
 ### Validation Issues Addressed

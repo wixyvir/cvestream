@@ -11,7 +11,8 @@ repository currently holds the project skeleton, the container image, the CI
 quality gate, the domain model, the endpoint configuration contract, the EUVD
 and CISA KEV source adapters, and the state store with the correlation and
 publication decisions (each vulnerability is merged across sources and decided
-once per endpoint, surviving restarts). There are no feeds yet.
+once per endpoint, surviving restarts), and the daemon that polls the sources
+and serves one token-protected RSS 2.0 feed per endpoint.
 
 Design: [`_bmad-output/planning-artifacts/architecture.md`](_bmad-output/planning-artifacts/architecture.md).
 Sources and their assumptions: [`docs/sources.md`](docs/sources.md).
@@ -19,6 +20,25 @@ Static settings: [`settings.example.yaml`](settings.example.yaml) (every key is
 documented there; environment variables use the `CVESTREAM_` prefix, `__` for
 nesting). Endpoint configuration (`endpoints.yaml`) and settings are described
 in [`docs/configuration.md`](docs/configuration.md).
+
+## Self-hosted quick start
+
+One container, the YAML configuration provider and a named volume for the state.
+Needs Docker with Compose.
+
+```sh
+cd deploy/compose
+mkdir config && cp ../../endpoints.example.yaml config/endpoints.yaml
+# edit config/endpoints.yaml: your teams, products and one secret token each
+#   python -c "import secrets; print(secrets.token_urlsafe(32))"
+docker compose up -d
+```
+
+Each endpoint's feed is `http://<host>:8080/feeds/<token>.xml`: subscribe your
+Slack channel to it with the RSS app. The first items appear after the first
+poll (within 15 minutes). Put an HTTPS reverse proxy in front of port 8080; only
+that port is published. Running, logs, health, token rotation and backups are in
+[`docs/operations.md`](docs/operations.md).
 
 ## Development quick start
 
@@ -31,6 +51,8 @@ uv run cvestream --help    # root command
 cp endpoints.example.yaml endpoints.yaml   # then replace the placeholder tokens
 uv run cvestream config validate endpoints.yaml
 uv run cvestream db migrate                # creates ./data/cvestream.db (gitignored)
+uv run cvestream run                       # the daemon: feeds on :8080, health on :9090
+uv run cvestream poll --once               # or: fetch every source once, run one cycle, exit
 ```
 
 ### Quality gate
@@ -55,9 +77,10 @@ server.
 ### In a container
 
 ```sh
-docker compose watch                          # dev target, src/ synced, rebuild on uv.lock
+docker compose watch                          # dev target running the daemon, src/ synced, rebuild on uv.lock
 docker build --target runtime -t cvestream:local .
 docker run --rm cvestream:local --help        # runtime image: UID 999, no uv, volume /data
+                                              # (its default command is `run`, with a HEALTHCHECK)
 ```
 
 The repository also ships a [devcontainer](.devcontainer/devcontainer.json)
