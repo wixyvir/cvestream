@@ -301,11 +301,13 @@ def test_the_path_rule_applies_to_aliases_and_multi_word_names(
     ],
     ids=["CVE-2026-107084", "CVE-2026-52356", "CVE-2026-50787", "CVE-2026-107081"],
 )
+@pytest.mark.parametrize("kev", [False, True], ids=["euvd-n-a", "kev-only"])
 def test_file_names_in_euvd_descriptions_do_not_match_php(
-    make_vulnerability: VulnerabilityFactory, description: str
+    make_vulnerability: VulnerabilityFactory, description: str, kev: bool
 ) -> None:
-    # EUVD records whose product is "n/a": no affected product survives.
-    vulnerability = make_vulnerability(description=description)
+    # An EUVD record whose product is "n/a" or a CISA KEV-only record: no
+    # affected product survives.
+    vulnerability = make_vulnerability(description=description, kev=kev)
     assert match(vulnerability, _endpoint(PHP)) is None
     assert match(vulnerability, _endpoint(PHP_8_2)) is None
 
