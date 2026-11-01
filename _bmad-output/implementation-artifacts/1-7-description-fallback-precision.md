@@ -4,7 +4,7 @@ baseline_commit: ea797baefced38ff8f831f749f2ae840ff98a8fe
 
 # Story 1.7: Description fallback precision
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -80,6 +80,15 @@ Added by the 2026-11-01 course correction for wixyvir/cvestream#8 (fixes **B** a
   - [x] 7.1 Run every gate command of `CLAUDE.md` (baseline on `main`: **978 passed, 2 deselected**).
   - [x] 7.2 Story file: tick tasks, fill the Dev Agent Record, Status → `review`; `sprint-status.yaml`: `1-7-description-fallback-precision: review`. Commit: `chore(story-1.7): mark story ready for review`.
   - [x] 7.3 Push with SSH (`git@github.com:wixyvir/cvestream.git`), open the PR to `main` (`SSL_CERT_FILE=$HOME/ca.pem gh pr create ...`), title `fix(story-1.7): description fallback precision`, body linking this story file, stating the narrowed rule B, containing `Closes wixyvir/cvestream#8`, and ending with the attribution line.
+
+### Review Findings
+
+Code review of 2026-11-01 (Blind Hunter, Edge Case Hunter, Acceptance Auditor; diff `ea797ba..b943809`).
+
+- [x] [Review][Patch] Pin the slash trade-off with tests (`Apache/2.4.49`, `Linux/Unix` do not match) and document it as an assumed risk in `docs/configuration.md` [tests/unit/domain/test_matcher.py:231] — resolved from the decision below (Cyprien, 2026-11-01: keep rule B, record the risk)
+- [x] [Review][Decision] A slash next to a name in prose is read as a path — resolved: keep rule B as agreed (option 1), see the patch above. The `(?![\w/\\])` lookahead and `[./\\]` lookbehind of `_description_pattern` [src/cvestream/domain/matcher.py:63] drop more than file paths: `Apache/2.4.49`, `nginx/1.25.3` (banner style), `Linux/Unix`, `MySQL/MariaDB`, `GNU/Linux`, and both mentions in `Microsoft Windows/Windows Server` no longer match in the fallback (confirmed by running `match()`). The spec accepted `PHP/8.3` and `PHP/MySQL` as trade-offs; the reach to banner-style `name/version` for every product was not spelled out. Only no-product vulnerabilities are affected (EUVD `n/a`, KEV-only until EUVD brings products). No test pins any of these cases.
+- [x] [Review][Patch] Path-rule tests never use a KEV-shaped vulnerability (AC 4 names both the EUVD `n/a` and the CISA KEV shape) [tests/unit/domain/test_matcher.py:304]
+- [x] [Review][Defer] A name between hyphens inside a path segment still matches (`wp-content/plugins/insert-php-code-snippet/readme.txt`) [src/cvestream/domain/matcher.py:63] — deferred, outside the agreed rule B (one boundary character each side); none of the measured cases had this shape
 
 ## Dev Notes
 
@@ -333,3 +342,4 @@ claude-sonnet-5-5
 ### Change Log
 
 - 2026-11-01: Implemented story 1.7: path rule in the description fallback, opt-in `match_description` on product entries (config contract v1, additive), tests and documentation. Status: review.
+- 2026-11-01: Code review: 1 decision (slash trade-off kept as an assumed risk, documented and pinned by tests), 2 patches applied (slash tests and docs, KEV-shaped issue table), 1 deferred, 9 dismissed. Status: done.
