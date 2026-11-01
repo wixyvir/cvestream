@@ -86,5 +86,17 @@ docker run --rm cvestream:local --help        # runtime image: UID 999, no uv, v
 The repository also ships a [devcontainer](.devcontainer/devcontainer.json)
 that uses the same `app` service as `docker compose watch`.
 
+### On Kubernetes (minikube)
+
+```sh
+./test-k8s/up.sh     # throwaway minikube cluster: build, deploy, smoke checks
+./test-k8s/down.sh   # delete it
+```
+
+[`test-k8s/`](test-k8s/README.md) runs the current tree behind a public and a
+VPN-only Traefik (wixyvir/services#1) and checks hardening, routing,
+NetworkPolicies, persistence and hot reload. It is a test harness; the
+supported manifests are story 3.3 (`deploy/k8s/`).
+
 Work is delivered one story per branch and per pull request; see
 `CLAUDE.md` for the rules.
