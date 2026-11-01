@@ -14,7 +14,7 @@ status: complete
 
 This document provides the complete epic and story breakdown for cvestream, decomposing the requirements from the PRD and Architecture requirements into implementable stories. There is no UX design document: cvestream has no UI, and RSS is its only output contract.
 
-**Sizing choice (user request):** as few epics and stories as possible, each still small enough for one dev agent session and one PR. 3 epics, 11 stories. Epic 1 alone gives the trial a working, deployable filtered feed.
+**Sizing choice (user request):** as few epics and stories as possible, each still small enough for one dev agent session and one PR. 3 epics, 11 stories, plus Story 1.7 added by the 2026-11-01 course correction (wixyvir/cvestream#8). Epic 1 alone gives the trial a working, deployable filtered feed.
 
 ## Requirements Inventory
 
@@ -31,8 +31,8 @@ This document provides the complete epic and story breakdown for cvestream, deco
 - FR-8: Identify a vulnerability by CVE, EUVD or advisory ID, never by URL.
 - FR-9: Record which source supplied each value (score, CVSS version, affected products). Missing score or version data is *unknown*, never zero or low.
 - FR-10: Support multiple endpoints, each with its own product list and rules.
-- FR-11: A product entry is a name, optional minimum version (`php >= 8.2`), optional aliases and exclusion terms.
-- FR-12: Match on structured affected-product data and the description, never the title alone; case-insensitive whole-word matching; an exclusion term prevents the match.
+- FR-11: A product entry is a name, optional minimum version (`php >= 8.2`), optional aliases and exclusion terms, and can opt out of the description fallback.
+- FR-12: Match on structured affected-product data, and on the description only when there is none, never the title alone; case-insensitive whole-word matching; in the description, a name inside a file name or path does not count; an exclusion term prevents the match.
 - FR-13: With a minimum version, match only if affected versions reach it; unusable version data matches anyway, labelled "versions unknown".
 - FR-14: Per-endpoint minimum CVSS score; unscored vulnerabilities are never dropped by it.
 - FR-15: Per-endpoint "known-exploited only" option.
@@ -96,8 +96,8 @@ None. cvestream has no user interface (architecture.md: "Frontend Architecture: 
 - FR-8: Epic 1 (Stories 1.2, 1.5) - ID-based identity, never URL
 - FR-9: Epic 1 (Story 1.2) - provenance and unknown values
 - FR-10: Epic 1 (Story 1.3) - multiple endpoints
-- FR-11: Epic 1 (Stories 1.2, 1.3) - product entries
-- FR-12: Epic 1 (Story 1.2) - whole-word matching, exclusions
+- FR-11: Epic 1 (Stories 1.2, 1.3, 1.7) - product entries, `match_description`
+- FR-12: Epic 1 (Stories 1.2, 1.7) - whole-word matching, exclusions, description fallback precision
 - FR-13: Epic 1 (Story 1.2) - minimum version, "versions unknown"
 - FR-14: Epic 1 (Story 1.2) - CVSS threshold
 - FR-15: Epic 1 (Story 1.2) - KEV-only
@@ -314,6 +314,35 @@ So that I can subscribe my Slack channel once and receive relevant alerts within
 **And** `deploy/compose/compose.yml` runs the GHCR image with a named `/data` volume, the YAML provider, `restart: unless-stopped`, only 8080 published, read-only root filesystem, all capabilities dropped (NFR-2)
 **And** `tests/integration/test_pipeline_end_to_end.py` goes from recorded EUVD/KEV fixtures to a served feed
 **And** `docs/operations.md` covers running, logs, `/status`, backup, and the warning that reverse-proxy logs contain the token; `README.md` gets the self-hosted quick start
+
+### Story 1.7: Description fallback precision
+
+Added by the 2026-11-01 course correction for wixyvir/cvestream#8 (fixes B and C), found while trialling Story 1.6 on live data: 9 of 16 `team-php` items were about other products.
+
+As a channel subscriber,
+I want a product name that only appears inside a file name or path not to count as a mention, and my team to be able to rely on structured product data alone for an entry,
+So that my channel stops receiving vulnerabilities about other products, including KEV-only ones.
+
+**Acceptance Criteria:**
+
+**Given** a vulnerability without any affected-product data (an EUVD record whose product is `n/a`, or a CISA KEV-only record)
+**When** `matcher.match()` falls back to its description
+**Then** a name or alias hit preceded by `.`, `/` or `\`, or followed by `/` or `\`, does not count: `php` does not match `admin/modules/circulation/loan_history_maintenance.php`, `diagnostic.php`, `/usr/lib/php/` or `C:\php\`, and still matches "PHP 8.3", "php-fpm", "(PHP)", "PHP.", `php.ini`, "See the php.net advisory"; `node` still matches "Node.js" (FR-12)
+**And** a description that also mentions the product outside a path still matches (`Upload a .php file to a PHP 8.3 server`)
+**And** structured affected-product data and exclusion terms keep plain whole-word matching, unchanged
+**And** table tests in `tests/unit/domain/test_matcher.py` cover the file-name descriptions of wixyvir/cvestream#8 (CVE-2026-107084, CVE-2026-52356, CVE-2026-50787, CVE-2026-107081), with vulnerabilities shaped like the recorded EUVD `n/a`-product and CISA KEV records
+
+**Given** a full product entry with `match_description: false`
+**When** a vulnerability has no affected-product data
+**Then** that entry does not match it, whatever its description says (KEV-only CVE-2026-46300 mentioning "PHP webshells" does not match `php`); with the default `true` it still does, so the trade-off is covered by a test (FR-11, FR-12)
+**And** when later EUVD data brings an affected product the entry names, the vulnerability is published as `new` (FR-26), proven by a pipeline test going from a KEV-only record to the merged record
+**And** exclusion terms are still looked for in the description
+
+**Given** `config/models.py` and `domain/endpoint.py`
+**When** `ProductEntryConfig` gains the optional `match_description: bool` (default `true`) and `ProductEntry` carries it
+**Then** the `php >= 8.2` shorthand keeps the default, the field is additive (still `version: 1`), and `schemas/config-v1.json` is regenerated in the same commit
+**And** `docs/configuration.md` ("How an entry matches"), `endpoints.example.yaml` and the `matcher.py` docstring describe the path rule and `match_description`, including that a KEV-only vulnerability waits for EUVD data on such an entry
+**And** publications already made are not retracted (unchanged publication rules)
 
 ## Epic 2: European advisory sources
 
