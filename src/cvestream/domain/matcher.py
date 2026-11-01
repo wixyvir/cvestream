@@ -6,8 +6,10 @@ affected-product data decides when a vulnerability has any: a description that
 mentions `php` (`Module.php`, "PHP Object Injection" in a WordPress plugin) does
 not make another product a PHP vulnerability. The descriptions are searched only
 when there is no affected-product data at all, and then a name inside a file name
-or path (`loan_history_maintenance.php`, `/usr/lib/php/`) does not count. Titles
-are never searched. Exclusion terms are looked for in both.
+or path (`loan_history_maintenance.php`, `/usr/lib/php/`) does not count. An entry
+with `match_description` false never uses the description, so a vulnerability
+known only from CISA KEV waits for EUVD product data. Titles are never searched.
+Exclusion terms are looked for in both.
 """
 
 import re
@@ -108,8 +110,12 @@ def _match_entry(
     hits = _hits(terms, affected)
     if not hits:
         # Structured data wins: the description is only a fallback for a
-        # vulnerability without any affected product.
-        if affected or not any(_mentioned_in_prose(terms, d) for d in descriptions):
+        # vulnerability without any affected product, and an entry can opt out.
+        if (
+            affected
+            or not entry.match_description
+            or not any(_mentioned_in_prose(terms, d) for d in descriptions)
+        ):
             return None
     if entry.min_version is None:
         return ProductMatch(entry, structured=bool(hits), versions_unknown=False)
