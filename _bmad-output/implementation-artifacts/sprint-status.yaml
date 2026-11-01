@@ -87,7 +87,7 @@ development_status:
   1-4-euvd-and-kev-ingestion: done
   1-5-correlation-state-and-publication-decisions: done
   1-6-feeds-served-by-the-daemon: done
-  1-7-description-fallback-precision: backlog
+  1-7-description-fallback-precision: ready-for-dev
   epic-1-retrospective: optional
 
   epic-2: backlog
