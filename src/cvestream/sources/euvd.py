@@ -39,7 +39,11 @@ EU_KEV_SOURCE = "eu_kev"
 BASE_URL = "https://euvdservices.enisa.europa.eu/api"
 RECORD_URL = "https://euvd.enisa.europa.eu/vulnerability/{id}"
 PAGE_SIZE = 100  # API maximum
-PAGE_PAUSE = 0.5  # seconds between pages: sequential pages, short pauses
+# Default seconds between pages (setting `sources.euvd.page_pause`). The EUVD
+# gateway answers 403 (no `Retry-After`) past about 40 to 60 requests a minute
+# (observed 2026-10-31); 1.5 s plus the request time stays below that. A 14-day
+# first fetch (about 180 pages) then takes about 5 minutes.
+PAGE_PAUSE = 1.5
 MAX_PAGES = 1000  # safety cap (14 days is about 200 pages)
 INITIAL_WINDOW = timedelta(days=14)
 
@@ -324,11 +328,13 @@ class EuvdAdapter:
         clock: Clock,
         *,
         page_size: int = PAGE_SIZE,
+        page_pause: float = PAGE_PAUSE,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self._http = http
         self._clock = clock
         self._page_size = page_size
+        self._page_pause = page_pause
         self._sleep = sleep
 
     @property
@@ -445,7 +451,7 @@ class EuvdAdapter:
                     "source.paging_incomplete", source=NAME, count=read, total=total
                 )
                 return list(records.values()), skipped, False
-            await self._sleep(PAGE_PAUSE)
+            await self._sleep(self._page_pause)
         msg = f"EUVD /search still returned data after {MAX_PAGES} pages"
         raise SourceContractError(NAME, msg)
 

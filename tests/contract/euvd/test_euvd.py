@@ -111,9 +111,14 @@ def clock(fake_clock: FakeClock) -> FakeClock:
 def make_adapter(
     clock: FakeClock, sleeps: Sleeps
 ) -> Callable[..., tuple[EuvdAdapter, HttpClient]]:
-    def build(page_size: int = 100) -> tuple[EuvdAdapter, HttpClient]:
+    def build(
+        page_size: int = 100, page_pause: float = euvd.PAGE_PAUSE
+    ) -> tuple[EuvdAdapter, HttpClient]:
         http = HttpClient(sleep=Sleeps(), random=lambda: 0.0, max_attempts=2)
-        return EuvdAdapter(http, clock, page_size=page_size, sleep=sleeps), http
+        adapter = EuvdAdapter(
+            http, clock, page_size=page_size, page_pause=page_pause, sleep=sleeps
+        )
+        return adapter, http
 
     return build
 
@@ -472,6 +477,23 @@ def _synthetic_page(number: int, total: int, size: int = 3) -> Page:
         item["dateUpdated"] = f"Oct 21, 2026, 11:{59 - position:02d}:00 PM"
         items.append(item)
     return {"items": items, "total": total}
+
+
+@pytest.mark.anyio
+async def test_pages_are_paced_by_the_configured_pause(
+    respx_mock: respx.MockRouter,
+    make_adapter: Callable[..., tuple[EuvdAdapter, HttpClient]],
+    sleeps: Sleeps,
+) -> None:
+    _mock_dump(respx_mock)
+    _mock_pages(
+        respx_mock,
+        {0: _raw("euvd_search_page0.json"), 1: _raw("euvd_search_page1.json")},
+    )
+    adapter, http = make_adapter(page_size=3, page_pause=4.0)
+    async with http:
+        await adapter.fetch("2026-10-20T23:41:11Z")
+    assert sleeps.delays == [4.0]
 
 
 @pytest.mark.anyio

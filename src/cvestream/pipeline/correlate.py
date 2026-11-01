@@ -63,6 +63,7 @@ def build_vulnerability(records: Sequence[NormalizedRecord]) -> Vulnerability:
     published = [
         n.record.published_at for n in ordered if n.record.published_at is not None
     ]
+    updated = [n.record.updated_at for n in ordered if n.record.updated_at is not None]
     return Vulnerability(
         primary_id=primary_id(aliases),
         aliases=aliases,
@@ -79,6 +80,7 @@ def build_vulnerability(records: Sequence[NormalizedRecord]) -> Vulnerability:
         kev=tuple(k for n in ordered for k in n.record.kev),
         references=tuple(references.values()),
         published_at=min(published) if published else None,
+        updated_at=max(updated) if updated else None,
     )
 
 

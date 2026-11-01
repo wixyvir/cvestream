@@ -87,6 +87,36 @@ def test_env_bool_and_literal_override() -> None:
     assert settings.log.format == "console"
 
 
+def test_euvd_page_pause_defaults_to_one_and_a_half_seconds() -> None:
+    settings = load_settings(_env())
+    assert settings.sources.euvd.page_pause == timedelta(seconds=1.5)
+
+
+@pytest.mark.parametrize(
+    ("value", "pause"),
+    [
+        ("PT3S", timedelta(seconds=3)),
+        ("PT0S", timedelta(0)),
+        ("PT60S", timedelta(seconds=60)),
+    ],
+)
+def test_euvd_page_pause_from_environment(value: str, pause: timedelta) -> None:
+    settings = load_settings(_env(CVESTREAM_SOURCES__EUVD__PAGE_PAUSE=value))
+    assert settings.sources.euvd.page_pause == pause
+
+
+@pytest.mark.parametrize("value", ["PT61S", "-PT1S"])
+def test_euvd_page_pause_out_of_bounds_is_rejected(value: str) -> None:
+    with pytest.raises(ValidationError):
+        load_settings(_env(CVESTREAM_SOURCES__EUVD__PAGE_PAUSE=value))
+
+
+def test_page_pause_is_an_euvd_setting_only(tmp_path: Path) -> None:
+    path = _write_yaml(tmp_path, "sources:\n  cisa_kev:\n    page_pause: PT2S\n")
+    with pytest.raises(ValidationError):
+        load_settings(_env(CVESTREAM_SETTINGS_FILE=str(path)))
+
+
 def test_interval_upper_bound_is_accepted() -> None:
     settings = load_settings(_env(CVESTREAM_SOURCES__EUVD__INTERVAL="PT60M"))
     assert settings.sources.euvd.interval == timedelta(minutes=60)
@@ -331,3 +361,47 @@ def test_yaml_value_errors_become_settings_errors(tmp_path: Path, content: str) 
     with pytest.raises(SettingsError, match="cannot parse YAML") as excinfo:
         load_settings(_env(CVESTREAM_SETTINGS_FILE=str(path)))
     assert str(path) in str(excinfo.value)
+
+
+def test_http_defaults() -> None:
+    settings = load_settings({})
+    assert (settings.http.public.host, settings.http.public.port) == ("0.0.0.0", 8080)  # noqa: S104
+    assert (settings.http.private.host, settings.http.private.port) == (
+        "0.0.0.0",  # noqa: S104
+        9090,
+    )
+
+
+def test_http_listeners_from_environment() -> None:
+    settings = load_settings(
+        _env(
+            CVESTREAM_HTTP__PUBLIC__PORT="18080",
+            CVESTREAM_HTTP__PRIVATE__HOST="127.0.0.1",
+            CVESTREAM_HTTP__PRIVATE__PORT="19090",
+        )
+    )
+    assert settings.http.public.port == 18080
+    assert settings.http.public.host == "0.0.0.0"  # noqa: S104
+    assert settings.http.private.host == "127.0.0.1"
+    assert settings.http.private.port == 19090
+
+
+def test_http_listeners_from_yaml(tmp_path: Path) -> None:
+    path = _write_yaml(
+        tmp_path, "http:\n  public:\n    host: 127.0.0.1\n    port: 8081\n"
+    )
+    settings = load_settings(_env(CVESTREAM_SETTINGS_FILE=str(path)))
+    assert settings.http.public.host == "127.0.0.1"
+    assert settings.http.public.port == 8081
+    assert settings.http.private.port == 9090
+
+
+@pytest.mark.parametrize("port", ["0", "65536", "-1", "http"])
+def test_http_port_bounds(port: str) -> None:
+    with pytest.raises(ValidationError):
+        load_settings(_env(CVESTREAM_HTTP__PUBLIC__PORT=port))
+
+
+def test_http_unknown_key_is_rejected() -> None:
+    with pytest.raises(ValidationError):
+        load_settings(_env(CVESTREAM_HTTP__PUBLIC__TLS="on"))

@@ -301,17 +301,21 @@ def test_build_vulnerability_keeps_every_value() -> None:
         references=("https://a.example", "https://b.example"),
         kev=(Sourced(KevEntry(KevCatalog.EU_KEV), "eu_kev", NOW),),
         published_at=NOW - timedelta(days=10),
+        updated_at=NOW - timedelta(days=3),
     )
     euvd = replace(
         _euvd(),
         references=("https://a.example", "https://a.example"),
         published_at=NOW - timedelta(days=4),
+        updated_at=NOW - timedelta(days=1),
         description=Sourced("d", "euvd", NOW),
     )
     cisa = replace(_cisa(), references=("https://a.example",))
     records = [normalize(r) for r in (euvd, kev_catalog, cisa)]
     vulnerability = build_vulnerability([n for n in records if n is not None])
+    # The earliest publication and the newest update.
     assert vulnerability.published_at == NOW - timedelta(days=10)
+    assert vulnerability.updated_at == NOW - timedelta(days=1)
     assert [(r.value, r.source) for r in vulnerability.references] == [
         ("https://a.example", "cisa_kev"),
         ("https://a.example", "eu_kev"),
@@ -323,3 +327,11 @@ def test_build_vulnerability_keeps_every_value() -> None:
     assert len(vulnerability.scores) == 2
     assert [d.value for d in vulnerability.descriptions] == ["d"]
     assert [t.source for t in vulnerability.titles] == ["euvd"]
+
+
+def test_a_vulnerability_without_source_dates_has_none() -> None:
+    normalized = normalize(_cisa())
+    assert normalized is not None
+    vulnerability = build_vulnerability([normalized])
+    assert vulnerability.published_at is None
+    assert vulnerability.updated_at is None

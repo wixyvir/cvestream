@@ -1,16 +1,29 @@
 # Dev loop: `docker compose watch`. Valkey joins in story 3.1.
+#
+# The stack serves the placeholder tokens of endpoints.example.yaml:
+#   http://127.0.0.1:8080/feeds/REPLACE-ME-with-secrets-token-urlsafe-32-team-php.xml
+# Point CVESTREAM_ENDPOINTS_FILE at your own file to serve real tokens.
 services:
   app:
     build:
       context: .
       target: dev
-    # story 1.6 switches to: watchfiles "cvestream run" src
-    command: ["watchfiles", "cvestream --help", "src"]
+    command: ["watchfiles", "cvestream run", "src"]
+    environment:
+      CVESTREAM_ENDPOINTS_FILE: ${CVESTREAM_ENDPOINTS_FILE:-endpoints.example.yaml}
+      CVESTREAM_LOG__FORMAT: console
+    # Loopback only: the private listener (9090) is never published.
+    ports:
+      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:9090:9090"
     develop:
       watch:
         - action: sync
           path: ./src
           target: /app/src
+        - action: sync
+          path: ./endpoints.example.yaml
+          target: /app/endpoints.example.yaml
         - action: rebuild
           path: ./uv.lock
         - action: rebuild

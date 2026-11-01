@@ -1,8 +1,12 @@
 """Match a vulnerability against an endpoint (FR-11 to FR-15, FR-24, FR-25).
 
 Recall over precision: unknown data lets the item through with a label, it never
-drops it silently. Matching uses the structured affected-product data and the
-descriptions, case-insensitively on whole words. Titles are never searched.
+drops it silently. Matching is case-insensitive on whole words. Structured
+affected-product data decides when a vulnerability has any: a description that
+mentions `php` (`Module.php`, "PHP Object Injection" in a WordPress plugin) does
+not make another product a PHP vulnerability. The descriptions are searched only
+when there is no affected-product data at all. Titles are never searched.
+Exclusion terms are looked for in both.
 """
 
 import re
@@ -26,7 +30,8 @@ class PassThrough(StrEnum):
 @dataclass(frozen=True, slots=True)
 class ProductMatch:
     entry: ProductEntry
-    # True: matched affected-product data; False: description only.
+    # True: matched affected-product data; False: description only (the
+    # vulnerability has no affected-product data).
     structured: bool
     # True only when `entry.min_version` is set and could not be checked.
     versions_unknown: bool
@@ -60,6 +65,20 @@ def _hits(
     ]
 
 
+def affected_hits(
+    entry: ProductEntry, affected: list[AffectedProduct]
+) -> list[AffectedProduct]:
+    """The affected products that `entry` names: product-name hits first.
+
+    The same rule as matching, for display: the render names the product a
+    vulnerability was matched on, not the endpoint's term. A vendor-only hit
+    (another product of the vendor) comes after every product-name hit.
+    """
+    terms = (entry.name, *entry.aliases)
+    hits = _hits(terms, affected)
+    return sorted(hits, key=lambda a: not _mentions(terms, a.product))
+
+
 def _match_entry(
     entry: ProductEntry,
     affected: list[AffectedProduct],
@@ -72,8 +91,11 @@ def _match_entry(
         return None
     terms = (entry.name, *entry.aliases)
     hits = _hits(terms, affected)
-    if not hits and not any(_mentions(terms, d) for d in descriptions):
-        return None
+    if not hits:
+        # Structured data wins: the description is only a fallback for a
+        # vulnerability without any affected product.
+        if affected or not any(_mentions(terms, d) for d in descriptions):
+            return None
     if entry.min_version is None:
         return ProductMatch(entry, structured=bool(hits), versions_unknown=False)
     if not hits:

@@ -41,7 +41,7 @@ def test_db_without_arguments_shows_help() -> None:
 def test_migrate_creates_the_database_and_is_idempotent(tmp_path: Path) -> None:
     first = runner.invoke(app, ["db", "migrate"])
     assert first.exit_code == 0, first.output
-    assert _plain(first.output).strip().endswith("at revision 0001")
+    assert _plain(first.output).strip().endswith("at revision 0002")
     assert _database(tmp_path).is_file()
     second = runner.invoke(app, ["db", "migrate"])
     assert second.exit_code == 0
@@ -91,7 +91,7 @@ def test_backup_writes_a_copy_with_the_same_content(tmp_path: Path) -> None:
             ("euvd", "c1")
         ]
         assert copy.execute("SELECT version_num FROM alembic_version").fetchall() == [
-            ("0001",)
+            ("0002",)
         ]
 
 

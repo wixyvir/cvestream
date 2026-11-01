@@ -5,7 +5,12 @@ from typing import TYPE_CHECKING
 import pytest
 
 from cvestream.http import HttpClient
-from cvestream.settings import SourceSettings, SourcesSettings, load_settings
+from cvestream.settings import (
+    EuvdSourceSettings,
+    SourceSettings,
+    SourcesSettings,
+    load_settings,
+)
 from cvestream.sources.cisa_kev import CisaKevAdapter
 from cvestream.sources.euvd import EuvdAdapter
 from cvestream.sources.registry import (
@@ -46,14 +51,14 @@ def test_defaults_enable_both_sources_every_fifteen_minutes(
 
 
 def test_a_disabled_source_is_absent(fake_clock: FakeClock) -> None:
-    settings = SourcesSettings(euvd=SourceSettings(enabled=False))
+    settings = SourcesSettings(euvd=EuvdSourceSettings(enabled=False))
     sources = build_sources(settings, HttpClient(), fake_clock)
     assert [s.adapter.name for s in sources] == ["cisa_kev"]
 
 
 def test_all_sources_disabled_gives_no_adapters(fake_clock: FakeClock) -> None:
     settings = SourcesSettings(
-        euvd=SourceSettings(enabled=False), cisa_kev=SourceSettings(enabled=False)
+        euvd=EuvdSourceSettings(enabled=False), cisa_kev=SourceSettings(enabled=False)
     )
     assert build_sources(settings, HttpClient(), fake_clock) == ()
 
@@ -66,7 +71,7 @@ def test_every_settings_source_has_a_factory() -> None:
 def test_adapter_name_equals_the_settings_key(fake_clock: FakeClock) -> None:
     http = HttpClient()
     for key, factory in ADAPTER_FACTORIES.items():
-        assert factory(http, fake_clock).name == key
+        assert factory(http, fake_clock, SourcesSettings()).name == key
 
 
 def test_a_settings_field_without_a_factory_is_an_error(
@@ -90,3 +95,10 @@ def test_scheduled_source_is_frozen(fake_clock: FakeClock) -> None:
     field = "interval"
     with pytest.raises(dataclasses.FrozenInstanceError):
         setattr(source, field, timedelta(minutes=1))
+
+
+def test_the_euvd_adapter_gets_its_page_pause(fake_clock: FakeClock) -> None:
+    settings = load_settings({"CVESTREAM_SOURCES__EUVD__PAGE_PAUSE": "PT3S"}).sources
+    (euvd_source, _) = build_sources(settings, HttpClient(), fake_clock)
+    assert isinstance(euvd_source.adapter, EuvdAdapter)
+    assert euvd_source.adapter._page_pause == 3.0
