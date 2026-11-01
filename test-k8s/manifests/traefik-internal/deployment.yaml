@@ -1,0 +1,66 @@
+# wixyvir/services#1 step 3, without WireGuard: the `internal` entryPoint
+# binds every address of the pod instead of the wg0 IP, and the "VPN" is
+# `kubectl port-forward` to the pod (which does not go through the CNI, like
+# traffic decapsulated on wg0). Plain HTTP. No Service, as in the issue.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: traefik-internal
+  namespace: traefik
+  labels:
+    app.kubernetes.io/name: traefik-internal
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: traefik-internal
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: traefik-internal
+    spec:
+      serviceAccountName: traefik-internal
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: traefik
+          image: traefik:v3.6.15
+          args:
+            - "--entryPoints.internal.address=:8001"
+            - "--entryPoints.traefik.address=:8080"
+            - "--providers.kubernetescrd=true"
+            - "--providers.kubernetescrd.namespaces=private"
+            # Backends in other namespaces go through ExternalName Services in
+            # `private` (private/service-cvestream.yaml), not cross-namespace refs.
+            - "--providers.kubernetescrd.allowExternalNameServices=true"
+            - "--providers.kubernetescrd.disableClusterScopeResources=true"
+            - "--ping=true"
+            - "--accesslog=true"
+            - "--accesslog.format=json"
+            - "--log.level=INFO"
+          ports:
+            - name: internal
+              containerPort: 8001
+            - name: traefik
+              containerPort: 8080
+          # The NetworkPolicy denies all ingress through the CNI: these kubelet
+          # probes check that host-to-pod traffic still passes (step 5).
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: traefik
+            initialDelaySeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: traefik
+            initialDelaySeconds: 30
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true

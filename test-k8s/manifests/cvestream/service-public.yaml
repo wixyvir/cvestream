@@ -1,0 +1,14 @@
+# The feeds: GET and HEAD /feeds/<token>.xml. The only port meant to be exposed
+# (through an Ingress or a Gateway with path logging off for /feeds/).
+apiVersion: v1
+kind: Service
+metadata:
+  name: cvestream-public
+  namespace: apps
+spec:
+  selector:
+    app.kubernetes.io/name: cvestream
+  ports:
+    - name: http
+      port: 8080
+      targetPort: public

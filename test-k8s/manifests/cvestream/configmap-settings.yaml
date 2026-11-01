@@ -1,0 +1,18 @@
+# Static settings as CVESTREAM_* variables (settings.example.yaml documents them).
+# CVESTREAM_DATA_DIR=/data comes from the image.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cvestream-settings
+  namespace: apps
+data:
+  CVESTREAM_CONFIG_PROVIDER: yaml
+  # A file inside a mounted directory, never a subPath mount: a subPath does not
+  # follow Secret updates, which would silently break hot reload.
+  CVESTREAM_ENDPOINTS_FILE: /config/endpoints.yaml
+  CVESTREAM_LOG__FORMAT: json
+  CVESTREAM_LOG__LEVEL: info
+  # Short intervals so the hot-reload check of smoke.sh finishes in minutes.
+  # The production default is PT15M.
+  CVESTREAM_SOURCES__EUVD__INTERVAL: PT2M
+  CVESTREAM_SOURCES__CISA_KEV__INTERVAL: PT2M

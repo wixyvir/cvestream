@@ -1,0 +1,20 @@
+# Public route, served by the public Traefik. Allowlist: only /feeds/, never
+# "everything except" (wixyvir/services#1, step 8). In production: entryPoint
+# websecure plus the `tls` block of the other apps; here plain HTTP on `web`.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: cvestream
+  namespace: apps
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`cvestream.cyprien.eu`) && PathPrefix(`/feeds/`)
+      kind: Rule
+      # The feed token is in the path: keep it out of Traefik's access log.
+      observability:
+        accessLogs: false
+      services:
+        - name: cvestream-public
+          port: 8080

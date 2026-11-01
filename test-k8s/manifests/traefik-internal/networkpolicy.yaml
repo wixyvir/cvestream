@@ -1,0 +1,13 @@
+# wixyvir/services#1 step 5: no ingress through the CNI at all. VPN traffic
+# arrives on wg0 inside the pod (here: kubectl port-forward), so it is not
+# subject to this policy.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: traefik-internal-deny-ingress
+  namespace: traefik
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: traefik-internal
+  policyTypes: ["Ingress"]

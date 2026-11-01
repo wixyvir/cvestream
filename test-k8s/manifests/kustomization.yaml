@@ -1,0 +1,35 @@
+# cvestream behind the two Traefik instances of wixyvir/services#1, on a
+# throwaway minikube cluster. All plain HTTP (no TLS, no ACME).
+#
+#   namespace traefik : traefik (public) and traefik-internal (VPN-only)
+#   namespace apps    : cvestream, its public IngressRoute
+#   namespace private : cvestream's private IngressRoute (served only by
+#                       traefik-internal)
+#
+# Every resource names its namespace: no namespace transform here.
+# Not here: the Traefik CRDs (up.sh applies the pinned upstream file) and the
+# endpoints Secret (up.sh creates it from .generated/endpoints.yaml).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: cvestream-test-k8s
+    includeSelectors: false
+resources:
+  - namespaces.yaml
+  - cvestream/configmap-settings.yaml
+  - cvestream/pvc.yaml
+  - cvestream/deployment.yaml
+  - cvestream/service-public.yaml
+  - cvestream/service-private.yaml
+  - cvestream/networkpolicy.yaml
+  - cvestream/ingressroute.yaml
+  - traefik/rbac.yaml
+  - traefik/deployment.yaml
+  - traefik/service.yaml
+  - traefik-internal/rbac.yaml
+  - traefik-internal/deployment.yaml
+  - traefik-internal/networkpolicy.yaml
+  - private/service-cvestream.yaml
+  - private/ingressroute-cvestream.yaml
+  - private/networkpolicy.yaml

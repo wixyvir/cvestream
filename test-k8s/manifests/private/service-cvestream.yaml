@@ -1,0 +1,20 @@
+# How traefik-internal reaches a mixed app's private port without watching
+# `apps`. Measured on v3.6.15: with --providers.kubernetescrd.namespaces=private,
+# an IngressRoute pointing at apps/cvestream-private fails with "namespace is not
+# within watched namespaces", allowCrossNamespace or not. Watching `apps` too
+# would need secrets and configmaps there (see ../traefik-internal/rbac.yaml).
+#
+# An ExternalName Service keeps traefik-internal on `private` alone: Traefik
+# dials the DNS name, kube-proxy sends it to the pod, and the source is still
+# the traefik-internal pod, so apps/cvestream's NetworkPolicy still applies.
+apiVersion: v1
+kind: Service
+metadata:
+  name: cvestream-private
+  namespace: private
+spec:
+  type: ExternalName
+  externalName: cvestream-private.apps.svc.cluster.local
+  ports:
+    - name: http
+      port: 9090

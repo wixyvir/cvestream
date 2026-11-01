@@ -1,0 +1,11 @@
+# wixyvir/services#1 step 5: default-deny ingress in `private`. Nothing runs
+# here in this test (cvestream stays in `apps`), but the rule must exist
+# before the first VPN-only workload moves in.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: private
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress"]

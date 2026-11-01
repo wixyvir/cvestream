@@ -1,0 +1,19 @@
+# VPN-only route to cvestream's private listener (/healthz, /readyz, /status),
+# served only by traefik-internal: it lives in `private` and uses the
+# `internal` entryPoint, which the public Traefik does not have. The backend is
+# the ExternalName Service next to it, not apps/cvestream-private directly (see
+# service-cvestream.yaml).
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: cvestream
+  namespace: private
+spec:
+  entryPoints:
+    - internal
+  routes:
+    - match: Host(`cvestream-admin.cyprien.eu`)
+      kind: Rule
+      services:
+        - name: cvestream-private
+          port: 9090
