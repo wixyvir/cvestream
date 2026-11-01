@@ -310,6 +310,64 @@ def test_file_names_in_euvd_descriptions_do_not_match_php(
     assert match(vulnerability, _endpoint(PHP_8_2)) is None
 
 
+_KEV_ONLY_DESCRIPTION = (
+    "Linux Kernel contains a missing initialization of a variable vulnerability"
+    " that could allow for unintended modification of page-cache-backed data via"
+    " failure to preserve the shared-fragment marker during socket buffer"
+    " coalescing, causing ESP input processing to decrypt shared fragments in"
+    " place. This vulnerability can be chained with CVE-2026-109618 and"
+    " CVE-2026-109619 to implant PHP webshells and run commands as root."
+)
+
+
+def test_opting_out_of_description_matching_drops_a_kev_only_vulnerability(
+    make_vulnerability: VulnerabilityFactory,
+) -> None:
+    # CVE-2026-46300: CISA KEV lists no product, the description mentions PHP.
+    vulnerability = make_vulnerability(
+        primary_id="CVE-2026-46300", description=_KEV_ONLY_DESCRIPTION, kev=True
+    )
+    default = match(vulnerability, _endpoint(PHP))
+    assert default is not None
+    assert default.matches[0].structured is False
+    strict = ProductEntry(name="php", match_description=False)
+    assert match(vulnerability, _endpoint(strict)) is None
+
+
+def test_opting_out_of_description_matching_keeps_structured_matches(
+    make_vulnerability: VulnerabilityFactory,
+) -> None:
+    vulnerability = make_vulnerability(
+        description="A flaw in a WordPress plugin",
+        products=[("PHP", "PHP Group", "8.1.0 <8.2.29")],
+    )
+    strict = ProductEntry(name="php", match_description=False)
+    result = match(vulnerability, _endpoint(strict))
+    assert result is not None
+    assert result.matches[0].structured is True
+    strict_min = ProductEntry(
+        name="php", min_version=Version("8.2"), match_description=False
+    )
+    result = match(vulnerability, _endpoint(strict_min))
+    assert result is not None
+    assert result.matches[0].versions_unknown is False
+    too_new = ProductEntry(
+        name="php", min_version=Version("9.0"), match_description=False
+    )
+    assert match(vulnerability, _endpoint(too_new)) is None
+
+
+def test_exclusions_still_read_the_description_without_description_matching(
+    make_vulnerability: VulnerabilityFactory,
+) -> None:
+    vulnerability = make_vulnerability(
+        description="A flaw in a WordPress plugin written in PHP",
+        products=[("PHP", "PHP Group")],
+    )
+    entry = ProductEntry(name="php", exclude=("wordpress",), match_description=False)
+    assert match(vulnerability, _endpoint(entry)) is None
+
+
 # --- exclusions (FR-12) ----------------------------------------------------------
 
 
