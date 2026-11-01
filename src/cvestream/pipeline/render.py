@@ -194,8 +194,14 @@ def _ransomware(value: bool | None) -> str:
     return "known" if value else "no"
 
 
+def _day(value: datetime | None) -> str:
+    """A calendar day in UTC: sources give day-level dates for most fields."""
+    return value.astimezone(UTC).date().isoformat() if value is not None else UNKNOWN
+
+
 def _kev(vulnerability: Vulnerability) -> str:
     by_catalog: dict[KevCatalog, bool | None] = {}
+    added: dict[KevCatalog, datetime] = {}
     for sourced in vulnerability.kev:
         entry: KevEntry = sourced.value
         known = by_catalog.get(entry.catalog)
@@ -204,10 +210,16 @@ def _kev(vulnerability: Vulnerability) -> str:
             by_catalog[entry.catalog] = entry.known_ransomware_use
         elif entry.known_ransomware_use and not known:
             by_catalog[entry.catalog] = True
+        # The earliest known addition to the catalog.
+        if entry.added_at is not None and (
+            entry.catalog not in added or entry.added_at < added[entry.catalog]
+        ):
+            added[entry.catalog] = entry.added_at
     if not by_catalog:
         return "no"
     parts = [
-        f"{_KEV_NAMES[catalog]} (ransomware use: {_ransomware(by_catalog[catalog])})"
+        f"{_KEV_NAMES[catalog]} (added {_day(added.get(catalog))},"
+        f" ransomware use: {_ransomware(by_catalog[catalog])})"
         for catalog in _KEV_ORDER
         if catalog in by_catalog
     ]
@@ -299,6 +311,8 @@ def _description(entry: FeedEntry, records: Sequence[RecordRef]) -> str:
     """The item body: an HTML fragment, one fact per line."""
     vulnerability = entry.vulnerability
     facts = (
+        ("Published", _day(vulnerability.published_at)),
+        ("Updated", _day(vulnerability.updated_at)),
         ("Matched", _matched(entry)),
         ("Severity", _severity(entry)),
         ("CVSS", _cvss(vulnerability)),

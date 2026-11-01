@@ -2,7 +2,7 @@ import html
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 
@@ -55,7 +55,14 @@ def _full_vulnerability() -> Vulnerability:
         ),
         kev=(
             _sourced(KevEntry(KevCatalog.EU_KEV), "eu_kev"),
-            _sourced(KevEntry(KevCatalog.CISA_KEV, known_ransomware_use=True), "cisa"),
+            _sourced(
+                KevEntry(
+                    KevCatalog.CISA_KEV,
+                    known_ransomware_use=True,
+                    added_at=datetime(2026, 10, 24, tzinfo=UTC),
+                ),
+                "cisa",
+            ),
         ),
         affected=(
             _sourced(AffectedProduct("Chrome", "Google", "< 141.0.7390.122")),
@@ -67,6 +74,9 @@ def _full_vulnerability() -> Vulnerability:
             *(_sourced(f"https://example.test/ref/{i}") for i in range(12)),
             _sourced("https://example.test/ref/0", "cisa_kev"),
         ),
+        published_at=datetime(2026, 10, 20, 8, 0, tzinfo=UTC),
+        # 01:30 UTC on the 26th: the day is taken in UTC.
+        updated_at=datetime(2026, 10, 25, 23, 30, tzinfo=timezone(timedelta(hours=-2))),
     )
 
 
@@ -120,11 +130,13 @@ def _lines(entry: FeedEntry) -> list[str]:
 def test_the_full_description_one_fact_per_line() -> None:
     assert _lines(_entry(labels=frozenset({PassThrough.VERSIONS_UNKNOWN}))) == [
         "IDs: CVE-2026-0999, CVE-2026-1234, EUVD-2026-41234",
+        "Published: 2026-10-20",
+        "Updated: 2026-10-26",
         "Matched: php, nodejs (versions unknown)",
         "Severity: high (highest CVSS 8.1)",
         "CVSS: 8.1 (CVSS 3.1, euvd); unknown (cisa_kev); 5.0 (CVSS unknown, other)",
-        "Known exploited: yes, CISA KEV (ransomware use: known),"
-        " EU KEV (ransomware use: unknown)",
+        "Known exploited: yes, CISA KEV (added 2026-10-24, ransomware use: known),"
+        " EU KEV (added unknown, ransomware use: unknown)",
         "Affected: Google Chrome < 141.0.7390.122; vendor product versions unknown;"
         " lonely versions unknown",
         "Description: First description with lines",
@@ -139,12 +151,15 @@ def test_the_description_is_an_html_fragment() -> None:
     assert _html(_entry()) == "\n".join(
         [
             "<p><b>IDs:</b> CVE-2026-0999, CVE-2026-1234, EUVD-2026-41234</p>",
-            "<p><b>Matched:</b> php, nodejs<br/>",
+            "<p><b>Published:</b> 2026-10-20<br/>",
+            "<b>Updated:</b> 2026-10-26<br/>",
+            "<b>Matched:</b> php, nodejs<br/>",
             "<b>Severity:</b> high (highest CVSS 8.1)<br/>",
             "<b>CVSS:</b> 8.1 (CVSS 3.1, euvd); unknown (cisa_kev);"
             " 5.0 (CVSS unknown, other)<br/>",
-            "<b>Known exploited:</b> yes, CISA KEV (ransomware use: known),"
-            " EU KEV (ransomware use: unknown)<br/>",
+            "<b>Known exploited:</b> yes, CISA KEV (added 2026-10-24,"
+            " ransomware use: known), EU KEV (added unknown,"
+            " ransomware use: unknown)<br/>",
             "<b>Affected:</b> Google Chrome &lt; 141.0.7390.122;"
             " vendor product versions unknown; lonely versions unknown</p>",
             "<p><b>Description:</b> First description with lines</p>",
@@ -194,6 +209,8 @@ def test_only_http_urls_become_links() -> None:
 def test_unknown_everywhere_data_is_missing() -> None:
     assert _lines(_bare()) == [
         "IDs: unknown",
+        "Published: unknown",
+        "Updated: unknown",
         "Matched: php, nodejs",
         "Severity: unknown",
         "CVSS: unknown",
@@ -516,18 +533,29 @@ def test_a_kev_entry_of_one_catalog_is_listed_once() -> None:
     vulnerability = replace(
         _full_vulnerability(),
         kev=(
-            _sourced(KevEntry(KevCatalog.CISA_KEV), "cisa_kev"),
             _sourced(
-                KevEntry(KevCatalog.CISA_KEV, known_ransomware_use=True), "cisa_kev"
+                KevEntry(
+                    KevCatalog.CISA_KEV, added_at=datetime(2026, 9, 2, tzinfo=UTC)
+                ),
+                "cisa_kev",
+            ),
+            _sourced(
+                KevEntry(
+                    KevCatalog.CISA_KEV,
+                    known_ransomware_use=True,
+                    added_at=datetime(2026, 8, 30, tzinfo=UTC),
+                ),
+                "cisa_kev",
             ),
             _sourced(
                 KevEntry(KevCatalog.CISA_KEV, known_ransomware_use=None), "cisa_kev"
             ),
         ),
     )
-    assert "Known exploited: yes, CISA KEV (ransomware use: known)" in _lines(
-        _entry(vulnerability=vulnerability)
-    )
+    # One part, the earliest addition and the recorded ransomware use.
+    assert (
+        "Known exploited: yes, CISA KEV (added 2026-08-30, ransomware use: known)"
+    ) in _lines(_entry(vulnerability=vulnerability))
 
 
 def test_a_ransomware_use_of_false_is_not_reported_as_known() -> None:
@@ -537,6 +565,6 @@ def test_a_ransomware_use_of_false_is_not_reported_as_known() -> None:
             _sourced(KevEntry(KevCatalog.EU_KEV, known_ransomware_use=False), "eu_kev"),
         ),
     )
-    assert "Known exploited: yes, EU KEV (ransomware use: no)" in _lines(
+    assert "Known exploited: yes, EU KEV (added unknown, ransomware use: no)" in _lines(
         _entry(vulnerability=vulnerability)
     )

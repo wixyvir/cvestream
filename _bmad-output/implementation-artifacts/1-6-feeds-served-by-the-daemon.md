@@ -114,6 +114,7 @@ Manual testing of wixyvir/cvestream#6 (`cvestream run` on an empty data dir, fee
 - [x] [Trial][Fix] Filtering on `php` let WordPress plugins through (`Module.php`, "PHP Object Injection" in their descriptions): structured affected-product data now decides whenever a vulnerability has any, the description is a fallback only without it; FR-12 and FR-13 amended [src/cvestream/domain/matcher.py] (ae4c9e7)
 - [x] [Trial][Fix] Titles named the endpoint's entry (`in php`) and the exploitation was easy to miss: a title now names the matched affected product with its vendor (`in PHP Group PHP`) and ends with `EXPLOITED` when known exploited; AC 2's "names the matched product (`products[0]`)" now reads "names the affected product that `products[0]` hits, or `products[0]` without one" [src/cvestream/pipeline/render.py] (84fea0d)
 - [x] [Trial][Fix] The description showed as one paragraph without HTML: see the first review decision above (c16a0c3)
+- [x] [Trial][Fix] The body showed no dates, and the item date is the publication by cvestream, so an old CVE looked new: the body now shows `Published` (earliest source publication) and `Updated` (newest source update, new `Vulnerability.updated_at`), and each KEV list's `added` day; the CISA KEV due date stays out; FR-18 extended [src/cvestream/pipeline/render.py]
 
 ## Dev Notes
 
