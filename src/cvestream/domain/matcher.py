@@ -5,8 +5,9 @@ drops it silently. Matching is case-insensitive on whole words. Structured
 affected-product data decides when a vulnerability has any: a description that
 mentions `php` (`Module.php`, "PHP Object Injection" in a WordPress plugin) does
 not make another product a PHP vulnerability. The descriptions are searched only
-when there is no affected-product data at all. Titles are never searched.
-Exclusion terms are looked for in both.
+when there is no affected-product data at all, and then a name inside a file name
+or path (`loan_history_maintenance.php`, `/usr/lib/php/`) does not count. Titles
+are never searched. Exclusion terms are looked for in both.
 """
 
 import re
@@ -47,14 +48,28 @@ class MatchResult:
     labels: frozenset[PassThrough]
 
 
+def _words(term: str) -> str:
+    return r"\s+".join(re.escape(word) for word in term.split())
+
+
 @cache
 def _pattern(term: str) -> re.Pattern[str]:
-    words = r"\s+".join(re.escape(word) for word in term.split())
-    return re.compile(rf"(?<!\w){words}(?!\w)", re.IGNORECASE)
+    return re.compile(rf"(?<!\w){_words(term)}(?!\w)", re.IGNORECASE)
+
+
+@cache
+def _description_pattern(term: str) -> re.Pattern[str]:
+    # A name inside a file name or path is not a mention: `x/maintenance.php`,
+    # `/usr/lib/php/`, `C:\php\`. `php.ini`, `php.net` and "Node.js" still are.
+    return re.compile(rf"(?<![\w./\\]){_words(term)}(?![\w/\\])", re.IGNORECASE)
 
 
 def _mentions(terms: tuple[str, ...], text: str | None) -> bool:
     return text is not None and any(_pattern(term).search(text) for term in terms)
+
+
+def _mentioned_in_prose(terms: tuple[str, ...], text: str) -> bool:
+    return any(_description_pattern(term).search(text) for term in terms)
 
 
 def _hits(
@@ -94,7 +109,7 @@ def _match_entry(
     if not hits:
         # Structured data wins: the description is only a fallback for a
         # vulnerability without any affected product.
-        if affected or not any(_mentions(terms, d) for d in descriptions):
+        if affected or not any(_mentioned_in_prose(terms, d) for d in descriptions):
             return None
     if entry.min_version is None:
         return ProductMatch(entry, structured=bool(hits), versions_unknown=False)
