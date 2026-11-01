@@ -1,7 +1,7 @@
 # cvestream
 
 cvestream turns the noisy public vulnerability feeds (EUVD, CISA KEV, and later
-CERT-EU and CERT-FR) into small, filtered RSS feeds. Each team gets a feed that
+CERT-EU) into small, filtered RSS feeds. Each team gets a feed that
 matches its own stack, so a Slack RSS integration only posts what is relevant
 to them, with CVSS score, known-exploited status and affected versions
 in each item.
