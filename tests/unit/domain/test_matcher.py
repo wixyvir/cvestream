@@ -196,6 +196,196 @@ def test_endpoint_without_products_never_matches(
     assert match(make_vulnerability(description="PHP flaw"), _endpoint()) is None
 
 
+# --- description fallback precision (FR-12) ---------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("description", "matches"),
+    [
+        ("admin/modules/circulation/loan_history_maintenance.php is vulnerable", False),
+        ("The diagnostic.php endpoint is vulnerable", False),
+        ("Files under /usr/lib/php/ are writable", False),
+        ("Files under C:\\php\\ are writable", False),
+        ("A flaw in PHP 8.3 allows XSS", True),
+        ("The php-fpm service crashes", True),
+        ("A flaw in the language (PHP) allows XSS", True),
+        ("A flaw in PHP. Another sentence follows", True),
+        ("Reading php.ini discloses secrets", True),
+        ("See the php.net advisory", True),
+        ("Upload a .php file to a PHP 8.3 server", True),
+    ],
+    ids=[
+        "path-file",
+        "file-name",
+        "unix-dir",
+        "windows-dir",
+        "version",
+        "hyphen",
+        "parentheses",
+        "full-stop",
+        "php-ini",
+        "php-net",
+        "path-then-prose",
+    ],
+)
+def test_a_name_inside_a_path_is_not_a_mention_in_the_description(
+    make_vulnerability: VulnerabilityFactory, description: str, matches: bool
+) -> None:
+    vulnerability = make_vulnerability(description=description)
+    assert (match(vulnerability, _endpoint(PHP)) is not None) is matches
+
+
+def test_node_still_matches_node_js(make_vulnerability: VulnerabilityFactory) -> None:
+    vulnerability = make_vulnerability(description="A flaw in Node.js allows XSS")
+    assert match(vulnerability, _endpoint(ProductEntry(name="node"))) is not None
+
+
+@pytest.mark.parametrize(
+    ("entry", "description"),
+    [
+        (ProductEntry(name="apache"), "Apache/2.4.49 allows path traversal"),
+        (ProductEntry(name="linux"), "A Linux/Unix kernel flaw allows root"),
+    ],
+    ids=["name-slash-version", "name-slash-name"],
+)
+def test_a_slash_next_to_a_name_reads_as_a_path(
+    make_vulnerability: VulnerabilityFactory, entry: ProductEntry, description: str
+) -> None:
+    # Assumed risk of the path rule: such prose is not a mention in the fallback.
+    vulnerability = make_vulnerability(description=description)
+    assert match(vulnerability, _endpoint(entry)) is None
+
+
+@pytest.mark.parametrize(
+    ("entry", "description", "matches"),
+    [
+        (
+            ProductEntry(name="php", aliases=("php-src",)),
+            "A flaw in ext/php-src/main.c allows XSS",
+            False,
+        ),
+        (
+            ProductEntry(name="php", aliases=("php-src",)),
+            "A flaw in php-src allows XSS",
+            True,
+        ),
+        (
+            ProductEntry(name="Zend Engine"),
+            "A flaw in lib/Zend Engine/ allows XSS",
+            False,
+        ),
+        (
+            ProductEntry(name="Zend Engine"),
+            "A flaw in the Zend  Engine allows XSS",
+            True,
+        ),
+    ],
+    ids=["alias-in-path", "alias-in-prose", "multi-word-in-path", "multi-word-prose"],
+)
+def test_the_path_rule_applies_to_aliases_and_multi_word_names(
+    make_vulnerability: VulnerabilityFactory,
+    entry: ProductEntry,
+    description: str,
+    matches: bool,
+) -> None:
+    vulnerability = make_vulnerability(description=description)
+    assert (match(vulnerability, _endpoint(entry)) is not None) is matches
+
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        "Slims (Senayan Library Management Systems) 9 Bulian 9.8.0 allows"
+        " cross-site request forgery (CSRF) against"
+        " admin/modules/circulation/loan_history_maintenance.php because the"
+        " action=run GET parameter performs privileged, destructive operations"
+        " with no CSRF token or POST confirmation, leading to data loss of loan"
+        " history records.",
+        "An OS command injection vulnerability in the /htdocs/web/diagnostic.php"
+        " endpoint of D-Link DAP1160L A1_FW101WWb04 allows attackers to execute"
+        " arbitrary commands via injecting arbitrary shell metacharacters.",
+        "e-SIC Livre (esiclivre) v0.2.2 and earlier contains an uncontrolled"
+        " resource consumption vulnerability in restrito/inc/captcha.php. The"
+        " application uses user-supplied parameters (l, a, tf, ql) without"
+        " validation to generate CAPTCHA images, allowing remote attackers to"
+        " cause denial of service via excessive memory and CPU consumption.",
+        "SQL injection via identifier injection in the tableName and tableFields"
+        " POST parameters of admin AJAX endpoints (admin/AJAX_lookup_handler.php,"
+        " admin/AJAX_check_id.php, admin/AJAX_vocabolary_control.php) in SENAYAN"
+        " Library Management System (SLiMS) Bulian 9.8.0 allows any authenticated"
+        " staff user to extract arbitrary database contents.",
+    ],
+    ids=["CVE-2026-107084", "CVE-2026-52356", "CVE-2026-50787", "CVE-2026-107081"],
+)
+@pytest.mark.parametrize("kev", [False, True], ids=["euvd-n-a", "kev-only"])
+def test_file_names_in_euvd_descriptions_do_not_match_php(
+    make_vulnerability: VulnerabilityFactory, description: str, kev: bool
+) -> None:
+    # An EUVD record whose product is "n/a" or a CISA KEV-only record: no
+    # affected product survives.
+    vulnerability = make_vulnerability(description=description, kev=kev)
+    assert match(vulnerability, _endpoint(PHP)) is None
+    assert match(vulnerability, _endpoint(PHP_8_2)) is None
+
+
+_KEV_ONLY_DESCRIPTION = (
+    "Linux Kernel contains a missing initialization of a variable vulnerability"
+    " that could allow for unintended modification of page-cache-backed data via"
+    " failure to preserve the shared-fragment marker during socket buffer"
+    " coalescing, causing ESP input processing to decrypt shared fragments in"
+    " place. This vulnerability can be chained with CVE-2026-109618 and"
+    " CVE-2026-109619 to implant PHP webshells and run commands as root."
+)
+
+
+def test_opting_out_of_description_matching_drops_a_kev_only_vulnerability(
+    make_vulnerability: VulnerabilityFactory,
+) -> None:
+    # CVE-2026-46300: CISA KEV lists no product, the description mentions PHP.
+    vulnerability = make_vulnerability(
+        primary_id="CVE-2026-46300", description=_KEV_ONLY_DESCRIPTION, kev=True
+    )
+    default = match(vulnerability, _endpoint(PHP))
+    assert default is not None
+    assert default.matches[0].structured is False
+    strict = ProductEntry(name="php", match_description=False)
+    assert match(vulnerability, _endpoint(strict)) is None
+
+
+def test_opting_out_of_description_matching_keeps_structured_matches(
+    make_vulnerability: VulnerabilityFactory,
+) -> None:
+    vulnerability = make_vulnerability(
+        description="A flaw in a WordPress plugin",
+        products=[("PHP", "PHP Group", "8.1.0 <8.2.29")],
+    )
+    strict = ProductEntry(name="php", match_description=False)
+    result = match(vulnerability, _endpoint(strict))
+    assert result is not None
+    assert result.matches[0].structured is True
+    strict_min = ProductEntry(
+        name="php", min_version=Version("8.2"), match_description=False
+    )
+    result = match(vulnerability, _endpoint(strict_min))
+    assert result is not None
+    assert result.matches[0].versions_unknown is False
+    too_new = ProductEntry(
+        name="php", min_version=Version("9.0"), match_description=False
+    )
+    assert match(vulnerability, _endpoint(too_new)) is None
+
+
+def test_exclusions_still_read_the_description_without_description_matching(
+    make_vulnerability: VulnerabilityFactory,
+) -> None:
+    vulnerability = make_vulnerability(
+        description="A flaw in a WordPress plugin written in PHP",
+        products=[("PHP", "PHP Group")],
+    )
+    entry = ProductEntry(name="php", exclude=("wordpress",), match_description=False)
+    assert match(vulnerability, _endpoint(entry)) is None
+
+
 # --- exclusions (FR-12) ----------------------------------------------------------
 
 

@@ -17,6 +17,8 @@ class ProductEntry:
     exclude: tuple[str, ...] = ()
     # Already parsed by `version.parse_version` at the boundary.
     min_version: Version | None = None
+    # False: structured affected-product data only, never the description.
+    match_description: bool = True
 
 
 @dataclass(frozen=True, slots=True)

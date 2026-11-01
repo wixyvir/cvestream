@@ -67,6 +67,7 @@ endpoints:
         aliases: [gitlab-ce, gitlab-ee]
         exclude: [gitlab-runner]
         min_version: "17.0"
+        match_description: false
 ```
 
 | Field | Required | Meaning |
@@ -81,9 +82,9 @@ endpoints:
 | `endpoints[].token` | yes | feed secret, `^[A-Za-z0-9_-]{32,128}$`, unique |
 | `endpoints[].products` | no | list of shorthand strings or entries (default empty: matches nothing) |
 
-A product entry has `name` (required), `aliases[]`, `exclude[]` and `min_version`. Names, aliases and exclusion terms are stripped and must not be blank. `min_version` is a quoted version string.
+A product entry has `name` (required), `aliases[]`, `exclude[]`, `min_version` and `match_description` (default `true`). Names, aliases and exclusion terms are stripped and must not be blank. `min_version` is a quoted version string.
 
-**How an entry matches.** The name and its aliases are matched case-insensitively, on whole words (`php` matches `PHP` and `php-fpm`, not `phpMyAdmin`), against the vulnerability's affected products (product or vendor name). The description is searched only when the vulnerability lists no affected product at all: a WordPress plugin whose description mentions `Module.php` does not match `php`. Such a description-only match cannot check `min_version` and is labelled "versions unknown". An exclusion term found in the affected products or the description drops the entry.
+**How an entry matches.** The name and its aliases are matched case-insensitively, on whole words (`php` matches `PHP` and `php-fpm`, not `phpMyAdmin`), against the vulnerability's affected products (product or vendor name). The description is searched only when the vulnerability lists no affected product at all: a WordPress plugin whose description mentions `Module.php` does not match `php`. In the description, a name inside a file name or path does not count (`loan_history_maintenance.php`, `/usr/lib/php/`, `C:\php\`), while `php.ini`, `php.net` and "Node.js" still do. This is an assumed risk: a slash next to a name in prose reads as a path too, so `Apache/2.4.49`, `nginx/1.25.3`, `Linux/Unix` or `GNU/Linux` do not count, and such a vulnerability matches only once a record lists the product. Such a description-only match cannot check `min_version` and is labelled "versions unknown". With `match_description: false` the entry matches on affected-product data only, never on the description: a vulnerability known only from CISA KEV, which lists no product, then waits for EUVD data and is published as new when it arrives. The trade-off is fewer false positives, but a vulnerability whose records never list a product is missed for that entry. An exclusion term found in the affected products or the description drops the entry, whatever `match_description` says.
 
 **Shorthand.** `php >= 8.2` means name `php`, minimum version `8.2`. A bare `php` is a name only. Spaces around `>=` are optional and names may contain spaces (`apache http server >= 2.4`). Only `>=` exists.
 
