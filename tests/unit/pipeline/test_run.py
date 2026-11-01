@@ -77,13 +77,19 @@ def _euvd(
     )
 
 
-def _kev(clock: FakeClock, cve: str = CVE, name: str | None = None) -> SourceRecord:
+def _kev(
+    clock: FakeClock,
+    cve: str = CVE,
+    name: str | None = None,
+    description: str | None = None,
+) -> SourceRecord:
     now = clock.now()
     return SourceRecord(
         source="cisa_kev",
         record_id=cve,
         observed_at=now,
         title=Sourced(name, "cisa_kev", now) if name else None,
+        description=Sourced(description, "cisa_kev", now) if description else None,
         kev=(
             Sourced(
                 KevEntry(KevCatalog.CISA_KEV, added_at=now - timedelta(minutes=5)),
@@ -146,6 +152,27 @@ def test_known_exploited_publishes_one_kev_update(
     assert _kinds(result) == [("team-php", "kev")]
     fake_clock.advance(timedelta(minutes=15))
     assert run(state, snapshot, [_batch(_kev(fake_clock))], fake_clock).decisions == ()
+
+
+def test_a_kev_only_record_waits_for_product_data_without_description_matching(
+    state: State, fake_clock: FakeClock
+) -> None:
+    strict = Endpoint(
+        id="team-php-strict",
+        name="strict",
+        products=(ProductEntry(name="php", match_description=False),),
+    )
+    snapshot = _snapshot(_endpoint(), strict)
+    kev_only = _kev(
+        fake_clock, description="This can be chained to implant PHP webshells."
+    )
+    first = run(state, snapshot, [_batch(kev_only)], fake_clock)
+    # The default entry still matches the description; the strict one waits.
+    assert _kinds(first) == [("team-php", "new")]
+    fake_clock.advance(timedelta(minutes=15))
+    # FR-26: EUVD brings the product. No score, so no band change on team-php.
+    late = run(state, snapshot, [_batch(_euvd(fake_clock, score=None))], fake_clock)
+    assert _kinds(late) == [("team-php-strict", "new")]
 
 
 def test_a_score_rise_across_a_band_publishes_one_update(
