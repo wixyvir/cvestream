@@ -31,7 +31,7 @@ Findings deferred by code reviews, to pick up in a later story or when they bite
 
 - ~~**`--debug` has no effect** (`src/cvestream/cli/main.py`): the root callback stores `CliState(debug=...)`, but nothing reads it, so an unexpected error always prints Typer's Rich traceback (exit 1). The project rule is "traceback only with `--debug`". Seen with an invalid `state.url` (fixed at the source in 1.5). Wire `pretty_exceptions_enable`/a top-level handler when the daemon arrives (1.6).~~ Resolved by story 1.6: the root app disables pretty exceptions and `main()` prints one line (exit 1), re-raising only under `--debug`.
 - **SQLite deferred transactions and a second writer** (`src/cvestream/state/db.py`, `_configure_sqlite`): with `autocommit = False` the driver opens a deferred transaction; a pipeline run reads before it writes, so if another connection commits in between, SQLite refuses the write-lock upgrade at once with `SQLITE_BUSY` (the 5 s busy timeout does not cover a WAL snapshot upgrade). No second writer exists today (single daemon; `db backup` only reads). If one appears, start write transactions with `BEGIN IMMEDIATE`.
-- **Advisory revisions do not merge** (`src/cvestream/pipeline/correlate.py`, `MERGE_KINDS`): advisory IDs are not merge keys, so two revisions of one advisory without a CVE or EUVD alias (CERT-FR alerte rev. 1 and rev. 2) become two vulnerabilities with the same primary ID and the same GUID. Unreachable with EUVD and CISA KEV. Review decision on wixyvir/cvestream#5 (options 1 + 3): `pipeline/run.py` now skips the colliding decision with a `publish.skipped` warning instead of aborting every run, and story 2.1 carries an acceptance criterion to make the revisions merge.
+- **Advisory revisions do not merge** (`src/cvestream/pipeline/correlate.py`, `MERGE_KINDS`): advisory IDs are not merge keys, so two revisions of one advisory without a CVE or EUVD alias (CERT-FR alerte rev. 1 and rev. 2) become two vulnerabilities with the same primary ID and the same GUID. Unreachable with EUVD and CISA KEV. Review decision on wixyvir/cvestream#5 (options 1 + 3): `pipeline/run.py` now skips the colliding decision with a `publish.skipped` warning instead of aborting every run, and the acceptance criterion to make the revisions merge left story 2.1 with FR-2b (deferred, course correction 2026-11-01); still unreachable with the built-in adapters.
 
 ## Deferred from: code review of 1-6-feeds-served-by-the-daemon.md (2026-10-26)
 
@@ -46,3 +46,10 @@ Findings deferred by code reviews, to pick up in a later story or when they bite
 ## Deferred from: code review of 1-7-description-fallback-precision.md (2026-11-01)
 
 - **A name between hyphens inside a path segment still counts** (`src/cvestream/domain/matcher.py`, `_description_pattern`): rule B only looks at the one character on each side of the hit, so `php` in `wp-content/plugins/insert-php-code-snippet/readme.txt` or `class-php-mailer.php` still matches in the description fallback. Outside the rule agreed on 2026-11-01; none of the 6 measured false positives had this shape. Revisit with trial data if WordPress-plugin paths keep leaking into `php` feeds (for example: a hit inside a whitespace-free token that contains `/` or `\` does not count).
+
+## Deferred by course correction (2026-11-01, epic 2 scope)
+
+See `planning-artifacts/sprint-change-proposal-2026-11-01-epic-2-scope.md`.
+
+- **CERT-FR alerte adapter (FR-2b):** in the PHP2Shell replay, the CERT-FR alerte (13:27 CEST) came 5 hours after the hand-posted CERT-EU link (08:27 CEST), so it adds no lead time once CERT-EU is ingested. Re-enter if a CERT-FR alerte beats CERT-EU during the trial. It must first make advisory revisions merge (see "Advisory revisions do not merge" above).
+- **Configured generic RSS/JSON sources (FR-5):** no source is requested yet. Re-enter when someone names a vendor bulletin to follow.

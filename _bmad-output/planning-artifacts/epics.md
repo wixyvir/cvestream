@@ -22,10 +22,10 @@ This document provides the complete epic and story breakdown for cvestream, deco
 
 - FR-1: Poll EUVD for new and updated source records.
 - FR-2: Ingest CERT-EU advisories.
-- FR-2b: Ingest CERT-FR *alerte* items (configurable, off by default). Each revision is identified by reference + revision number, merges into the existing vulnerability and does not trigger a re-publish by itself.
+- FR-2b: *(Deferred after v1, sprint change proposal 2026-11-01 epic 2 scope.)* Ingest CERT-FR *alerte* items (configurable, off by default). Each revision is identified by reference + revision number, merges into the existing vulnerability and does not trigger a re-publish by itself.
 - FR-3: Flag a vulnerability as known-exploited when it appears in CISA KEV or ENISA's EU KEV (via EUVD), show which list the flag came from, and show CISA's known ransomware use.
 - FR-4: Configure a poll interval for each source.
-- FR-5: Add further RSS or JSON sources through configuration. Minimum contract: stable ID + text. Missing CVE ID → not merged; no product data → text-only matching; no score/version → unknown.
+- FR-5: *(Deferred after v1, sprint change proposal 2026-11-01 epic 2 scope.)* Add further RSS or JSON sources through configuration. Minimum contract: stable ID + text. Missing CVE ID → not merged; no product data → text-only matching; no score/version → unknown.
 - FR-6: A failing source does not stop the others; feeds keep serving their last good content.
 - FR-7: Merge source records into one vulnerability using CVE and EUVD ID aliases; keep every contributing source as a reference.
 - FR-8: Identify a vulnerability by CVE, EUVD or advisory ID, never by URL.
@@ -86,11 +86,11 @@ None. cvestream has no user interface (architecture.md: "Frontend Architecture: 
 ### FR Coverage Map
 
 - FR-1: Epic 1 (Story 1.4) - EUVD polling
-- FR-2: Epic 2 (Story 2.1) - CERT-EU advisories
-- FR-2b: Epic 2 (Story 2.1) - CERT-FR alerte revisions
+- FR-2: Epic 2 (Story 2.1) - CERT-EU advisories, one record per CVE
+- FR-2b: deferred after v1 - CERT-FR alerte revisions
 - FR-3: Epic 1 (Story 1.4) - CISA KEV + EU KEV flags, ransomware
 - FR-4: Epic 1 (Stories 1.1, 1.6) - per-source interval setting and scheduler
-- FR-5: Epic 2 (Story 2.2) - configured generic RSS/JSON sources
+- FR-5: deferred after v1 - configured generic RSS/JSON sources
 - FR-6: Epic 1 (Story 1.6) - source isolation, last good feed
 - FR-7: Epic 1 (Story 1.5) - alias-based merge
 - FR-8: Epic 1 (Stories 1.2, 1.5) - ID-based identity, never URL
@@ -122,8 +122,8 @@ The operator writes an `endpoints.yaml`, starts one container, and each team sub
 
 ### Epic 2: European advisory sources
 
-Feeds also carry CERT-EU advisories and (opt-in) CERT-FR alertes, merged into the same vulnerabilities, and the operator can add other RSS/JSON sources by configuration. Source API drift is detected nightly. This closes the PHP2Shell gap (SM-3: timeliness against hand-posted CERT-EU links).
-**FRs covered:** FR-2, FR-2b, FR-5. NFR-5 (drift detection).
+Feeds also carry CERT-EU advisories, merged per CVE into the same vulnerabilities as EUVD, so a critical pre-announcement reaches the channel before the CVE is published (PHP2Shell: CERT-EU was ~7.5 h ahead of EUVD). Source API drift is detected nightly. This closes the PHP2Shell gap (SM-3: timeliness against hand-posted CERT-EU links).
+**FRs covered:** FR-2. NFR-5 (drift detection). FR-2b and FR-5 are deferred after v1 (sprint change proposal 2026-11-01, epic 2 scope).
 
 ### Epic 3: Shared configuration store, operator CLI and release
 
@@ -346,50 +346,42 @@ So that my channel stops receiving vulnerabilities about other products, includi
 
 ## Epic 2: European advisory sources
 
-Feeds also carry CERT-EU advisories and (opt-in) CERT-FR alertes, merged into the same vulnerabilities, and the operator can add other RSS/JSON sources by configuration. Source API drift is detected nightly.
+Feeds also carry CERT-EU advisories, merged per CVE into the same vulnerabilities as EUVD, so a critical pre-announcement reaches the channel before the CVE is published (PHP2Shell: CERT-EU was ~7.5 h ahead of EUVD). Source API drift is detected nightly. FR-2b and FR-5 are deferred after v1 (sprint change proposal 2026-11-01, epic 2 scope).
 
-### Story 2.1: CERT-EU and CERT-FR alerte adapters
+### Story 2.1: CERT-EU adapter
 
 As a channel subscriber,
-I want CERT-EU advisories and CERT-FR alertes in my feed, merged with the EUVD record of the same vulnerability,
+I want CERT-EU advisories in my feed, merged with the EUVD record of each CVE they cover,
 So that urgent European advisories (like PHP2Shell) reach my channel before anyone posts them by hand.
 
 **Acceptance Criteria:**
 
 **Given** the `cert_eu` adapter
-**When** it fetches the advisories RSS (latest 10) and the JSON of each new advisory
-**Then** it emits `SourceRecord`s with the advisory ID, CVE aliases, description, affected products and source link; XML is parsed without entity resolution (FR-2)
-**And** records sharing a CVE with an EUVD record merge into the same vulnerability (Story 1.5)
+**When** it fetches the advisories RSS (latest 10) and the JSON of each new or revised advisory
+**Then** it emits one `SourceRecord` per CVE ID found in the advisory, with `record_id` `<serial>:<CVE>` and aliases = that CVE + the advisory alias `CERT-EU-SA<serial>`, so an advisory covering several CVEs never merges their vulnerabilities; an advisory without any CVE ID emits one record with the advisory alias only (FR-2, FR-7, FR-8)
+**And** CVE IDs come from `content_markdown`; the `# Affected Products` bullets become affected products (free text, versions unknown unless `domain/version.py` parses them); the description is the JSON `description`; the link is the advisory page; XML is parsed without entity resolution
+**And** a revised advisory (new RSS `pubDate`) is fetched again, so a CVE added by a revision gets its own record (CVE-2026-115560 in 2026-018 v1.2), and a revision alone never re-publishes (FR-19)
+**And** `published_at` is the front-matter `original_date`, `updated_at` is the JSON `publish_date` read as UTC; the cursor is the latest RSS `pubDate` seen (`next_cursor` from source data)
 
-**Given** the `certfr_alerte` adapter, off by default in settings
-**When** it is enabled and fetches the alerte RSS + JSON
-**Then** each revision is identified by reference + revision number (`CERTFR-2026-ALE-012` rev. N), merges into the existing vulnerability, and does not trigger a re-publish by itself (FR-2b)
-**And** revisions of the same reference merge even when no CVE is known yet, so two vulnerabilities never share an advisory primary ID and never build the same publication GUID (review of wixyvir/cvestream#5); the `publish.skipped` safety net of `pipeline/run.py` stays silent in the contract and pipeline tests
-**And** French free-text version data that cannot be parsed yields `None` (versions unknown), never a crash
-
-**Given** recorded fixtures in `tests/fixtures/cert_eu/` and `tests/fixtures/certfr_alerte/`
+**Given** recorded fixtures in `tests/fixtures/cert_eu/` (multi-CVE revised advisory 2026-018, single-CVE advisory, advisory without CVE, malformed payload)
 **When** the contract tests run
-**Then** normal, revised-alerte and malformed payloads are covered, each with a `live` variant
-**And** `docs/sources.md` and `settings.example.yaml` document both sources
+**Then** each case is covered, each with a `live` variant
+**And** a pipeline test replays PHP2Shell: the CERT-EU records publish one `new` item per CVE with an unknown score; the later EUVD records merge into them and publish `[UPDATE]` on the unknown → critical band rise; three CVEs stay three vulnerabilities; `publish.skipped` stays silent
+**And** `docs/sources.md` (payload assumptions, UTC dates, per-CVE records) and `settings.example.yaml` document the source
 
-### Story 2.2: Configured sources and source-drift detection
+### Story 2.2: Source-drift detection
 
 As the operator,
-I want to add any RSS or JSON vulnerability source through settings, and to be told when a source API changes,
-So that vendor bulletins can be followed without code changes and a silent upstream change never empties our feeds.
+I want to be told when a source API changes,
+So that a silent upstream change never empties our feeds.
 
 **Acceptance Criteria:**
 
-**Given** a `generic_rss` or `generic_json` source in settings (URL, ID path or regex, text fields, optional CVE regex, interval)
-**When** the registry builds it
-**Then** it emits records with a stable ID and text; settings without both are rejected at startup with a clear error (FR-5)
-**And** without a CVE ID the record is not merged, without product data it is matched on text only, and missing score/version stay unknown (FR-5, FR-9)
-**And** contract tests in `tests/contract/generic/` cover RSS and JSON examples, including the degraded cases
-
 **Given** `.github/workflows/source-drift.yml`
-**When** it runs nightly or manually
-**Then** it runs the `live` contract tests against the real APIs and, on failure, opens or updates an issue labelled `source-drift` (NFR-5)
-**And** `docs/sources.md` explains how to declare a generic source
+**When** it runs nightly or manually (`workflow_dispatch`)
+**Then** it runs the `live` contract tests against the real APIs and, on failure, opens or updates a single issue labelled `source-drift` with the failing tests (NFR-5)
+**And** the job has least-privilege `permissions:` (`contents: read`, `issues: write`), third-party actions pinned by commit SHA, and a `timeout-minutes`
+**And** `docs/operations.md` explains what a `source-drift` issue means and how to close it
 
 ## Epic 3: Shared configuration store, operator CLI and release
 

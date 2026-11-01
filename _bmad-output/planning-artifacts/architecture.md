@@ -36,7 +36,7 @@ _This document builds collaboratively through step-by-step discovery. Sections a
 
 | Group | FRs | Architectural meaning |
 |---|---|---|
-| F1 Source ingestion | FR-1, 2, 2b, 3, 4, 5, 6 | One adapter per source (EUVD, CERT-EU, CERT-FR alerte, CISA KEV, generic RSS/JSON). Each has its own schedule and its own failure isolation. Incremental polling (EUVD `fromUpdatedDate`) needs a cursor per source that survives restarts. A generic source has a minimum contract (stable ID + text) and degrades gracefully when fields are missing. |
+| F1 Source ingestion | FR-1, 2, 3, 4, 6 (2b, 5 deferred) | One adapter per source (EUVD, CERT-EU, CISA KEV). Each has its own schedule and its own failure isolation. Incremental polling (EUVD `fromUpdatedDate`) needs a cursor per source that survives restarts. Deferred after v1: a CERT-FR alerte adapter (FR-2b) and generic RSS/JSON adapters (FR-5) would be further adapters. |
 | F2 Correlation and identity | FR-7, 8, 9, 24 | A canonical vulnerability, keyed by CVE/EUVD/advisory ID aliases and never by URL. Every value records which source supplied it. "Unknown" is a value in its own right. The highest score wins for decisions, but every source's score is kept. |
 | F3 Endpoints and filtering | FR-10 to 16, 25 | A matching engine: case-insensitive whole-word matching on structured product data, the description only as a fallback for a vulnerability without affected-product data (ignoring names inside file names and paths, and skipped for entries with `match_description: false`), aliases, exclusion terms, minimum versions parsed from free text, and fail-open labels ("versions unknown"). Filters: CVSS threshold and KEV-only. A new endpoint is backfilled with 7 days of matches. Recall wins over volume. |
 | F4 RSS output | FR-17 to 20, 26 | A publication engine that decides new, update (`[UPDATE]` with its own GUID) or nothing, per vulnerability and endpoint. It needs history: last severity band and last KEV state. An RSS 2.0 renderer with a 14-day window and no Slack-specific markup. Feed URLs carry a token that can be rotated. |
@@ -68,7 +68,7 @@ _This document builds collaboratively through step-by-step discovery. Sections a
   - The YAML provider remains for simple, single-tool setups.
   - The configuration schema is a **public, versioned contract**.
   - The daemon's internal state is kept apart from the shared configuration store (exact store to decide).
-- **External dependencies:** EUVD API (unversioned, no auth, non-ISO dates with no timezone, free-text versions), CISA KEV JSON, CERT-EU Security advisories (RSS of the latest 10 + JSON per advisory), CERT-FR alerte RSS + JSON.
+- **External dependencies:** EUVD API (unversioned, no auth, non-ISO dates with no timezone, free-text versions), CISA KEV JSON, CERT-EU Security advisories (RSS of the latest 10 + JSON per advisory).
 - **Consumer:** Slack's RSS app is the reference consumer. It is assumed to de-duplicate on GUID.
 - **Out of scope that limits the design:** no Slack app, no GUI, no authentication on feeds beyond the URL token, no NVD.
 
@@ -82,7 +82,7 @@ _This document builds collaboratively through step-by-step discovery. Sections a
 6. **Time handling:** all timestamps normalized to UTC. Sources' dates have no timezone. Feed windows and the backfill depend on it.
 7. **Single active poller:** two daemon instances would poll twice and race on publication. Kubernetes runs one replica, or we use a lock (to decide).
 8. **Observability:** structured logs per poll cycle, visible source failures, counts of items let through on unknown data.
-9. **Version parsing:** free-text, multi-format version ranges (including French free text from CERT-FR) feed into a fail-open comparison.
+9. **Version parsing:** free-text, multi-format version ranges feed into a fail-open comparison.
 10. **Portability across Docker, Kubernetes and local runs:** configuration through environment and file, health probes, graceful shutdown, no assumptions about the host.
 
 ## Starter Template Evaluation
@@ -200,7 +200,7 @@ cvestream:v1:token:{id}               feed token (plaintext; own namespace so co
 - Migrations: **Alembic 1.20.1**, scripts in `state/migrations/versions/`, `render_as_batch=True` so `ALTER`s work on SQLite. Run at startup and by `cvestream db migrate`.
 - PostgreSQL later: add `psycopg` as an optional extra, set `CVESTREAM_STATE__URL=postgresql+psycopg://…`, add PostgreSQL to the CI matrix. No repository or migration rewrite expected.
 - Logical tables: `vulnerability`, `alias`, `source_record`, `publication`, `source_cursor`, `feed_cache`.
-- Correlation and publication rules (story 1.5): merge keys are CVE and EUVD aliases only (GHSA and advisory IDs never merge, a record without either is never merged); aliases are append-only (a source dropping an alias never splits a vulnerability); a record whose content is unchanged (hash ignoring `observed_at`) does not touch its vulnerability; only vulnerabilities active in the last 14 days (source activity time) are decided; an endpoint without any publication is backfilled with the last 7 days at every run until its first publication, and a product-list edit on an existing endpoint does not backfill; `kev` wins over a band rise in the same run (the decision records the current band); `unknown` to any rated band, `none` included, counts as a band rise. A decision whose GUID is already stored for another vulnerability (two advisory-only vulnerabilities sharing a primary ID) is skipped with a `publish.skipped` warning instead of aborting the run; story 2.1 must make advisory revisions merge so that this never happens in practice.
+- Correlation and publication rules (story 1.5): merge keys are CVE and EUVD aliases only (GHSA and advisory IDs never merge, a record without either is never merged); aliases are append-only (a source dropping an alias never splits a vulnerability); a record whose content is unchanged (hash ignoring `observed_at`) does not touch its vulnerability; only vulnerabilities active in the last 14 days (source activity time) are decided; an endpoint without any publication is backfilled with the last 7 days at every run until its first publication, and a product-list edit on an existing endpoint does not backfill; `kev` wins over a band rise in the same run (the decision records the current band); `unknown` to any rated band, `none` included, counts as a band rise. A decision whose GUID is already stored for another vulnerability (two advisory-only vulnerabilities sharing a primary ID) is skipped with a `publish.skipped` warning instead of aborting the run; this cannot happen with the built-in adapters (CERT-EU revisions keep their record ID); a CERT-FR alerte adapter (FR-2b, deferred) would have to make revisions merge first.
 - Storage: the SQLite volume must be block storage (not NFS/SMB/CIFS, whose file locking is unreliable for SQLite).
 - Retention: vulnerabilities and publications kept indefinitely (late KEV additions). Raw payloads kept 30 days (configurable) for debugging and fixture capture.
 
@@ -241,7 +241,7 @@ Rules (story 1.6): every enabled endpoint is rendered at every run, inside the r
 | private | `/readyz` | configuration loaded from the provider and state store open; independent of sources |
 | private | `/status` | JSON: per source activity (`idle`, `fetching`, `processing`, `crashed`) with its start and the next fetch, last success/error, cursor; per endpoint item count, last render |
 
-- **Source adapters:** `SourceAdapter` protocol (`name`, `async fetch(cursor) -> FetchResult(records, next_cursor)`). Built-in: `euvd`, `cert_eu`, `certfr_alerte`, `cisa_kev`. Generic `rss` and `json` adapters (FR-5) configured in static settings (URL, ID path or regex, text fields, CVE regex). Sequential pages, short pauses, exponential backoff. The cursor is an opaque string owned by the adapter (`next_cursor` comes from source data, never from the local clock; the fetch time only caps it, so a future-dated source record cannot park it ahead). The `euvd` adapter also loads `/api/kev/dump` in full on every fetch and emits `eu_kev` records (an EU KEV addition does not change `dateUpdated`).
+- **Source adapters:** `SourceAdapter` protocol (`name`, `async fetch(cursor) -> FetchResult(records, next_cursor)`). Built-in: `euvd`, `cert_eu`, `cisa_kev` (generic RSS/JSON adapters, FR-5, are deferred after v1). The `cert_eu` adapter emits one record per (advisory, CVE) pair (record ID `<serial>:<CVE>`, aliases = the CVE + `CERT-EU-SA<serial>`) so that a multi-CVE advisory never merges vulnerabilities; an advisory without CVE emits one advisory-only record. Sequential pages, short pauses, exponential backoff. The cursor is an opaque string owned by the adapter (`next_cursor` comes from source data, never from the local clock; the fetch time only caps it, so a future-dated source record cannot park it ahead). The `euvd` adapter also loads `/api/kev/dump` in full on every fetch and emits `eu_kev` records (an EU KEV addition does not change `dateUpdated`).
 - **Error taxonomy:** `SourceTransportError`, `SourcePayloadError`, `SourceContractError` (source level: logged, cursor not advanced, others continue). Record-level failure: skipped and counted. Invalid config: last valid kept. Unexpected exception in a loop: supervisor logs and restarts the loop with backoff. The process never crashes because of a source.
 - **CLI (Typer):** `run`, `poll --once`, `healthcheck [--ready]`, `endpoint create|list|show|edit|delete`, `product add|remove|list`, `token rotate`, `config validate|schema|export|import`, `db migrate|backup`.
 - **`cvestream healthcheck`:** calls `http://127.0.0.1:9090/healthz` (or `/readyz` with `--ready`) with the standard library (`urllib`, no proxy handler, 2 s timeout) and exits 0 when healthy, 1 otherwise. It is used by the Docker `HEALTHCHECK` and by the Kubernetes `exec` probes, so the image needs no `curl`. It imports neither the app nor the providers, so it stays fast.
@@ -290,7 +290,7 @@ Not applicable: no UI. RSS is the only output contract.
 2. Static settings (pydantic-settings) and structured logging.
 3. Config models + JSON Schema + YAML provider + `config validate`.
 4. State store (SQLAlchemy Core schema, `UTCDateTime`, Alembic, repository) on SQLite.
-5. Source adapter contract + EUVD adapter + fixtures and contract tests; then CISA KEV, CERT-EU, CERT-FR alerte, generic RSS/JSON.
+5. Source adapter contract + EUVD adapter + fixtures and contract tests; then CISA KEV, CERT-EU.
 6. Normalization, correlation and provenance (FR-7/8/9/24).
 7. Matcher (FR-11 to 15, 25) and version parsing.
 8. Publication engine (FR-16, 19, 26) with atomic recording.
@@ -333,8 +333,8 @@ Not applicable: no UI. RSS is the only output contract.
 | Thing | Format | Example |
 |---|---|---|
 | Endpoint ID | slug `[a-z0-9-]{1,40}` | `team-gitlab` |
-| Source name | `snake_case` | `euvd`, `cert_eu`, `certfr_alerte`, `cisa_kev`, `eu_kev` (record source of EU KEV entries, emitted by the `euvd` adapter) |
-| Vulnerability aliases | upper-case, normalized | `CVE-2026-109618`, `EUVD-2026-41234`, `CERTFR-2026-ALE-012` |
+| Source name | `snake_case` | `euvd`, `cert_eu`, `cisa_kev`, `eu_kev` (record source of EU KEV entries, emitted by the `euvd` adapter) |
+| Vulnerability aliases | upper-case, normalized | `CVE-2026-109618`, `EUVD-2026-41234`, `CERT-EU-SA2026-018` |
 | Primary display ID | CVE > EUVD > advisory ID | the first available, in that order |
 | RSS GUID | `cvestream:{endpoint_id}:{primary_id}:{kind}` with `kind` = `new`, `kev`, `band-{band}` | `cvestream:team-gitlab:CVE-2026-109618:kev` |
 | Severity band | lower-case enum | `unknown`, `none`, `low`, `medium`, `high`, `critical` |
@@ -571,10 +571,7 @@ cvestream/
 │   │   ├── registry.py               # name → adapter factory, built from settings
 │   │   ├── euvd.py
 │   │   ├── cisa_kev.py
-│   │   ├── cert_eu.py
-│   │   ├── certfr_alerte.py
-│   │   ├── generic_rss.py
-│   │   └── generic_json.py
+│   │   └── cert_eu.py
 │   ├── state/
 │   │   ├── __init__.py
 │   │   ├── db.py                     # engine from state.url, SQLite connect pragmas, transaction(), migrate()
@@ -624,9 +621,7 @@ cvestream/
     ├── contract/                     # one folder per source; `live` variants hit the real APIs
     │   ├── euvd/
     │   ├── cisa_kev/
-    │   ├── cert_eu/
-    │   ├── certfr_alerte/
-    │   └── generic/
+    │   └── cert_eu/
     ├── integration/
     │   ├── test_pipeline_end_to_end.py
     │   ├── test_restart_no_repost.py # NFR-3 / SM-4
@@ -635,8 +630,7 @@ cvestream/
     └── fixtures/
         ├── euvd/
         ├── cisa_kev/
-        ├── cert_eu/
-        └── certfr_alerte/
+        └── cert_eu/
 ```
 
 The existing `_bmad/`, `_bmad-output/` and `.claude/` folders stay where they are and are excluded from the image (`.dockerignore`).
@@ -673,9 +667,9 @@ The existing `_bmad/`, `_bmad-output/` and `.claude/` folders stay where they ar
 
 | FR / NFR | Location |
 |---|---|
-| FR-1, 2, 2b, 3 sources | `sources/euvd.py`, `cert_eu.py`, `certfr_alerte.py`, `cisa_kev.py` · `tests/contract/*` |
+| FR-1, 2, 3 sources | `sources/euvd.py`, `cert_eu.py`, `cisa_kev.py` · `tests/contract/*` |
 | FR-4 poll interval | `settings.py` (`SourceSettings.interval`, max 60 min), `app/scheduler.py` |
-| FR-5 configured sources | `sources/generic_rss.py`, `generic_json.py`, `sources/registry.py` |
+| FR-2b, FR-5 | deferred after v1 |
 | FR-6 isolation, last good feed | `app/runtime.py` (supervisor), `app/feed_cache.py`, `state` `feed_cache` table |
 | FR-7, 8 correlation, identity | `pipeline/correlate.py`, `domain/identity.py`, table `alias` |
 | FR-9, 24 provenance, highest score | `domain/model.py` (`Sourced`), `domain/severity.py` |
@@ -712,7 +706,7 @@ The existing `_bmad/`, `_bmad-output/` and `.claude/` folders stay where they ar
 
 **Internal communication:** source loops → `asyncio.Queue` → pipeline worker (`asyncio.to_thread(pipeline.run, …)`) → returns rendered feeds → `feed_cache.swap()`. HTTP handlers read only `feed_cache`.
 
-**External integrations:** EUVD (`/api/search`, `/api/kev/dump`), CISA KEV JSON, CERT-EU advisories RSS + JSON, CERT-FR alerte RSS + JSON, generic RSS/JSON from settings, Valkey (RESP, optionally TLS), Slack's RSS app (consumer).
+**External integrations:** EUVD (`/api/search`, `/api/kev/dump`), CISA KEV JSON, CERT-EU advisories RSS + JSON, Valkey (RESP, optionally TLS), Slack's RSS app (consumer).
 
 **Data flow:**
 

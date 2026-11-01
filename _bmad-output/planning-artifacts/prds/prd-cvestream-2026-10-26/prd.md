@@ -2,7 +2,7 @@
 title: "PRD: cvestream"
 status: final
 created: 2026-10-26
-updated: 2026-10-26
+updated: 2026-11-01
 inputs:
   - planning-artifacts/briefs/brief-cvestream-2026-10-26/brief.md
   - planning-artifacts/briefs/brief-cvestream-2026-10-26/addendum.md
@@ -26,7 +26,7 @@ cvestream is a small, self-hosted daemon. It pulls vulnerability data from Europ
 
 ## Glossary
 
-- **Source record:** one entry fetched from a source (an EUVD record, a CERT-EU advisory, a CERT-FR alerte revision, a KEV entry).
+- **Source record:** one entry fetched from a source (an EUVD record, a CERT-EU advisory for one of its CVEs, a KEV entry).
 - **Vulnerability:** the unit cvestream tracks. It merges every source record that shares a CVE or EUVD ID.
 - **Endpoint (feed):** one RSS feed with its own product list and rules.
 - **Feed item:** one entry in an endpoint's feed. It is either the first publication of a vulnerability or an update to one.
@@ -38,10 +38,10 @@ cvestream is a small, self-hosted daemon. It pulls vulnerability data from Europ
 
 - **FR-1** Poll EUVD for new and updated source records.
 - **FR-2** Ingest CERT-EU advisories.
-- **FR-2b** Ingest CERT-FR *alerte* items, CERT-FR's urgent editorial layer (about 14 a year). This source is configurable and off by default. An updated alerte reappears in CERT-FR's feed, so each revision is identified by its reference plus revision number. A revision merges into the existing vulnerability and does not trigger a re-publish by itself.
+- **FR-2b** *(Deferred after v1, 2026-11-01.)* Ingest CERT-FR *alerte* items, CERT-FR's urgent editorial layer (about 14 a year). This source is configurable and off by default. An updated alerte reappears in CERT-FR's feed, so each revision is identified by its reference plus revision number. A revision merges into the existing vulnerability and does not trigger a re-publish by itself.
 - **FR-3** Flag a vulnerability as known-exploited when it appears in CISA KEV or ENISA's EU KEV (as exposed by EUVD), and show which list the flag came from. When CISA KEV notes known ransomware use, display that too.
 - **FR-4** Configure a poll interval for each source.
-- **FR-5** Add further sources, RSS or JSON, through configuration. A configured source must provide at least a stable ID and some text. Any other missing data degrades gracefully: with no CVE ID it is not merged, with no product data it is matched on text only, and with no score or version data those values stay unknown.
+- **FR-5** *(Deferred after v1, 2026-11-01.)* Add further sources, RSS or JSON, through configuration. A configured source must provide at least a stable ID and some text. Any other missing data degrades gracefully: with no CVE ID it is not merged, with no product data it is matched on text only, and with no score or version data those values stay unknown.
 - **FR-6** If one source fails, the other sources keep working, and feeds keep serving their last good content.
 
 ### F2. Correlation and identity
@@ -107,7 +107,8 @@ Trial: one month, one endpoint using the combined stack of all teams (PHP, Node,
 - Authentication with headers or user accounts on feeds. The URL token is the only access control.
 - NVD as a source. EUVD comes first.
 - CERT-FR *avis*: they mostly repeat vendor bulletins already in EUVD.
-- Dedicated vendor-bulletin sources. They can be added as configured sources (FR-5).
+- CERT-FR *alerte* (FR-2b) and configured sources (FR-5), deferred after v1: in the PHP2Shell replay, CERT-EU was ahead of the CERT-FR alerte by 5 hours, and no configured source is requested yet.
+- Dedicated vendor-bulletin sources. They would come through configured sources (FR-5, deferred).
 - Building on CIRCL Vulnerability-Lookup: cvestream stays standalone.
 
 ## Open Questions
