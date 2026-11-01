@@ -106,7 +106,10 @@ class Vulnerability:
     affected: tuple[Sourced[AffectedProduct], ...] = ()
     kev: tuple[Sourced[KevEntry], ...] = ()
     references: tuple[Sourced[str], ...] = ()
+    # Earliest publication any source gives.
     published_at: datetime | None = None
+    # Newest update any source gives (CISA KEV gives none).
+    updated_at: datetime | None = None
 
     @property
     def is_known_exploited(self) -> bool:

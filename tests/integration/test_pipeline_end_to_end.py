@@ -5,6 +5,7 @@ state is a SQLite file; the feed is read through the public Starlette app with
 `httpx.ASGITransport`, so no port is bound.
 """
 
+import re
 import xml.etree.ElementTree as ET
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -134,6 +135,9 @@ async def test_a_feed_goes_from_recorded_payloads_to_a_served_response(
         assert lines[0].startswith("<p><b>IDs:</b> ")
         assert CHROME_CVE in lines[0]
         assert any(line.startswith("<b>CVSS:</b> ") for line in lines)
+        # The recorded EUVD payload carries both dates.
+        assert re.search(r"<b>Published:</b> \d{4}-\d{2}-\d{2}<br/>", description)
+        assert re.search(r"<b>Updated:</b> \d{4}-\d{2}-\d{2}<br/>", description)
         assert any(line.startswith("<b>Known exploited:</b> ") for line in lines)
         assert '<a href="https://euvd.enisa.europa.eu/vulnerability/' in description
         guid = chrome.find("guid")
