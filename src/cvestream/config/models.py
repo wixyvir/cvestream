@@ -113,6 +113,13 @@ class ProductEntryConfig(BaseModel):
             "as the number 8.1)."
         ),
     )
+    match_description: bool = Field(
+        default=True,
+        description=(
+            "Search the description when a vulnerability lists no affected "
+            "product; false matches on affected-product data only."
+        ),
+    )
 
     @field_validator("min_version", mode="before")
     @classmethod
@@ -145,6 +152,7 @@ def _to_product(item: str | ProductEntryConfig) -> ProductEntry:
         aliases=tuple(item.aliases),
         exclude=tuple(item.exclude),
         min_version=parse_version(item.min_version) if item.min_version else None,
+        match_description=item.match_description,
     )
 
 
