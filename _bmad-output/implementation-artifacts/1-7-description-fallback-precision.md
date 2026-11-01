@@ -4,7 +4,7 @@ baseline_commit: ea797baefced38ff8f831f749f2ae840ff98a8fe
 
 # Story 1.7: Description fallback precision
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -44,42 +44,42 @@ Added by the 2026-11-01 course correction for wixyvir/cvestream#8 (fixes **B** a
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Branch (AC: all)**
-  - [ ] 1.1 `git switch -c story-1-7-description-fallback-precision` from up-to-date `main` (ea797ba or later). Not stacked: 1.1 to 1.6 are merged.
+- [x] **Task 1: Branch (AC: all)**
+  - [x] 1.1 `git switch -c story-1-7-description-fallback-precision` from up-to-date `main` (ea797ba or later). Not stacked: 1.1 to 1.6 are merged.
 
-- [ ] **Task 2: Path rule in the matcher (AC: 1, 2, 3, 4)**
-  - [ ] 2.1 In `src/cvestream/domain/matcher.py`, add a cached `_description_pattern(term)` (see "Matcher design") and a `_mentioned_in_prose(terms, text)` helper; use it **only** for the name/alias description fallback in `_match_entry`.
-  - [ ] 2.2 Keep `_pattern()`, `_mentions()`, `_hits()` and `affected_hits()` exactly as they are (structured data, vendor names, exclusions, render).
-  - [ ] 2.3 Tests: a parametrized table of short path/non-path cases (AC 1, 2), and a parametrized table of the four real issue descriptions (AC 4), each asserting `match(...) is None` for `PHP` and `PHP_8_2`. Add the multi-word and alias cases listed in "Testing requirements".
-  - [ ] 2.4 Commit: `fix(story-1.7): ignore product names inside paths in the description fallback`.
+- [x] **Task 2: Path rule in the matcher (AC: 1, 2, 3, 4)**
+  - [x] 2.1 In `src/cvestream/domain/matcher.py`, add a cached `_description_pattern(term)` (see "Matcher design") and a `_mentioned_in_prose(terms, text)` helper; use it **only** for the name/alias description fallback in `_match_entry`.
+  - [x] 2.2 Keep `_pattern()`, `_mentions()`, `_hits()` and `affected_hits()` exactly as they are (structured data, vendor names, exclusions, render).
+  - [x] 2.3 Tests: a parametrized table of short path/non-path cases (AC 1, 2), and a parametrized table of the four real issue descriptions (AC 4), each asserting `match(...) is None` for `PHP` and `PHP_8_2`. Add the multi-word and alias cases listed in "Testing requirements".
+  - [x] 2.4 Commit: `fix(story-1.7): ignore product names inside paths in the description fallback`.
 
-- [ ] **Task 3: `match_description` in the domain and the matcher (AC: 5, 6)**
-  - [ ] 3.1 `src/cvestream/domain/endpoint.py`: add `match_description: bool = True` as the **last** field of `ProductEntry`, with a one-line comment.
-  - [ ] 3.2 `_match_entry`: when there are no structured hits, return `None` if `affected` is non-empty, **or** `not entry.match_description`, **or** no prose mention. The exclusion check above it is untouched (it still reads descriptions).
-  - [ ] 3.3 Tests in `test_matcher.py` (AC 5, 6) and `test_endpoint.py` (default `True`).
-  - [ ] 3.4 Commit: `feat(story-1.7): let a product entry opt out of description matching`.
+- [x] **Task 3: `match_description` in the domain and the matcher (AC: 5, 6)**
+  - [x] 3.1 `src/cvestream/domain/endpoint.py`: add `match_description: bool = True` as the **last** field of `ProductEntry`, with a one-line comment.
+  - [x] 3.2 `_match_entry`: when there are no structured hits, return `None` if `affected` is non-empty, **or** `not entry.match_description`, **or** no prose mention. The exclusion check above it is untouched (it still reads descriptions).
+  - [x] 3.3 Tests in `test_matcher.py` (AC 5, 6) and `test_endpoint.py` (default `True`).
+  - [x] 3.4 Commit: `feat(story-1.7): let a product entry opt out of description matching`.
 
-- [ ] **Task 4: Config contract and schema (AC: 8)**
-  - [ ] 4.1 `src/cvestream/config/models.py`: `match_description: bool = Field(default=True, description=...)` on `ProductEntryConfig`, after `min_version`; `_to_product()` passes `match_description=item.match_description`. The shorthand branch passes nothing (default).
-  - [ ] 4.2 `uv run cvestream config schema` to regenerate `schemas/config-v1.json`; check the diff only adds the `match_description` property.
-  - [ ] 4.3 Tests in `tests/unit/config/test_models.py`: full entry with `match_description: false` maps to the domain; default `True` (extend `test_product_entry_config_to_domain_defaults`); shorthand keeps `True` (the existing `test_shorthand_expands_to_domain` already compares with `ProductEntry(name=..., min_version=...)`, which now defaults to `True`: it must stay green); `match_description: "no"` rejected at `endpoints.0.products.0.entry.match_description` (add to `test_rejected`, id `match-description-string`).
-  - [ ] 4.4 One commit with models + schema + tests: `feat(story-1.7): add match_description to product entries in the v1 contract`.
+- [x] **Task 4: Config contract and schema (AC: 8)**
+  - [x] 4.1 `src/cvestream/config/models.py`: `match_description: bool = Field(default=True, description=...)` on `ProductEntryConfig`, after `min_version`; `_to_product()` passes `match_description=item.match_description`. The shorthand branch passes nothing (default).
+  - [x] 4.2 `uv run cvestream config schema` to regenerate `schemas/config-v1.json`; check the diff only adds the `match_description` property.
+  - [x] 4.3 Tests in `tests/unit/config/test_models.py`: full entry with `match_description: false` maps to the domain; default `True` (extend `test_product_entry_config_to_domain_defaults`); shorthand keeps `True` (the existing `test_shorthand_expands_to_domain` already compares with `ProductEntry(name=..., min_version=...)`, which now defaults to `True`: it must stay green); `match_description: "no"` rejected at `endpoints.0.products.0.entry.match_description` (add to `test_rejected`, id `match-description-string`).
+  - [x] 4.4 One commit with models + schema + tests: `feat(story-1.7): add match_description to product entries in the v1 contract`.
 
-- [ ] **Task 5: Pipeline test, KEV-only to merged (AC: 7, 10)**
-  - [ ] 5.1 `tests/unit/pipeline/test_run.py`: give `_kev()` an optional `description: str | None = None` (sets `description=Sourced(description, "cisa_kev", now)` when given). Existing callers unchanged.
-  - [ ] 5.2 Add `test_a_kev_only_record_waits_for_product_data_without_description_matching` (see "Pipeline test design").
-  - [ ] 5.3 Commit: `test(story-1.7): publish a KEV-only vulnerability as new once EUVD names the product`.
+- [x] **Task 5: Pipeline test, KEV-only to merged (AC: 7, 10)**
+  - [x] 5.1 `tests/unit/pipeline/test_run.py`: give `_kev()` an optional `description: str | None = None` (sets `description=Sourced(description, "cisa_kev", now)` when given). Existing callers unchanged.
+  - [x] 5.2 Add `test_a_kev_only_record_waits_for_product_data_without_description_matching` (see "Pipeline test design").
+  - [x] 5.3 Commit: `test(story-1.7): publish a KEV-only vulnerability as new once EUVD names the product`.
 
-- [ ] **Task 6: Documentation (AC: 9)**
-  - [ ] 6.1 `src/cvestream/domain/matcher.py` module docstring (can go with Task 2/3 commits).
-  - [ ] 6.2 `docs/configuration.md`, `docs/sources.md`, `endpoints.example.yaml` (exact edits in "Documentation edits").
-  - [ ] 6.3 Check `README.md` and `CLAUDE.md`: neither describes the matching rule today, so no change is expected; confirm with `grep -n -i "description\|match" README.md CLAUDE.md`.
-  - [ ] 6.4 Commit: `docs(story-1.7): document the path rule and match_description`.
+- [x] **Task 6: Documentation (AC: 9)**
+  - [x] 6.1 `src/cvestream/domain/matcher.py` module docstring (can go with Task 2/3 commits).
+  - [x] 6.2 `docs/configuration.md`, `docs/sources.md`, `endpoints.example.yaml` (exact edits in "Documentation edits").
+  - [x] 6.3 Check `README.md` and `CLAUDE.md`: neither describes the matching rule today, so no change is expected; confirm with `grep -n -i "description\|match" README.md CLAUDE.md`.
+  - [x] 6.4 Commit: `docs(story-1.7): document the path rule and match_description`.
 
-- [ ] **Task 7: Gates and delivery (AC: 11)**
-  - [ ] 7.1 Run every gate command of `CLAUDE.md` (baseline on `main`: **978 passed, 2 deselected**).
-  - [ ] 7.2 Story file: tick tasks, fill the Dev Agent Record, Status → `review`; `sprint-status.yaml`: `1-7-description-fallback-precision: review`. Commit: `chore(story-1.7): mark story ready for review`.
-  - [ ] 7.3 Push with SSH (`git@github.com:wixyvir/cvestream.git`), open the PR to `main` (`SSL_CERT_FILE=$HOME/ca.pem gh pr create ...`), title `fix(story-1.7): description fallback precision`, body linking this story file, stating the narrowed rule B, containing `Closes wixyvir/cvestream#8`, and ending with the attribution line.
+- [x] **Task 7: Gates and delivery (AC: 11)**
+  - [x] 7.1 Run every gate command of `CLAUDE.md` (baseline on `main`: **978 passed, 2 deselected**).
+  - [x] 7.2 Story file: tick tasks, fill the Dev Agent Record, Status → `review`; `sprint-status.yaml`: `1-7-description-fallback-precision: review`. Commit: `chore(story-1.7): mark story ready for review`.
+  - [x] 7.3 Push with SSH (`git@github.com:wixyvir/cvestream.git`), open the PR to `main` (`SSL_CERT_FILE=$HOME/ca.pem gh pr create ...`), title `fix(story-1.7): description fallback precision`, body linking this story file, stating the narrowed rule B, containing `Closes wixyvir/cvestream#8`, and ending with the attribution line.
 
 ## Dev Notes
 
@@ -298,10 +298,38 @@ Nothing version-sensitive: the story uses the standard library `re` and existing
 
 ### Agent Model Used
 
+claude-sonnet-5-5
+
 ### Debug Log References
+
+- Red phase confirmed before each change: 10 path/issue-table tests failed before the path rule, 4 tests failed before `match_description` (domain), 2 before the config field. The pipeline test (Task 5) covers behaviour added in Task 3, so it passed at once; it was checked by disabling the opt-out in the matcher (the test then fails) and restoring it.
+- `docker build --target runtime` could not run locally: pulling `ghcr.io/astral-sh/uv:0.13.6-python3.14-trixie-slim` fails with `x509: certificate signed by unknown authority` (the Docker daemon does not trust the TLS-intercepting proxy, and the base image is not cached). Verification was not disabled. The story changes no `Dockerfile`, `pyproject.toml` or `uv.lock`; CI runs that gate on the PR.
 
 ### Completion Notes List
 
-- Ultimate context engine analysis completed - comprehensive developer guide created.
+- Path rule (B): `_description_pattern()` (boundaries `(?<![\w./\\])` and `(?![\w/\\])`) and `_mentioned_in_prose()` in `domain/matcher.py`, used only by the description fallback of `_match_entry`. `_pattern()`, `_mentions()`, `_hits()` and `affected_hits()` are unchanged; the two patterns share a small `_words()` helper. All pre-existing matcher tests pass unchanged.
+- `match_description` (C): `ProductEntry.match_description: bool = True` (last field), checked in the fallback condition of `_match_entry`; exclusions still read descriptions. `ProductEntryConfig.match_description` (strict bool, default `true`) mapped in `_to_product()`; shorthand keeps the default. `schemas/config-v1.json` regenerated in the same commit and only gains the new property; contract stays `version: 1`.
+- Tests added: path table (11 cases), Node.js, alias and multi-word cases, the four real issue descriptions (CVE-2026-107084, CVE-2026-52356, CVE-2026-50787, CVE-2026-107081), the CVE-2026-46300 trade-off test (default matches, opt-out does not), structured hits unaffected by the flag (with and without `min_version`), exclusion with the flag off, `ProductEntry` default, config mapping/default/`"no"` rejected, and the pipeline test for FR-26 (KEV-only record, then EUVD brings the product: published as `new` on the strict endpoint).
+- Docs: `matcher.py` docstring, `docs/configuration.md` (field list, "How an entry matches", YAML example), `docs/sources.md` (CISA KEV "No affected products"), `endpoints.example.yaml`. `README.md` and `CLAUDE.md` do not describe the matching rule: no change. Planning documents untouched, as instructed.
+- Gates on the branch: `uv sync --locked`, `ruff check`, `ruff format --check`, `ty check`, `lint-imports` (7 kept), `pytest` (**1004 passed, 2 deselected**, baseline 978), `config schema --check`, `config validate endpoints.example.yaml` all pass. `docker build` not run locally (see Debug Log).
+- No retraction of past publications; `domain/publication.py`, `pipeline/run.py` and `pipeline/render.py` untouched.
 
 ### File List
+
+- `src/cvestream/domain/matcher.py` (modified)
+- `src/cvestream/domain/endpoint.py` (modified)
+- `src/cvestream/config/models.py` (modified)
+- `schemas/config-v1.json` (modified, regenerated)
+- `tests/unit/domain/test_matcher.py` (modified)
+- `tests/unit/domain/test_endpoint.py` (modified)
+- `tests/unit/config/test_models.py` (modified)
+- `tests/unit/pipeline/test_run.py` (modified)
+- `docs/configuration.md` (modified)
+- `docs/sources.md` (modified)
+- `endpoints.example.yaml` (modified)
+- `_bmad-output/implementation-artifacts/1-7-description-fallback-precision.md` (modified)
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` (modified)
+
+### Change Log
+
+- 2026-11-01: Implemented story 1.7: path rule in the description fallback, opt-in `match_description` on product entries (config contract v1, additive), tests and documentation. Status: review.
