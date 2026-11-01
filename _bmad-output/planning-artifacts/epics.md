@@ -14,7 +14,7 @@ status: complete
 
 This document provides the complete epic and story breakdown for cvestream, decomposing the requirements from the PRD and Architecture requirements into implementable stories. There is no UX design document: cvestream has no UI, and RSS is its only output contract.
 
-**Sizing choice (user request):** as few epics and stories as possible, each still small enough for one dev agent session and one PR. 3 epics, 11 stories, plus Story 1.7 added by the 2026-11-01 course correction (wixyvir/cvestream#8). Epic 1 alone gives the trial a working, deployable filtered feed.
+**Sizing choice (user request):** as few epics and stories as possible, each still small enough for one dev agent session and one PR. 3 epics, 11 stories, plus Stories 1.7 and 1.8 added by the 2026-11-01 course corrections (wixyvir/cvestream#8, wixyvir/cvestream#11). Epic 1 alone gives the trial a working, deployable filtered feed.
 
 ## Requirements Inventory
 
@@ -98,7 +98,7 @@ None. cvestream has no user interface (architecture.md: "Frontend Architecture: 
 - FR-10: Epic 1 (Story 1.3) - multiple endpoints
 - FR-11: Epic 1 (Stories 1.2, 1.3, 1.7) - product entries, `match_description`
 - FR-12: Epic 1 (Stories 1.2, 1.7) - whole-word matching, exclusions, description fallback precision
-- FR-13: Epic 1 (Story 1.2) - minimum version, "versions unknown"
+- FR-13: Epic 1 (Stories 1.2, 1.8) - minimum version, "versions unknown", branch-wildcard and compound version ranges
 - FR-14: Epic 1 (Story 1.2) - CVSS threshold
 - FR-15: Epic 1 (Story 1.2) - KEV-only
 - FR-16: Epic 1 (Story 1.5) - 7-day backfill
@@ -342,6 +342,40 @@ So that my channel stops receiving vulnerabilities about other products, includi
 **When** `ProductEntryConfig` gains the optional `match_description: bool` (default `true`) and `ProductEntry` carries it
 **Then** the `php >= 8.2` shorthand keeps the default, the field is additive (still `version: 1`), and `schemas/config-v1.json` is regenerated in the same commit
 **And** `docs/configuration.md` ("How an entry matches"), `endpoints.example.yaml` and the `matcher.py` docstring describe the path rule and `match_description`, including that a KEV-only vulnerability waits for EUVD data on such an entry
+**And** publications already made are not retracted (unchanged publication rules)
+
+### Story 1.8: Branch-wildcard and compound version ranges
+
+Added by the 2026-11-01 course correction for wixyvir/cvestream#11, found while replaying PHP2Shell: the PHP CNA writes affected versions as `8.2.* <8.2.35`, which parses as unusable, so every PHP vulnerability in that format is labelled "versions unknown" and `php >= X` filters nothing.
+
+As a channel subscriber,
+I want the version ranges written by the PHP CNA, and other common range shapes, to be understood,
+So that my team's minimum version filters these vulnerabilities, and an item reads "versions unknown" only when versions really are unknown.
+
+**Acceptance Criteria:**
+
+**Given** a lower bound written as a branch wildcard `B.*`, where `B` is a final release (`8.2.*`, `8.*`, `v8.2.*`)
+**When** `domain/version.py` parses it
+**Then** the range starts at `B` inclusive: `8.2.* <8.2.35` → `[8.2, 8.2.35)`, `8.2.* ≤8.2.35` → `[8.2, 8.2.35]`, `8.2.* <*` → `[8.2, ∞)`, and the upper bound is taken as written (`8.2.* <8.4` → `[8.2, 8.4)`) (FR-13)
+**And** a bare `B.*` covers the branch: `8.2.*` → `[8.2, 8.3)`, `8.*` → `[8, 9)`, `8.2.1.*` → `[8.2.1, 8.2.2)`
+**And** a pre-release branch (`8.2rc1.*`), `8.3.x`, an inverted range (`8.4.* <8.2`) and every row that is `None` today stay `None`
+
+**Given** a compound range `>=X <Y`, `>=X <=Y`, `>X <Y` or `>X <=Y` (also with `≥`/`≤` and with or without spaces after the operators)
+**When** it is parsed
+**Then** it returns the matching range with the right inclusivity on each side, and an empty or inverted one returns `None`
+
+**Given** a placeholder lower bound `* <X`, `* <=X` or `unspecified <X` (any case)
+**When** it is parsed
+**Then** the range is unbounded below (`* <8.2.29` → `v < 8.2.29`)
+
+**Given** the recorded EUVD record of EUVD-2026-107260 (PHP2Shell) in `tests/fixtures/euvd/euvd_php_branch_wildcard.json`, captured from the live API, with its four `PHP` rows `8.2.* <8.2.35` to `8.5.* <8.5.12`
+**When** it goes through the EUVD adapter and the matcher
+**Then** `php >= 8.5` matches it through the `8.5.* <8.5.12` row with known versions (not `versions_unknown`), `php >= 8.2` and `php` match it, and `php >= 9.0` does not match it (FR-13)
+**And** table tests in `tests/unit/domain/test_version.py` cover every shape above, including `reaches()` at the branch boundaries (`8.2.*` against `8.3`: false; `8.2.* <8.2.35` against `8.2.34`: true, against `8.2.35`: false)
+
+**Given** the documentation
+**When** the story is done
+**Then** the `version.py` module docstring and `docs/sources.md` (EUVD products) list the understood version formats, `tests/fixtures/README.md` gives the capture command of the new fixture, and the Story 1.2 deferred item in `deferred-work.md` is struck through except for what remains (`<= *`, standalone `0`)
 **And** publications already made are not retracted (unchanged publication rules)
 
 ## Epic 2: European advisory sources
