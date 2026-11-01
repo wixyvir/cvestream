@@ -241,6 +241,22 @@ def test_node_still_matches_node_js(make_vulnerability: VulnerabilityFactory) ->
 
 
 @pytest.mark.parametrize(
+    ("entry", "description"),
+    [
+        (ProductEntry(name="apache"), "Apache/2.4.49 allows path traversal"),
+        (ProductEntry(name="linux"), "A Linux/Unix kernel flaw allows root"),
+    ],
+    ids=["name-slash-version", "name-slash-name"],
+)
+def test_a_slash_next_to_a_name_reads_as_a_path(
+    make_vulnerability: VulnerabilityFactory, entry: ProductEntry, description: str
+) -> None:
+    # Assumed risk of the path rule: such prose is not a mention in the fallback.
+    vulnerability = make_vulnerability(description=description)
+    assert match(vulnerability, _endpoint(entry)) is None
+
+
+@pytest.mark.parametrize(
     ("entry", "description", "matches"),
     [
         (

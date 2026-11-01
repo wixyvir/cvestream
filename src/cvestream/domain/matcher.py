@@ -63,6 +63,7 @@ def _pattern(term: str) -> re.Pattern[str]:
 def _description_pattern(term: str) -> re.Pattern[str]:
     # A name inside a file name or path is not a mention: `x/maintenance.php`,
     # `/usr/lib/php/`, `C:\php\`. `php.ini`, `php.net` and "Node.js" still are.
+    # Assumed risk: `Apache/2.4.49` and `Linux/Unix` read as paths too.
     return re.compile(rf"(?<![\w./\\]){_words(term)}(?![\w/\\])", re.IGNORECASE)
 
 
