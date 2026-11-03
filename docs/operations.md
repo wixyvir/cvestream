@@ -9,6 +9,7 @@
 - Logs are JSON lines on stdout. `cycle.summary` says what each cycle did; `source.failed`, `source.stale`, `config.rejected` and `pipeline.failed` are the ones to alert on.
 - Edit `endpoints.yaml` and the daemon picks it up at the next cycle, no restart. Rotate a token by editing it.
 - Back up the state with `cvestream db backup <file>`.
+- A nightly GitHub workflow (`source-drift`) runs the live contract tests against the real source APIs and opens or updates one `source-drift` issue when a source changed or was unreachable.
 
 ## Run
 
@@ -124,6 +125,38 @@ One JSON object per line on stdout (`CVESTREAM_LOG__FORMAT=console` for humans).
 - `score_unknown` and `versions_unknown`: published items let through because their score or their versions are unknown (recall over volume).
 
 A fetch outcome, failed ones included, triggers a cycle: a failed source still reloads the configuration, slides the 14-day window and appears in the summary. The cvestream logs never contain a token or a feed path.
+
+## Source drift
+
+`.github/workflows/source-drift.yml` runs every night (04:17 UTC) and on demand, from `main`. It runs `uv run pytest -m live tests/contract`: every contract test marked `live` (EUVD, CISA KEV and each later source), against the real APIs, with the same HTTP client as the daemon. Tests are selected by marker, so a new source's live test runs without editing the workflow. It uses a few Actions minutes per night (private repository) and only the `GITHUB_TOKEN`.
+
+What a `source-drift` issue means: a live test failed. Either the source changed its API or payload (fields renamed, type changed, ordering, pagination, URL), which would make the daemon skip records or fail the source, or the source was down, slow or rate-limiting that night.
+
+- The workflow opens **one** issue labelled `source-drift`, then adds a comment on each later failing night while the issue stays open. It never opens a second one and never closes it. It creates the label itself on its first failure.
+- The issue (or comment) links the run, names the commit tested and lists the failing tests (the `FAILED` and `ERROR` lines of pytest).
+- A run that fails before the tests (checkout, install, no `live` test collected) also reports, with "No test result" instead of a list.
+- A green run opens nothing. A run that hits the 20-minute job timeout is cancelled and reports nothing: look at the Actions tab. A hung API fails the test step at 15 minutes and does report.
+
+Triage:
+
+1. Open the run linked in the issue and read the failing assertion.
+2. Reproduce locally from a direct connection: `uv run pytest -m live tests/contract -v -rfE`. Behind a TLS-intercepting proxy the live tests fail by design (the client ignores proxy settings).
+3. Compare the live payload with the recorded fixtures in `tests/fixtures/<source>/` (how each was recorded: `tests/fixtures/README.md`).
+4. Check the daemon side: `source.failed` with `SourceContractError` or `SourcePayloadError` in the logs, and `last_error` and `stale` in `/status` (see Logs and `/status` above).
+5. One failing night followed by green ones is a transient outage: close the issue with a note.
+
+Fix: update the adapter in `src/cvestream/sources/`, re-record the fixtures (never edit them by hand), update the contract tests and `docs/sources.md`, in a pull request.
+
+Close: by hand, once the fix is on `main` and a run is green (next night, or run it by hand).
+
+Run it by hand: Actions tab, `source-drift`, "Run workflow", or
+
+```sh
+gh workflow run source-drift.yml --repo wixyvir/cvestream [--ref <branch>]
+gh run watch --repo wixyvir/cvestream
+```
+
+A `--ref` other than `main` runs that branch's copy of the workflow (useful to test a change), but the workflow file must already exist on `main`.
 
 ## Feeds
 
