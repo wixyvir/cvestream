@@ -28,6 +28,12 @@ _BRANCH = r"(?P<branch>[vV]?\d+(?:\.\d+)*)\.\*"
 _BRANCH_ONLY = re.compile(_BRANCH)
 # PHP CNA: "<branch>.* <fixed>" (and "<=", or an open "*" upper bound)
 _BRANCH_TO = re.compile(rf"{_BRANCH}\s*(?P<op><=|<)\s*{_UPPER_OPEN}")
+# ">=8.0 <8.3": two bounds separated by whitespace
+_COMPOUND = re.compile(rf"(?P<lop>>=|>)\s*(?P<lo>{_V})\s+(?P<hop><=|<)\s*(?P<hi>{_V})")
+# CVE 5 placeholder lower bound: "* <8.2.29", "unspecified <8.2.29"
+_PLACEHOLDER_BELOW = re.compile(
+    rf"(?:\*|unspecified)\s*(?P<op><=|<)\s*(?P<hi>{_V})", re.IGNORECASE
+)
 
 
 def parse_version(text: str) -> Version | None:
@@ -92,6 +98,9 @@ def parse_range(text: str | None) -> VersionRange | None:
         return VersionRange(None, True, None, True)
     if found := _SINGLE.fullmatch(normalized):
         return _build(found["v"], found["v"], upper_inclusive=True)
+    # Before _FROM_TO, which would read "unspecified" as a (unparseable) lower bound.
+    if found := _PLACEHOLDER_BELOW.fullmatch(normalized):
+        return _build(None, found["hi"], upper_inclusive=found["op"] == "<=")
     if found := _FROM_TO.fullmatch(normalized):
         upper = None if found["hi"] == "*" else found["hi"]
         return _build(found["lo"], upper, upper_inclusive=found["op"] == "<=")
@@ -109,4 +118,11 @@ def parse_range(text: str | None) -> VersionRange | None:
         if start is None:  # unreachable with _BRANCH, kept for the type checker
             return None
         return _build(found["branch"], str(_branch_end(start)))
+    if found := _COMPOUND.fullmatch(normalized):
+        return _build(
+            found["lo"],
+            found["hi"],
+            lower_inclusive=found["lop"] == ">=",
+            upper_inclusive=found["hop"] == "<=",
+        )
     return None
