@@ -161,3 +161,76 @@ def test_reaches(text: str, minimum: str, expected: bool) -> None:
     version_range = parse_range(text)
     assert version_range is not None
     assert version_range.reaches(V(minimum)) is expected
+
+
+# Story 1.8: PHP CNA branch wildcards (wixyvir/cvestream#11), compound ranges
+# and CVE 5 placeholder lower bounds.
+BRANCH_AND_COMPOUND_RANGES = [
+    # branch wildcard + upper bound (the four PHP2Shell rows first)
+    ("8.2.* <8.2.35", _range("8.2", "8.2.35")),
+    ("8.3.* <8.3.36", _range("8.3", "8.3.36")),
+    ("8.4.* <8.4.27", _range("8.4", "8.4.27")),
+    ("8.5.* <8.5.12", _range("8.5", "8.5.12")),
+    ("8.2.* ≤8.2.35", _range("8.2", "8.2.35", upper_inclusive=True)),
+    ("8.2.* <=8.2.35", _range("8.2", "8.2.35", upper_inclusive=True)),
+    ("8.2.*<8.2.35", _range("8.2", "8.2.35")),
+    ("8.2.* <*", _range("8.2", None)),
+    ("8.2.* ≤*", _range("8.2", None)),
+    ("8.2.* <8.4", _range("8.2", "8.4")),
+    ("v8.2.* <8.2.35", _range("8.2", "8.2.35")),
+    ("8.* <8.4", _range("8", "8.4")),
+    # bare branch
+    ("8.2.*", _range("8.2", "8.3")),
+    ("8.*", _range("8", "9")),
+    ("8.2.1.*", _range("8.2.1", "8.2.2")),
+    ("8.2.0.*", _range("8.2.0", "8.2.1")),
+    ("v8.2.*", _range("8.2", "8.3")),
+    ("V8.2.*", _range("8.2", "8.3")),
+    ("8.9.*", _range("8.9", "8.10")),
+    # still unusable
+    ("8.2rc1.*", None),
+    ("8.2.*.*", None),
+    ("8.4.* <8.2", None),  # inverted
+    ("8.2.* <8.2", None),  # empty
+    ("8.2.* 8.2.35", None),  # no operator
+    ("<= *", None),  # deferred
+]
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    BRANCH_AND_COMPOUND_RANGES,
+    ids=[repr(text) for text, _ in BRANCH_AND_COMPOUND_RANGES],
+)
+def test_parse_range_branch_and_compound(
+    text: str, expected: VersionRange | None
+) -> None:
+    assert parse_range(text) == expected
+
+
+def test_standalone_zero_is_still_the_single_version_zero() -> None:
+    assert parse_range("0") == _range("0", "0", upper_inclusive=True)
+
+
+BRANCH_REACHES = [
+    # (range text, minimum, expected)
+    ("8.2.*", "8.3", False),
+    ("8.2.*", "8.2.99", True),
+    ("8.2.* <8.2.35", "8.2.34", True),
+    ("8.2.* <8.2.35", "8.2.35", False),
+    ("8.2.* ≤8.2.35", "8.2.35", True),
+    ("8.*", "9.0", False),
+    ("8.*", "8.99", True),
+    ("8.2.* <*", "99.0", True),
+]
+
+
+@pytest.mark.parametrize(
+    ("text", "minimum", "expected"),
+    BRANCH_REACHES,
+    ids=[f"{text} min {minimum}" for text, minimum, _ in BRANCH_REACHES],
+)
+def test_reaches_branch_and_compound(text: str, minimum: str, expected: bool) -> None:
+    version_range = parse_range(text)
+    assert version_range is not None
+    assert version_range.reaches(V(minimum)) is expected
