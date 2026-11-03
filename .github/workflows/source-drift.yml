@@ -63,14 +63,16 @@ jobs:
             echo "- Run: ${RUN_URL}"
             echo "- Commit tested: \`${GITHUB_SHA}\`"
             echo
-            if [ -f pytest.log ] && grep -qE '^(FAILED|ERROR) ' pytest.log; then
+            if [ ! -f pytest.log ]; then
+              echo "No test result: the job failed before the tests ran (checkout or install). See the run log."
+            elif grep -qE '^(FAILED|ERROR) ' pytest.log; then
               echo "Failing tests:"
               echo
               echo '```'
               grep -E '^(FAILED|ERROR) ' pytest.log
               echo '```'
             else
-              echo "No test result: the job failed before pytest produced one (checkout, install, or no live test collected). See the run log."
+              echo "No failing-test line: pytest ran but printed no FAILED or ERROR line (no live test collected, the test step timed out, or pytest crashed). See the run log."
             fi
             echo
             echo "Triage: see \`docs/operations.md\`, section Source drift. :factory:"
