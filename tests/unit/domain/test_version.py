@@ -176,6 +176,7 @@ BRANCH_AND_COMPOUND_RANGES = [
     ("8.2.*<8.2.35", _range("8.2", "8.2.35")),
     ("8.2.* <*", _range("8.2", None)),
     ("8.2.* ≤*", _range("8.2", None)),
+    ("8.2.* <=*", _range("8.2", None)),
     ("8.2.* <8.4", _range("8.2", "8.4")),
     ("v8.2.* <8.2.35", _range("8.2", "8.2.35")),
     ("8.* <8.4", _range("8", "8.4")),
@@ -219,6 +220,12 @@ BRANCH_AND_COMPOUND_RANGES = [
     ("<= *", None),  # deferred
     ("unspecified", None),
     ("* <8.3.x", None),
+    ("unspecified <*", None),
+    ("<8.3 >=8.0", None),  # reversed compound
+    (">=8.0 <8.3.*", None),  # wildcard in a compound bound
+    ("<8.2.*", None),  # wildcard in a one-sided bound
+    ("<=8.2.*", None),
+    (">=8.2.*", None),
 ]
 
 
@@ -231,6 +238,18 @@ def test_parse_range_branch_and_compound(
     text: str, expected: VersionRange | None
 ) -> None:
     assert parse_range(text) == expected
+
+
+OVER_INT_LIMIT = [
+    "9" * 4301,  # a single version
+    "1.* <" + "9" * 5000,  # a branch upper bound
+    "1." + "9" * 4300 + ".*",  # _branch_end makes a 4301-digit component
+]
+
+
+@pytest.mark.parametrize("text", OVER_INT_LIMIT, ids=["single", "bound", "branch-end"])
+def test_a_digit_run_over_the_int_limit_is_unusable_not_an_error(text: str) -> None:
+    assert parse_range(text) is None
 
 
 def test_placeholder_lower_bound_equals_the_one_sided_range() -> None:
