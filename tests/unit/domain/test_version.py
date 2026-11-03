@@ -187,13 +187,38 @@ BRANCH_AND_COMPOUND_RANGES = [
     ("v8.2.*", _range("8.2", "8.3")),
     ("V8.2.*", _range("8.2", "8.3")),
     ("8.9.*", _range("8.9", "8.10")),
+    # compound
+    (">=8.0 <8.3", _range("8.0", "8.3")),
+    (">=8.0 <=8.3", _range("8.0", "8.3", upper_inclusive=True)),
+    (">8.0 <8.3", _range("8.0", "8.3", lower_inclusive=False)),
+    (">8.0 <=8.3", _range("8.0", "8.3", lower_inclusive=False, upper_inclusive=True)),
+    ("≥8.0 ≤8.3", _range("8.0", "8.3", upper_inclusive=True)),
+    (">= 8.0 < 8.3", _range("8.0", "8.3")),
+    (">=8.0 <=8.0", _range("8.0", "8.0", upper_inclusive=True)),
+    # placeholder lower bound
+    ("* <8.2.29", _range(None, "8.2.29")),
+    ("* <=8.2.29", _range(None, "8.2.29", upper_inclusive=True)),
+    ("* ≤8.2.29", _range(None, "8.2.29", upper_inclusive=True)),
+    ("unspecified <8.2.29", _range(None, "8.2.29")),
+    ("Unspecified <=8.2.29", _range(None, "8.2.29", upper_inclusive=True)),
+    ("UNSPECIFIED <8.2.29", _range(None, "8.2.29")),
     # still unusable
     ("8.2rc1.*", None),
     ("8.2.*.*", None),
     ("8.4.* <8.2", None),  # inverted
     ("8.2.* <8.2", None),  # empty
     ("8.2.* 8.2.35", None),  # no operator
+    (">=8.3 <8.0", None),  # inverted
+    (">=8.0 <8.0", None),  # empty
+    (">8.0 <8.0", None),
+    (">8.0 <=8.0", None),
+    (">=8.0, <8.3", None),  # comma-separated: deferred
+    (">=8.0<8.3", None),  # no whitespace between the parts: out of scope
+    (">=8.0 <*", None),  # out of scope
+    ("* <*", None),
     ("<= *", None),  # deferred
+    ("unspecified", None),
+    ("* <8.3.x", None),
 ]
 
 
@@ -206,6 +231,10 @@ def test_parse_range_branch_and_compound(
     text: str, expected: VersionRange | None
 ) -> None:
     assert parse_range(text) == expected
+
+
+def test_placeholder_lower_bound_equals_the_one_sided_range() -> None:
+    assert parse_range("* <8.2.29") == parse_range("<8.2.29")
 
 
 def test_standalone_zero_is_still_the_single_version_zero() -> None:
@@ -222,6 +251,10 @@ BRANCH_REACHES = [
     ("8.*", "9.0", False),
     ("8.*", "8.99", True),
     ("8.2.* <*", "99.0", True),
+    ("* <8.2.29", "8.2", True),
+    ("* <8.2.29", "8.2.29", False),
+    (">8.0 <8.3", "8.3", False),
+    (">=8.0 <=8.3", "8.3", True),
 ]
 
 
