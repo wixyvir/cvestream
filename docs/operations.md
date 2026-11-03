@@ -128,7 +128,7 @@ A fetch outcome, failed ones included, triggers a cycle: a failed source still r
 
 ## Source drift
 
-`.github/workflows/source-drift.yml` runs every night (04:17 UTC) and on demand, from `main`. It runs `uv run pytest -m live tests/contract`: every contract test marked `live` (EUVD, CISA KEV and each later source), against the real APIs, with the same HTTP client as the daemon. Tests are selected by marker, so a new source's live test runs without editing the workflow. It uses a few Actions minutes per night (private repository) and only the `GITHUB_TOKEN`.
+`.github/workflows/source-drift.yml` runs every night (04:17 UTC) and on demand, from `main`. It runs `uv run pytest -m live tests/contract`: every contract test marked `live` (EUVD, CISA KEV, CERT-EU and each later source), against the real APIs, with the same HTTP client as the daemon. Tests are selected by marker, so a new source's live test runs without editing the workflow. It uses a few Actions minutes per night (private repository) and only the `GITHUB_TOKEN`.
 
 What a `source-drift` issue means: a live test failed. Either the source changed its API or payload (fields renamed, type changed, ordering, pagination, URL), which would make the daemon skip records or fail the source, or the source was down, slow or rate-limiting that night.
 
