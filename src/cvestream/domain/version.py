@@ -1,9 +1,23 @@
 """Free-text affected-version parsing (the only module that parses versions).
 
-Sources give versions as free text (EUVD: `"8.1.0 <8.2.29"`, `"0 ≤2.21.1"`).
-`parse_range` returns a `VersionRange` when the text is understood and `None`
-otherwise; `None` means unusable, and callers let the item through labelled
-"versions unknown" (recall over precision, FR-25).
+Sources give versions as free text. `parse_range` returns a `VersionRange` when
+the text is one of these formats, and `None` otherwise:
+
+- a single version (`8.2.29`);
+- `X <Y` and `X ≤Y`, where `Y` may be `*` (EUVD: `8.1.0 <8.2.29`, `0 ≤2.21.1`);
+- `<Y`, `<=Y`, `>=X` and `>X`;
+- `X - Y`;
+- `*`;
+- a branch `B.*`, which covers the branch (`8.2.*` is `[8.2, 8.3)`), and
+  `B.* <Y`, the PHP CNA format (`8.2.* <8.2.35` is `[8.2, 8.2.35)`: the upper
+  bound is taken as written, without intersecting it with the branch);
+- a compound range `>=X <Y`, with `>`, `<=` and `≥`/`≤` variants;
+- a placeholder lower bound, `* <Y` or `unspecified <Y`, which is unbounded below.
+
+Everything else is unusable: `8.3.x`, a pre-release branch (`8.2rc1.*`),
+comma-separated ranges, `<= *`, an inverted or empty range. `None` means
+unusable, and callers let the item through labelled "versions unknown" (recall
+over precision, FR-25).
 """
 
 import re
