@@ -67,6 +67,26 @@ class SourceContractError(SourceError):
     """Valid JSON in an unexpected shape: the upstream API drifted."""
 
 
+async def get_bytes(
+    http: HttpClient,
+    source: str,
+    url: str,
+    *,
+    params: Mapping[str, str | int] | None = None,
+    max_bytes: int = DEFAULT_MAX_BYTES,
+) -> bytes:
+    """GET `url` and return the body.
+
+    The single place where HTTP failures become `SourceError`s.
+    """
+    try:
+        return await http.get(url, params=params, max_bytes=max_bytes)
+    except HttpResponseTooLargeError as exc:
+        raise SourcePayloadError(source, str(exc)) from exc
+    except HttpError as exc:
+        raise SourceTransportError(source, str(exc)) from exc
+
+
 async def get_json(
     http: HttpClient,
     source: str,
@@ -77,14 +97,9 @@ async def get_json(
 ) -> object:
     """GET `url` and decode the JSON body.
 
-    The single place where HTTP and decoding failures become `SourceError`s.
+    The single place where decoding failures become `SourceError`s.
     """
-    try:
-        body = await http.get(url, params=params, max_bytes=max_bytes)
-    except HttpResponseTooLargeError as exc:
-        raise SourcePayloadError(source, str(exc)) from exc
-    except HttpError as exc:
-        raise SourceTransportError(source, str(exc)) from exc
+    body = await get_bytes(http, source, url, params=params, max_bytes=max_bytes)
     try:
         return json.loads(body)
     # ValueError covers JSONDecodeError and UnicodeDecodeError; RecursionError is
