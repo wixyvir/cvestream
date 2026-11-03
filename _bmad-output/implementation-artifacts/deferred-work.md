@@ -67,3 +67,7 @@ See `planning-artifacts/sprint-change-proposal-2026-11-01-epic-2-scope.md`.
 
 - **CERT-FR alerte adapter (FR-2b):** in the PHP2Shell replay, the CERT-FR alerte (13:27 CEST) came 5 hours after the hand-posted CERT-EU link (08:27 CEST), so it adds no lead time once CERT-EU is ingested. Re-enter if a CERT-FR alerte beats CERT-EU during the trial. It must first make advisory revisions merge (see "Advisory revisions do not merge" above).
 - **Configured generic RSS/JSON sources (FR-5):** no source is requested yet. Re-enter when someone names a vendor bulletin to follow.
+
+## Deferred from: code review of 2-2-source-drift-detection.md (2026-11-03)
+
+- **Workflow files are not linted in CI** (`.github/workflows/`): story 2.2 checked `source-drift.yml` by hand with actionlint (shellcheck included) and `zizmor --offline`, both clean. A later edit (a Dependabot bump of the pinned SHAs, a new step) is not checked. A `ci.yml` step or a separate job running both tools would catch template injection, unpinned actions and shell mistakes. Re-enter as a chore when the workflows change again.

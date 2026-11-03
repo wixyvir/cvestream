@@ -4,7 +4,7 @@ baseline_commit: 0c1903d
 
 # Story 2.2: Source-drift detection
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -77,6 +77,24 @@ Rewritten by the 2026-11-01 course correction (`_bmad-output/planning-artifacts/
 - [x] **Task 4: gates and story bookkeeping** (AC: 5)
   - [x] 4.1 Run every gate from `CLAUDE.md` in the worktree (`docker build --target runtime -t cvestream:story-2-2-source-drift-detection .` included).
   - [x] 4.2 Fill the Dev Agent Record, the File List, set the story to `review` here and in `sprint-status.yaml`.
+
+### Review Findings
+
+Code review 2026-11-03 (`bmad-code-review`, claude-opus-5-5, autonomous run) of `git diff origin/story-2-1-cert-eu-adapter...HEAD` on PR wixyvir/cvestream#19, after the rebase onto the reviewed 2.1 branch. The session had no subagent tool, so the three layers (Blind Hunter, Edge Case Hunter, Acceptance Auditor) ran one after the other in the same session, each with its own inputs. Checks run: the report script extracted from the workflow and dry-run with a stub `gh` (log with `FAILED`/`ERROR` lines, no log, log without a failing line plus an open issue, log of a killed run); pytest's short-summary code read in the installed `_pytest/terminal.py`; the runner's step-timeout path read in `actions/runner` (`StepsRunner.cs`: a step timeout sets `TaskResult.Failed`, so `failure()` is true for the report step); actionlint and `zizmor --offline` clean after the patches; `uv run pytest -m live tests/contract --collect-only -q` gives 6 live tests (EUVD, CISA KEV, 4 CERT-EU) with no workflow change (the Debug Log's "2 live tests" predates the rebase). Result: 0 decision-needed, 2 patch (applied), 1 defer, 7 dismissed.
+
+- [x] [Review][Patch] The fallback body blamed checkout or install when the test step timed out or pytest printed no failing line, although `docs/operations.md` says a hung API "does report" [.github/workflows/source-drift.yml:66] — fixed in `f512be4`: "No test result" only when `pytest.log` does not exist, "No failing-test line" when pytest ran without one; docs updated; dry-run with a stub `gh`
+- [x] [Review][Patch] `docs/operations.md` named only EUVD and CISA KEV as covered, while CERT-EU's 4 live tests now run too (spec: "today EUVD and CISA KEV, plus CERT-EU") [docs/operations.md:131] — fixed in `95d0442`
+- [x] [Review][Defer] Workflow files are not linted in CI (actionlint, zizmor): this story checked `source-drift.yml` by hand, and a later edit (Dependabot bump, new step) is not checked [.github/workflows/ci.yml] — deferred, out of scope by the story ("could be a later chore")
+
+Dismissed (7):
+
+- Only the first line of a multi-line assertion message reaches the issue: on CI pytest appends the whole message to the `FAILED` line (`running_on_ci()`), and the grep keeps its first line. The AC asks for the `FAILED`/`ERROR` lines; the run link holds the rest.
+- Upstream text inside the fenced block could close the fence: the live assertions show record IDs held by regexes and short values, a break-out needs three backticks on the first message line, and the repository is private.
+- `issues: write` is granted to the whole job, the test step included: the token is passed only to the report step (`GH_TOKEN` in its `env:`) and checkout does not persist credentials. Splitting into two jobs needs an artifact hand-off and more pinned actions.
+- A third run queued while one runs and one waits cancels the waiting one, which then reports nothing (`concurrency` keeps one pending run): nightly plus manual runs only.
+- A job-level timeout cancels the job without a report: documented, and the 15-minute step timeout makes a hung API report first.
+- A manual run with `--ref <branch>` that fails comments on the production `source-drift` issue: the body names the commit tested, and the docs present `--ref` as a way to test a change.
+- `UV_LOCKED: "1"` together with `uv sync --locked` is redundant: copied from `ci.yml` on purpose.
 
 ## Dev Notes
 
@@ -275,3 +293,4 @@ Claude Sonnet 5.5 (`claude-sonnet-5-5`), `bmad-dev-story`, autonomous run, 2026-
 ### Change Log
 
 - 2026-11-03: added the nightly `source-drift` workflow and its operator documentation; story set to `review`.
+- 2026-11-03: code review: 2 patches applied (`f512be4`, `95d0442`), 1 deferred, 7 dismissed, no open decision; story set to `done`.
