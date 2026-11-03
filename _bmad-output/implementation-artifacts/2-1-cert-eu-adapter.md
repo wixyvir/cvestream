@@ -4,7 +4,7 @@ baseline_commit: 0c1903dd54c6e23c5e0a7612f6f5ee4a8a7de0a6
 
 # Story 2.1: CERT-EU adapter
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -103,23 +103,23 @@ Scope set by the 2026-11-01 course correction (`_bmad-output/planning-artifacts/
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: record the fixtures** (AC: 9)
-  - [ ] 1.1 Create `tests/fixtures/cert_eu/` and record, with the commands in "Fixture capture" below:
+- [x] **Task 1: record the fixtures** (AC: 9)
+  - [x] 1.1 Create `tests/fixtures/cert_eu/` and record, with the commands in "Fixture capture" below:
     - `cert_eu_rss.xml` (bytes as served, no reformatting);
     - `cert_eu_2026_018_multi_cve_revised.json`;
     - `cert_eu_2026_019_single_cve.json`;
     - `cert_eu_2025_029_no_cve.json`;
     - `cert_eu_2025_008_cve_blocks.json`.
-  - [ ] 1.2 Record `tests/fixtures/euvd/euvd_php2shell_second_cve.json` (EUVD-2026-107265, CVE-2026-109619) for the replay.
-  - [ ] 1.3 Add the `cert_eu/` table and the new EUVD row to `tests/fixtures/README.md`, with the recording date and the commands.
-- [ ] **Task 2: share the body fetch in `sources/base.py`** (AC: 4, 7)
-  - [ ] 2.1 Extract `async def get_bytes(http, source, url, *, params=None, max_bytes=DEFAULT_MAX_BYTES) -> bytes`. It maps `HttpResponseTooLargeError` to `SourcePayloadError` and every other `HttpError` to `SourceTransportError`. `get_json` then calls it and keeps its exact behaviour and messages. The existing `tests/unit/sources/test_base.py` must pass unchanged; add a test for `get_bytes`.
-- [ ] **Task 3: the adapter `src/cvestream/sources/cert_eu.py`** (AC: 1 to 7)
-  - [ ] 3.1 Constants: `NAME`, `RSS_URL`, `ADVISORY_URL`, `JSON_URL`, `INITIAL_WINDOW = timedelta(days=14)`, `MAX_RSS_BYTES = 1 MiB`, `MAX_ADVISORY_BYTES = 2 MiB`, and the patterns.
-  - [ ] 3.2 Safe RSS parsing: `_NoDoctypeBuilder(ET.TreeBuilder)`, whose `doctype()` raises a private `_DoctypeRefusedError(CvestreamError)`. `ET.ParseError` and `_DoctypeRefusedError` both become `SourcePayloadError`.
-  - [ ] 3.3 RSS items: the serial comes from the stripped `<link>` path (`/security-advisories/<serial>/`), with the title prefix `<serial>:` as fallback. `pubDate` goes through `_parse_pub_date`, which handles `CEST`/`CET`. Duplicates are removed by serial, keeping the newest `pubDate`.
-  - [ ] 3.4 Payload model `_Advisory` (pydantic, `extra="ignore"`): `serial_number: str`, `title: str | None`, `publish_date: str | None`, `description: str | None`, `content_markdown: str`.
-  - [ ] 3.5 Helpers:
+  - [x] 1.2 Record `tests/fixtures/euvd/euvd_php2shell_second_cve.json` (EUVD-2026-107265, CVE-2026-109619) for the replay.
+  - [x] 1.3 Add the `cert_eu/` table and the new EUVD row to `tests/fixtures/README.md`, with the recording date and the commands.
+- [x] **Task 2: share the body fetch in `sources/base.py`** (AC: 4, 7)
+  - [x] 2.1 Extract `async def get_bytes(http, source, url, *, params=None, max_bytes=DEFAULT_MAX_BYTES) -> bytes`. It maps `HttpResponseTooLargeError` to `SourcePayloadError` and every other `HttpError` to `SourceTransportError`. `get_json` then calls it and keeps its exact behaviour and messages. The existing `tests/unit/sources/test_base.py` must pass unchanged; add a test for `get_bytes`.
+- [x] **Task 3: the adapter `src/cvestream/sources/cert_eu.py`** (AC: 1 to 7)
+  - [x] 3.1 Constants: `NAME`, `RSS_URL`, `ADVISORY_URL`, `JSON_URL`, `INITIAL_WINDOW = timedelta(days=14)`, `MAX_RSS_BYTES = 1 MiB`, `MAX_ADVISORY_BYTES = 2 MiB`, and the patterns.
+  - [x] 3.2 Safe RSS parsing: `_NoDoctypeBuilder(ET.TreeBuilder)`, whose `doctype()` raises a private `_DoctypeRefusedError(CvestreamError)`. `ET.ParseError` and `_DoctypeRefusedError` both become `SourcePayloadError`.
+  - [x] 3.3 RSS items: the serial comes from the stripped `<link>` path (`/security-advisories/<serial>/`), with the title prefix `<serial>:` as fallback. `pubDate` goes through `_parse_pub_date`, which handles `CEST`/`CET`. Duplicates are removed by serial, keeping the newest `pubDate`.
+  - [x] 3.4 Payload model `_Advisory` (pydantic, `extra="ignore"`): `serial_number: str`, `title: str | None`, `publish_date: str | None`, `description: str | None`, `content_markdown: str`.
+  - [x] 3.5 Helpers:
     - `_cve_ids(markdown)`;
     - `_original_date(markdown)` (front matter; the first line can be `---` followed by spaces);
     - `_parse_publish_date(text)`;
@@ -127,8 +127,8 @@ Scope set by the 2026-11-01 course correction (`_bmad-output/planning-artifacts/
     - `_affected_entries(markdown) -> list[tuple[str, frozenset[str]]]` (text and the CVEs it names);
     - `_clean_markdown(text)`;
     - `_description(text)`.
-  - [ ] 3.6 `_records(advisory, serial, pub_date, observed_at) -> tuple[SourceRecord, ...]`: per-CVE records, or the advisory-only record, with the attribution rule.
-  - [ ] 3.7 `CertEuAdapter.fetch(cursor)`, in this order:
+  - [x] 3.6 `_records(advisory, serial, pub_date, observed_at) -> tuple[SourceRecord, ...]`: per-CVE records, or the advisory-only record, with the attribution rule.
+  - [x] 3.7 `CertEuAdapter.fetch(cursor)`, in this order:
     1. start = cursor, floor or clamp, with the same rules and logs as `EuvdAdapter._start`;
     2. fetch and parse the RSS;
     3. select the items due (`pubDate > start`);
@@ -138,44 +138,44 @@ Scope set by the 2026-11-01 course correction (`_bmad-output/planning-artifacts/
     7. compute `next_cursor`.
 
     Log `source.record_skipped` at debug, with `record_id=<serial>`.
-- [ ] **Task 4: settings and registry** (AC: 8)
-  - [ ] 4.1 `settings.py`: `cert_eu: SourceSettings = Field(default_factory=SourceSettings)` after `cisa_kev`.
-  - [ ] 4.2 `registry.py`: `"cert_eu": lambda http, clock, _settings: CertEuAdapter(http, clock)`.
-  - [ ] 4.3 Update `tests/unit/sources/test_registry.py` (source lists now `["euvd", "cisa_kev", "cert_eu"]`, `isinstance` checks) and `tests/unit/test_settings.py`:
+- [x] **Task 4: settings and registry** (AC: 8)
+  - [x] 4.1 `settings.py`: `cert_eu: SourceSettings = Field(default_factory=SourceSettings)` after `cisa_kev`.
+  - [x] 4.2 `registry.py`: `"cert_eu": lambda http, clock, _settings: CertEuAdapter(http, clock)`.
+  - [x] 4.3 Update `tests/unit/sources/test_registry.py` (source lists now `["euvd", "cisa_kev", "cert_eu"]`, `isinstance` checks) and `tests/unit/test_settings.py`:
     - `cert_eu` defaults;
     - `CVESTREAM_SOURCES__CERT_EU__INTERVAL=PT30M` is read;
     - `PT61M` is rejected;
     - `CVESTREAM_SOURCES__CERT_EU__ENABLED=false` disables it.
-- [ ] **Task 5: render title rule** (AC: 11)
-  - [ ] 5.1 `pipeline/render.py`:
+- [x] **Task 5: render title rule** (AC: 11)
+  - [x] 5.1 `pipeline/render.py`:
     - `_title_product` builds its hits only from affected products whose `source` is not in a new `_PROSE_SOURCES = frozenset({"cert_eu"})` (filter `entry.vulnerability.affected` on `sourced.source` before taking the values);
     - add `"cert_eu": 3` to `_SOURCE_ORDER`;
     - `_affected` (the body) is unchanged.
-  - [ ] 5.2 Unit tests in `tests/unit/pipeline/test_render.py`:
+  - [x] 5.2 Unit tests in `tests/unit/pipeline/test_render.py`:
     - a CERT-EU-only vulnerability gives a title with the entry name;
     - CERT-EU plus EUVD gives a title with the EUVD product;
     - the body still lists the CERT-EU text.
-- [ ] **Task 6: contract tests `tests/contract/cert_eu/test_cert_eu.py`** (+ `__init__.py`) (AC: 1 to 7, 9)
-  - [ ] 6.1 Write every case listed in "Contract test plan" below, with respx and the anyio plugin, network blocked.
-  - [ ] 6.2 Write the `live` variants (`@pytest.mark.live`, `@pytest.mark.enable_socket`, `@pytest.mark.anyio`): RSS shape, 2026-018, 2026-019 and 2025-029 by serial.
-- [ ] **Task 7: PHP2Shell replay `tests/integration/test_cert_eu_php2shell.py`** (AC: 10)
-  - [ ] 7.1 Run the real adapters on the fixtures through `pipeline.run.cycle` (or `run`), on a SQLite `State`, as `test_pipeline_end_to_end.py` does.
-  - [ ] 7.2 Assert:
+- [x] **Task 6: contract tests `tests/contract/cert_eu/test_cert_eu.py`** (+ `__init__.py`) (AC: 1 to 7, 9)
+  - [x] 6.1 Write every case listed in "Contract test plan" below, with respx and the anyio plugin, network blocked.
+  - [x] 6.2 Write the `live` variants (`@pytest.mark.live`, `@pytest.mark.enable_socket`, `@pytest.mark.anyio`): RSS shape, 2026-018, 2026-019 and 2025-029 by serial.
+- [x] **Task 7: PHP2Shell replay `tests/integration/test_cert_eu_php2shell.py`** (AC: 10)
+  - [x] 7.1 Run the real adapters on the fixtures through `pipeline.run.cycle` (or `run`), on a SQLite `State`, as `test_pipeline_end_to_end.py` does.
+  - [x] 7.2 Assert:
     - 3 `new` decisions, band `unknown`, with GUIDs `cvestream:team-php:CVE-2026-109618:new`, and so on;
     - then 2 `band-critical` decisions;
     - 3 distinct vulnerabilities in the `vulnerability` table;
     - no `publish.skipped` (structlog `capture_logs`);
     - a rerun publishes nothing.
-- [ ] **Task 8: documentation** (AC: 12)
-  - [ ] 8.1 `docs/sources.md`: add a `## CERT-EU (cert_eu)` section; extend the "Common behaviour" error taxonomy with XML (`SourcePayloadError` also covers non-XML bodies and a DOCTYPE).
-  - [ ] 8.2 `docs/configuration.md`: list `cert_eu` in the sources table.
-  - [ ] 8.3 `settings.example.yaml`: add a `cert_eu` block, and change the "Polling settings per source" comment to `euvd, cisa_kev, cert_eu`.
-  - [ ] 8.4 `README.md`: CERT-EU is a source now (lines 3–4 and the status paragraph).
-  - [ ] 8.5 `architecture.md`, "Feed cache" rules (story 1.6 paragraph): the title names the affected product "from structured product data only; CERT-EU affected-product text is prose and never names the title (story 2.1)". `project-context.md`, tech stack: replace `feedparser <to pin>` with `XML in: stdlib xml.etree.ElementTree, DOCTYPE refused (story 2.1)`.
-  - [ ] 8.6 Module docstring of `cert_eu.py`: summarise the assumptions and point to `docs/sources.md`.
-- [ ] **Task 9: gates and story closure**
-  - [ ] 9.1 Run every gate command of `CLAUDE.md`. Report `docker build` honestly: in proxy mode it failed locally in stories 1.7 and 1.8 (`x509` when fetching the ghcr.io token). Never disable verification; CI runs that gate.
-  - [ ] 9.2 Fill in the Dev Agent Record, set the status to `review`, and set `2-1-cert-eu-adapter: review` in `sprint-status.yaml`.
+- [x] **Task 8: documentation** (AC: 12)
+  - [x] 8.1 `docs/sources.md`: add a `## CERT-EU (cert_eu)` section; extend the "Common behaviour" error taxonomy with XML (`SourcePayloadError` also covers non-XML bodies and a DOCTYPE).
+  - [x] 8.2 `docs/configuration.md`: list `cert_eu` in the sources table.
+  - [x] 8.3 `settings.example.yaml`: add a `cert_eu` block, and change the "Polling settings per source" comment to `euvd, cisa_kev, cert_eu`.
+  - [x] 8.4 `README.md`: CERT-EU is a source now (lines 3–4 and the status paragraph).
+  - [x] 8.5 `architecture.md`, "Feed cache" rules (story 1.6 paragraph): the title names the affected product "from structured product data only; CERT-EU affected-product text is prose and never names the title (story 2.1)". `project-context.md`, tech stack: replace `feedparser <to pin>` with `XML in: stdlib xml.etree.ElementTree, DOCTYPE refused (story 2.1)`.
+  - [x] 8.6 Module docstring of `cert_eu.py`: summarise the assumptions and point to `docs/sources.md`.
+- [x] **Task 9: gates and story closure**
+  - [x] 9.1 Run every gate command of `CLAUDE.md`. Report `docker build` honestly: in proxy mode it failed locally in stories 1.7 and 1.8 (`x509` when fetching the ghcr.io token). Never disable verification; CI runs that gate.
+  - [x] 9.2 Fill in the Dev Agent Record, set the status to `review`, and set `2-1-cert-eu-adapter: review` in `sprint-status.yaml`.
 
 ### Review Findings
 
@@ -546,10 +546,64 @@ These are the non-obvious choices. Each one is a candidate "decision needed" ite
 
 ### Agent Model Used
 
+claude-sonnet-5-5 (`bmad-dev-story`, autonomous run, 2026-11-03).
+
 ### Debug Log References
+
+- Live payloads on 2026-11-03 matched the story: RSS with 10 items (2026-018 at `Fri, 23 Oct 2026 16:36:26 CEST`), 2026-018 v1.2 with three CVEs. No fixture was adapted.
+- First replay run failed on `EuvdAdapter`'s sort check ("no longer sorted by dateUpdated descending"): the two recorded EUVD items had to be fed newest first, as the real API sorts. Test-side fix only.
+- The replay counts the PHP2Shell vulnerabilities by primary ID, not all rows: the recorded KEV dump adds 5 unrelated EU KEV vulnerabilities.
+- `docker build --target runtime` fails locally in proxy mode (`x509: certificate signed by unknown authority` fetching the ghcr.io token), as in stories 1.7 and 1.8. Verification was not disabled; CI runs that gate.
 
 ### Completion Notes List
 
 - Ultimate context engine analysis completed - comprehensive developer guide created (2026-11-03, `bmad-create-story`, claude-opus-5-5).
+- Implemented `src/cvestream/sources/cert_eu.py` as specified (AC 1 to 7): RSS then per-advisory JSON, one record per CVE (`<serial>:<CVE>`, aliases `(<CVE>, CERT-EU-SA<serial>)`), advisory-only record `CERT-EU-SA<serial>`, `CEST`/`CET` mapping, stdlib XML with a refused DOCTYPE, hold-back cursor, per-advisory skips, contract errors.
+- `sources/base.py`: `get_bytes` extracted, `get_json` unchanged in behaviour and messages (existing tests pass unchanged, 4 tests added).
+- Settings and registry: `sources.cert_eu` (enabled, 15 min, at most 60) and its factory; registry and settings tests updated.
+- `pipeline/render.py`: `_PROSE_SOURCES` keeps CERT-EU prose out of the title (red then green: 2 of the 4 new render tests failed before the change); `cert_eu` added to `_SOURCE_ORDER`.
+- Tests: 57 contract tests (+4 `live`, run once against the real site, green), the PHP2Shell replay, render, settings, registry and `get_bytes` tests. Suite: 1159 passed, 6 deselected (baseline 1090 passed, 2 deselected).
+- Docs: `docs/sources.md` CERT-EU section, `docs/configuration.md`, `settings.example.yaml`, `README.md`, `tests/fixtures/README.md`, `architecture.md` (title rule, XML rule), `project-context.md` (XML parser lines), `deferred-work.md`.
+- No new dependency (`pyproject.toml`, `uv.lock` unchanged), no `config/models.py` change (schema check green), no change to `domain/`, `correlate.py` or `run.py`.
+- Autonomous choices and deviations (none against the AC):
+  - A blank line does not end a bullet list when the next non-blank line is another bullet (a loose list stays one list under its lead-in). The story's block rule did not cover it; a test pins it.
+  - An item skipped for an unreadable RSS date or serial counts in `FetchResult.skipped`.
+  - Only the equality `serial_number == RSS serial` is checked (the RSS serial already full-matches the serial pattern), so no separate `_SERIAL` pattern exists.
+  - The replay feeds the EUVD search page as the two recorded items merged into one page (`total` 2, newest first), and the recorded KEV dump for the dump route.
+  - The `live` tests use the private `_records`/`_Advisory` helpers for the by-serial checks (allowed by the contract test plan).
+- Gate results: ruff check, ruff format --check, ty check, lint-imports (7 kept), pytest, `config schema --check` and `config validate endpoints.example.yaml` all green. `docker build` not verified locally (proxy TLS, see Debug Log); CI covers it.
 
 ### File List
+
+- `README.md` (modified)
+- `docs/sources.md` (modified)
+- `docs/configuration.md` (modified)
+- `settings.example.yaml` (modified)
+- `src/cvestream/sources/cert_eu.py` (new)
+- `src/cvestream/sources/base.py` (modified)
+- `src/cvestream/sources/registry.py` (modified)
+- `src/cvestream/settings.py` (modified)
+- `src/cvestream/pipeline/render.py` (modified)
+- `tests/contract/cert_eu/__init__.py` (new)
+- `tests/contract/cert_eu/test_cert_eu.py` (new)
+- `tests/integration/test_cert_eu_php2shell.py` (new)
+- `tests/fixtures/README.md` (modified)
+- `tests/fixtures/cert_eu/cert_eu_rss.xml` (new)
+- `tests/fixtures/cert_eu/cert_eu_2026_018_multi_cve_revised.json` (new)
+- `tests/fixtures/cert_eu/cert_eu_2026_019_single_cve.json` (new)
+- `tests/fixtures/cert_eu/cert_eu_2025_029_no_cve.json` (new)
+- `tests/fixtures/cert_eu/cert_eu_2025_008_cve_blocks.json` (new)
+- `tests/fixtures/euvd/euvd_php2shell_second_cve.json` (new)
+- `tests/unit/sources/test_base.py` (modified)
+- `tests/unit/sources/test_registry.py` (modified)
+- `tests/unit/test_settings.py` (modified)
+- `tests/unit/pipeline/test_render.py` (modified)
+- `_bmad-output/planning-artifacts/architecture.md` (modified)
+- `_bmad-output/project-context.md` (modified)
+- `_bmad-output/implementation-artifacts/deferred-work.md` (modified)
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` (modified)
+- `_bmad-output/implementation-artifacts/2-1-cert-eu-adapter.md` (modified)
+
+### Change Log
+
+- 2026-11-03: implemented story 2.1 (CERT-EU adapter, settings and registry, title rule, PHP2Shell replay, docs); status set to review.
