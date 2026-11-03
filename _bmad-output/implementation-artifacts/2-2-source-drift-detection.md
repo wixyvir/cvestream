@@ -4,7 +4,7 @@ baseline_commit: 0c1903d
 
 # Story 2.2: Source-drift detection
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -57,26 +57,26 @@ Rewritten by the 2026-11-01 course correction (`_bmad-output/planning-artifacts/
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: write `.github/workflows/source-drift.yml`** (AC: 1, 2, 3)
-  - [ ] 1.1 Triggers: `schedule` with one cron entry (recommended `"17 4 * * *"`, see "Decisions taken" below) and `workflow_dispatch` (no inputs).
-  - [ ] 1.2 Top level: `name: source-drift`, `permissions: {}`, `concurrency: {group: source-drift, cancel-in-progress: false}`, `defaults: {run: {shell: bash}}`.
-  - [ ] 1.3 One job (e.g. `live`), `runs-on: ubuntu-24.04` (same as `ci.yml`), `timeout-minutes: 20`, `permissions: {contents: read, issues: write}`, `env: {UV_LOCKED: "1"}`.
-  - [ ] 1.4 Steps, copied from `ci.yml` for the first three: `actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1` with `persist-credentials: false`; `astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2` with `version: "0.13.5"` and `enable-cache: true`; `run: uv sync --locked`.
-  - [ ] 1.5 Test step: `uv run pytest -m live tests/contract -v -rfE 2>&1 | tee pytest.log` (relies on 1.2's `pipefail`).
-  - [ ] 1.6 Report step with `if: failure()` and `env: GH_TOKEN: ${{ github.token }}`, `RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}`: build `body.md` from `grep -E '^(FAILED|ERROR) ' pytest.log` (fallback text when empty or when `pytest.log` does not exist), ensure the label exists (`gh label create source-drift --force ...`), find the open issue (`gh issue list --label source-drift --state open --json number --jq '.[0].number // empty'`), then `gh issue comment <n> --body-file body.md` or `gh issue create --title ... --label source-drift --body-file body.md`. Always pass `--repo "$GITHUB_REPOSITORY"`.
-  - [ ] 1.7 Header comment in the file: what it does, that it runs from the default branch only, and that tests are selected by marker on purpose.
-- [ ] **Task 2: verify the workflow locally** (AC: 2, 3)
-  - [ ] 2.1 `uvx --from actionlint-py actionlint .github/workflows/source-drift.yml` (also runs shellcheck on `run:` scripts when `shellcheck` is installed; it is, at `/usr/bin/shellcheck`): no finding.
-  - [ ] 2.2 `uvx zizmor --offline .github/workflows/source-drift.yml`: no finding (no `template-injection`, `excessive-permissions`, `unpinned-uses`, `artipacked`). Behind the proxy, `uvx` needs `SSL_CERT_FILE=$HOME/ca.pem` to download the tools.
-  - [ ] 2.3 Dry run of the report script: copy its body to a scratch script, put a stub `gh` first on `PATH` that prints its arguments (and prints a number or nothing for `issue list`), and run it with (a) a `pytest.log` holding two `FAILED` lines, (b) no `pytest.log`, (c) the stub returning an open issue number. Check that (a) and (b) call `issue create` with a sensible `body.md`, and (c) calls `issue comment`. Do not commit the scratch script.
-  - [ ] 2.4 `uv run pytest -m live tests/contract --collect-only -q` lists every live test (2 today, 3 or more once 2.1 is below); optionally run them for real (`uv run pytest -m live tests/contract -v -rfE`). Behind the corporate proxy they fail on purpose (`trust_env=False`): that is expected, do not add proxy support.
-- [ ] **Task 3: document it** (AC: 4)
-  - [ ] 3.1 `docs/operations.md`: new `## Source drift` section (place it after `## Logs`, before `## Feeds`, or after `## Limits`; your call) covering the points of AC 4; see "What `docs/operations.md` must say" below.
-  - [ ] 3.2 `docs/operations.md` TL;DR: one bullet ("A nightly GitHub workflow runs the live contract tests and opens or updates one `source-drift` issue when a source changed.").
-  - [ ] 3.3 `README.md`, "Quality gate" paragraph: "Tests marked `live` hit real services and are deselected by default" gains "; `.github/workflows/source-drift.yml` runs them nightly (see `docs/operations.md`)".
-- [ ] **Task 4: gates and story bookkeeping** (AC: 5)
-  - [ ] 4.1 Run every gate from `CLAUDE.md` in the worktree (`docker build --target runtime -t cvestream:story-2-2-source-drift-detection .` included).
-  - [ ] 4.2 Fill the Dev Agent Record, the File List, set the story to `review` here and in `sprint-status.yaml`.
+- [x] **Task 1: write `.github/workflows/source-drift.yml`** (AC: 1, 2, 3)
+  - [x] 1.1 Triggers: `schedule` with one cron entry (recommended `"17 4 * * *"`, see "Decisions taken" below) and `workflow_dispatch` (no inputs).
+  - [x] 1.2 Top level: `name: source-drift`, `permissions: {}`, `concurrency: {group: source-drift, cancel-in-progress: false}`, `defaults: {run: {shell: bash}}`.
+  - [x] 1.3 One job (e.g. `live`), `runs-on: ubuntu-24.04` (same as `ci.yml`), `timeout-minutes: 20`, `permissions: {contents: read, issues: write}`, `env: {UV_LOCKED: "1"}`.
+  - [x] 1.4 Steps, copied from `ci.yml` for the first three: `actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1` with `persist-credentials: false`; `astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2` with `version: "0.13.5"` and `enable-cache: true`; `run: uv sync --locked`.
+  - [x] 1.5 Test step: `uv run pytest -m live tests/contract -v -rfE 2>&1 | tee pytest.log` (relies on 1.2's `pipefail`).
+  - [x] 1.6 Report step with `if: failure()` and `env: GH_TOKEN: ${{ github.token }}`, `RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}`: build `body.md` from `grep -E '^(FAILED|ERROR) ' pytest.log` (fallback text when empty or when `pytest.log` does not exist), ensure the label exists (`gh label create source-drift --force ...`), find the open issue (`gh issue list --label source-drift --state open --json number --jq '.[0].number // empty'`), then `gh issue comment <n> --body-file body.md` or `gh issue create --title ... --label source-drift --body-file body.md`. Always pass `--repo "$GITHUB_REPOSITORY"`.
+  - [x] 1.7 Header comment in the file: what it does, that it runs from the default branch only, and that tests are selected by marker on purpose.
+- [x] **Task 2: verify the workflow locally** (AC: 2, 3)
+  - [x] 2.1 `uvx --from actionlint-py actionlint .github/workflows/source-drift.yml` (also runs shellcheck on `run:` scripts when `shellcheck` is installed; it is, at `/usr/bin/shellcheck`): no finding.
+  - [x] 2.2 `uvx zizmor --offline .github/workflows/source-drift.yml`: no finding (no `template-injection`, `excessive-permissions`, `unpinned-uses`, `artipacked`). Behind the proxy, `uvx` needs `SSL_CERT_FILE=$HOME/ca.pem` to download the tools.
+  - [x] 2.3 Dry run of the report script: copy its body to a scratch script, put a stub `gh` first on `PATH` that prints its arguments (and prints a number or nothing for `issue list`), and run it with (a) a `pytest.log` holding two `FAILED` lines, (b) no `pytest.log`, (c) the stub returning an open issue number. Check that (a) and (b) call `issue create` with a sensible `body.md`, and (c) calls `issue comment`. Do not commit the scratch script.
+  - [x] 2.4 `uv run pytest -m live tests/contract --collect-only -q` lists every live test (2 today, 3 or more once 2.1 is below); optionally run them for real (`uv run pytest -m live tests/contract -v -rfE`). Behind the corporate proxy they fail on purpose (`trust_env=False`): that is expected, do not add proxy support.
+- [x] **Task 3: document it** (AC: 4)
+  - [x] 3.1 `docs/operations.md`: new `## Source drift` section (place it after `## Logs`, before `## Feeds`, or after `## Limits`; your call) covering the points of AC 4; see "What `docs/operations.md` must say" below.
+  - [x] 3.2 `docs/operations.md` TL;DR: one bullet ("A nightly GitHub workflow runs the live contract tests and opens or updates one `source-drift` issue when a source changed.").
+  - [x] 3.3 `README.md`, "Quality gate" paragraph: "Tests marked `live` hit real services and are deselected by default" gains "; `.github/workflows/source-drift.yml` runs them nightly (see `docs/operations.md`)".
+- [x] **Task 4: gates and story bookkeeping** (AC: 5)
+  - [x] 4.1 Run every gate from `CLAUDE.md` in the worktree (`docker build --target runtime -t cvestream:story-2-2-source-drift-detection .` included).
+  - [x] 4.2 Fill the Dev Agent Record, the File List, set the story to `review` here and in `sprint-status.yaml`.
 
 ## Dev Notes
 
@@ -242,10 +242,36 @@ After the rebase, re-run `uv run pytest -m live tests/contract --collect-only -q
 
 ### Agent Model Used
 
+Claude Sonnet 5.5 (`claude-sonnet-5-5`), `bmad-dev-story`, autonomous run, 2026-11-03.
+
 ### Debug Log References
+
+- `uvx --from actionlint-py actionlint .github/workflows/source-drift.yml`: no finding (shellcheck on `run:` scripts included).
+- `uvx zizmor --offline .github/workflows/source-drift.yml`: no finding, also with `--persona pedantic` (after adding comments on the two `permissions:` lines; the default persona was already clean).
+- Dry run of the report script with a stub `gh` (scratch script, not committed): (a) two `FAILED`/`ERROR` lines and no open issue gives `label create --force`, `issue list`, `issue create --body-file body.md` with the failing lines in a code block; (b) no `pytest.log` gives `issue create` with the "No test result" text; (c) an open issue (stub returns `7`) gives `issue comment 7`, no `issue create`.
+- `uv run pytest -m live tests/contract --collect-only -q`: 2 live tests (EUVD, CISA KEV), `2/108 tests collected (106 deselected)`. The CERT-EU live test will show up once story 2.1 is below this branch, with no change to the workflow.
+- Default `uv run pytest`: 1090 passed, 2 deselected (`live`), same as the base branch.
+- GitHub "Workflow syntax" page checked for `shell:` (unspecified runs `bash -e {0}`; `bash` runs `bash --noprofile --norc -eo pipefail {0}`) and `on.schedule` (UTC, latest commit of the default branch). The fetched excerpt did not cover `timeout-minutes` or `failure()`; the step-level `timeout-minutes` is validated by actionlint, and the `failure()`-on-cancelled-job behaviour is taken from the story notes.
 
 ### Completion Notes List
 
 - Story created by `bmad-create-story` (autonomous run, 2026-11-03). Ultimate context engine analysis completed: comprehensive developer guide created. Choices made without a human: see "Decisions taken autonomously" (cron time, body format, label creation, no auto-close, timeout).
+- Implemented `.github/workflows/source-drift.yml` as sketched: `schedule` (`17 4 * * *`) and `workflow_dispatch`; top-level `permissions: {}`, job `contents: read` and `issues: write`; workflow-level `concurrency` (`cancel-in-progress: false`); `defaults.run.shell: bash` for `pipefail`; actions pinned by the same SHAs as `ci.yml`; `persist-credentials: false`; `uv sync --locked`; `uv run pytest -m live tests/contract -v -rfE 2>&1 | tee pytest.log`; reporting step with `if: failure()`, values through `env:` only, body written to `body.md` and passed with `--body-file`, label created idempotently, comment on the open issue or create one.
+- Autonomous choice beyond the sketch: the test step has its own `timeout-minutes: 15` (job: 20), so a hung API fails the step and the report step still runs instead of the whole job being cancelled. The docs say so.
+- Autonomous choice: the body ends with `:factory:` (public text written by an AI), and says "No test result" when `pytest.log` is missing or has no `FAILED`/`ERROR` line (covers pytest exit code 5 too).
+- Documentation: new `## Source drift` section and a TL;DR bullet in `docs/operations.md` (placed after `## Logs`); `README.md` quality-gate paragraph mentions the nightly run. `architecture.md`, `project-context.md` and `CLAUDE.md` already describe the workflow: unchanged.
+- No change to `src/`, `tests/`, `pyproject.toml`, `uv.lock`, `schemas/`, `ci.yml`, `dependabot.yml`: AC 5 holds.
+- Gates run locally: `uv sync --locked`, `ruff check`, `ruff format --check`, `ty check`, `lint-imports` (7 kept), `pytest` (1090 passed), `config schema --check`, `config validate endpoints.example.yaml`: all green. `docker build --target runtime` failed locally with `x509: certificate signed by unknown authority` while fetching the ghcr.io token (TLS-intercepting proxy, same as in stories 1.7 and 1.8). Verification was not disabled and no `Dockerfile` change is part of this story; CI runs that gate.
+- Not run (need the file on `main`): a green dispatched run opens nothing; two failing runs give one issue plus one comment; first failure on a repo without the label. They are steps 5 and 6 of section 3.2 of `_bmad-output/implementation-artifacts/epic-2-stack-plan.md`.
 
 ### File List
+
+- `.github/workflows/source-drift.yml` (new)
+- `docs/operations.md` (modified)
+- `README.md` (modified)
+- `_bmad-output/implementation-artifacts/2-2-source-drift-detection.md` (modified)
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` (modified)
+
+### Change Log
+
+- 2026-11-03: added the nightly `source-drift` workflow and its operator documentation; story set to `review`.
