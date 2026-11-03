@@ -94,7 +94,7 @@ development_status:
 
   epic-2: in-progress
   2-1-cert-eu-adapter: review
-  2-2-source-drift-detection: backlog
+  2-2-source-drift-detection: ready-for-dev
   epic-2-retrospective: optional
 
   epic-3: backlog
