@@ -111,8 +111,9 @@ Public record page: `https://euvd.enisa.europa.eu/vulnerability/{EUVD-ID}`.
   format `B.* <Y` (`8.2.* <8.2.35`, as in PHP2Shell); a compound range
   `>=X <Y` (also `>`, `<=`); a placeholder lower bound `* <Y` or
   `unspecified <Y`. Anything else (`8.3.x`, `8.2rc1.*`, `>=8.0, <8.3`, `<= *`) is
-  an unknown version: the item passes labelled "versions unknown" and is never
-  dropped by `min_version`. A product named with a placeholder is dropped (the
+  an unknown version: `min_version` never drops the item on that row, and the
+  item is labelled "versions unknown" when no other row of the product reaches
+  the minimum. A product named with a placeholder is dropped (the
   record is kept); a placeholder version (`-`, `n/a`)
   is an unknown version; a record with no product has no affected products.
 - **Aliases and references** are newline separated strings with a trailing newline.
