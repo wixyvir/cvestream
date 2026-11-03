@@ -4,7 +4,7 @@ baseline_commit: f5f21b2b7c16020ef481f757dab1fbf2a08a38bf
 
 # Story 1.8: Branch-wildcard and compound version ranges
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -110,6 +110,13 @@ Added by the 2026-11-01 course correction for wixyvir/cvestream#11 (`_bmad-outpu
   - [x] Make one commit per concern (suggested split under "Commits"), Conventional Commits with `story-1.8`, never squashed.
   - [x] Open the PR to `main` with title `fix(story-1.8): understand branch-wildcard and compound version ranges` and a description that links this story file and says `Closes wixyvir/cvestream#11`.
   - [x] Set this story to `review` and update `sprint-status.yaml` (`1-8-…: review`).
+
+### Review Findings
+
+- [x] [Review][Patch] (decided: option 1, catch `(InvalidVersion, ValueError)` in `parse_version`, and add a test row for each of the three inputs) A very long digit run makes `parse_range` raise `ValueError` instead of returning `None` — `parse_version` catches only `InvalidVersion`, so `parse_range("9"*4301)` (pre-existing), `parse_range("1.* <" + "9"*5000)` (new entry point) and `parse_range("1." + "9"*4300 + ".*")` (new, `_branch_end` makes a 4301-digit string) raise `ValueError: Exceeds the limit (4300 digits)`. `matcher.py:127` calls `parse_range(hit.version_text)` without a guard, so one hostile or corrupt EUVD `product_version` aborts `match()` for the endpoint. Options: (1) catch `(InvalidVersion, ValueError)` in `parse_version`, which fixes every path but edits a function AC 6 says stays unchanged; (2) guard only `_branch_end` and leave the pre-existing paths; (3) defer the whole thing as a pre-existing robustness issue. [src/cvestream/domain/version.py:58-64] (sources: edge)
+- [x] [Review][Patch] `deferred-work.md` list of still-`None` formats is incomplete — add the reversed compound `<8.3 >=8.0`, a compound with a wildcard upper bound `>=8.0 <8.3.*`, a wildcard in a one-sided bound (`<8.2.*`, `<=8.2.*`, `>=8.2.*`) and `unspecified <*`, all recall-safe `None` and not listed today [_bmad-output/implementation-artifacts/deferred-work.md:19] (sources: edge+auditor)
+- [x] [Review][Patch] Missing table row for `8.2.* <=*`, which AC 1 lists; the table has `<*` and `≤*` only [tests/unit/domain/test_version.py:177-178] (sources: auditor)
+- [x] [Review][Patch] Docs overstate the label: "otherwise the item passes labelled 'versions unknown'" is true only when no other row of the product reaches the minimum (`matcher.py:130-135`). Reword to say the item is never dropped on an unknown row, and is labelled only when no other row reaches the minimum [docs/configuration.md:85, docs/sources.md:107-116] (sources: auditor)
 
 ## Dev Notes
 
