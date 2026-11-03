@@ -42,7 +42,10 @@ _LINK_SCHEMES = frozenset({"http", "https"})
 _UPDATE_PREFIX = "[UPDATE] "
 _EXPLOITED = "EXPLOITED"
 _SEPARATORS = re.compile(r"[\s_-]+")
-_SOURCE_ORDER = {"euvd": 0, "eu_kev": 1, "cisa_kev": 2}
+_SOURCE_ORDER = {"euvd": 0, "eu_kev": 1, "cisa_kev": 2, "cert_eu": 3}
+# Sources whose affected products are prose, not product names: they decide the
+# match, but never name the title (the entry name is used instead).
+_PROSE_SOURCES = frozenset({"cert_eu"})
 _KEV_NAMES = {KevCatalog.CISA_KEV: "CISA KEV", KevCatalog.EU_KEV: "EU KEV"}
 _KEV_ORDER = (KevCatalog.CISA_KEV, KevCatalog.EU_KEV)
 # XML 1.0 `Char` production; also drops lone surrogates. Escapes, not literal
@@ -117,7 +120,9 @@ def _title_product(entry: FeedEntry, endpoint: Endpoint) -> str:
     product_entry = next(
         (p for p in endpoint.products if p.name == name), ProductEntry(name)
     )
-    affected = [a.value for a in entry.vulnerability.affected]
+    affected = [
+        a.value for a in entry.vulnerability.affected if a.source not in _PROSE_SOURCES
+    ]
     hits = affected_hits(product_entry, affected)
     if not hits:
         return _one_line(name)
