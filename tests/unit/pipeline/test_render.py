@@ -568,3 +568,57 @@ def test_a_ransomware_use_of_false_is_not_reported_as_known() -> None:
     assert "Known exploited: yes, EU KEV (added unknown, ransomware use: no)" in _lines(
         _entry(vulnerability=vulnerability)
     )
+
+
+# --- CERT-EU affected products are prose (story 2.1) ----------------------------
+
+_CERT_EU_PROSE = (
+    "The vulnerability CVE-2026-110264 affects the following versions of PHP: "
+    "8.5 before 8.5.12"
+)
+
+
+def test_the_title_never_names_a_product_from_cert_eu_prose() -> None:
+    vulnerability = replace(
+        _full_vulnerability(),
+        affected=(_sourced(AffectedProduct(_CERT_EU_PROSE), "cert_eu"),),
+    )
+    entry = _entry(vulnerability=vulnerability, products=("php",))
+    assert _item(entry).findtext("title") == "CVE-2026-1234 in php: severity high"
+
+
+def test_the_title_names_the_euvd_product_next_to_cert_eu_prose() -> None:
+    vulnerability = replace(
+        _full_vulnerability(),
+        affected=(
+            _sourced(AffectedProduct(_CERT_EU_PROSE), "cert_eu"),
+            _sourced(AffectedProduct("PHP", "PHP Group", "8.5.* <8.5.12"), "euvd"),
+        ),
+    )
+    entry = _entry(vulnerability=vulnerability, products=("php",))
+    assert _item(entry).findtext("title") == (
+        "CVE-2026-1234 in PHP Group PHP: severity high"
+    )
+
+
+def test_the_body_still_lists_the_cert_eu_affected_text() -> None:
+    vulnerability = replace(
+        _full_vulnerability(),
+        affected=(_sourced(AffectedProduct(_CERT_EU_PROSE), "cert_eu"),),
+    )
+    lines = _lines(_entry(vulnerability=vulnerability, products=("php",)))
+    assert f"Affected: {_CERT_EU_PROSE} versions unknown" in lines
+
+
+def test_cert_eu_records_come_after_the_other_sources_in_the_body() -> None:
+    vulnerability = replace(
+        _full_vulnerability(),
+        records=(
+            RecordRef("cert_eu", "2026-018:CVE-2026-1234", None),
+            RecordRef("cisa_kev", "CVE-2026-1234", CISA_URL),
+            RecordRef("euvd", "EUVD-2026-41234", EUVD_URL),
+        ),
+    )
+    html_body = _html(_entry(vulnerability=vulnerability))
+    assert html_body.index("euvd") < html_body.index("cisa_kev")
+    assert html_body.index("cisa_kev") < html_body.index("cert_eu")
