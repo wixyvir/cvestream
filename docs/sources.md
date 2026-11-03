@@ -234,7 +234,8 @@ field); the feed items link to the advisory page and credit the source as
   the JSON `title`. References are the `<https://...>` links of the `# References`
   section.
 - **Affected products are text, not versions.** The `# Affected Products` section
-  (`# Products Affected` too, any case, up to the next level-1 heading) is
+  (`# Products Affected` too, any case, emphasis or a trailing colon allowed, up
+  to the next level-1 heading) is
   free-form: bullets, prose, or a lead-in paragraph naming the product with
   bullets that do not (`- 19.4 before 19.4.3`). The adapter keeps the whole
   section as blocks:

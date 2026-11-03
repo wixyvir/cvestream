@@ -228,7 +228,8 @@ def _section(markdown: str, headings: frozenset[str]) -> list[str]:
         if heading is not None:
             if inside:
                 break
-            inside = heading["title"].lower() in headings
+            # `# **Affected Products:**` is the same heading.
+            inside = _clean_markdown(heading["title"]).lower() in headings
             continue
         if inside:
             lines.append(line)
