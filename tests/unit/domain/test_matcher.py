@@ -588,6 +588,40 @@ def test_versions_unknown_label_only_when_every_match_is_unknown(
     assert only_unknown.labels == frozenset({PassThrough.VERSIONS_UNKNOWN})
 
 
+# The four rows of PHP2Shell (EUVD-2026-107260) in the PHP CNA branch-wildcard
+# format, in the order the live record lists them (wixyvir/cvestream#11).
+_PHP2SHELL_ROWS = [
+    ("PHP", "PHP Group", "8.2.* <8.2.35"),
+    ("PHP", "PHP Group", "8.5.* <8.5.12"),
+    ("PHP", "PHP Group", "8.4.* <8.4.27"),
+    ("PHP", "PHP Group", "8.3.* <8.3.36"),
+]
+
+
+@pytest.mark.parametrize(
+    ("entry", "matches"),
+    [
+        (PHP, True),
+        (PHP_8_2, True),
+        (ProductEntry(name="php", min_version=Version("8.5")), True),
+        (ProductEntry(name="php", min_version=Version("9.0")), False),
+    ],
+    ids=["php", "php-8.2", "php-8.5", "php-9.0"],
+)
+def test_php_branch_wildcard_rows_have_known_versions(
+    make_vulnerability: VulnerabilityFactory, entry: ProductEntry, matches: bool
+) -> None:
+    vulnerability = make_vulnerability(products=_PHP2SHELL_ROWS)
+    result = match(vulnerability, _endpoint(entry))
+    if matches:
+        assert result is not None
+        assert result.matches[0].structured is True
+        assert result.matches[0].versions_unknown is False
+        assert result.labels == frozenset()
+    else:
+        assert result is None
+
+
 # --- CVSS threshold (FR-14, FR-24, FR-25) ----------------------------------------
 
 

@@ -9,9 +9,12 @@ from typing import TYPE_CHECKING, Any
 import httpx
 import pytest
 import respx
+from packaging.version import Version
 from structlog.testing import capture_logs
 
 from cvestream.clock import SystemClock
+from cvestream.domain.endpoint import Endpoint, ProductEntry
+from cvestream.domain.matcher import match
 from cvestream.domain.model import (
     AffectedProduct,
     CvssScore,
@@ -20,6 +23,8 @@ from cvestream.domain.model import (
     Sourced,
 )
 from cvestream.http import HttpClient
+from cvestream.pipeline.correlate import build_vulnerability
+from cvestream.pipeline.normalize import normalize
 from cvestream.sources import euvd
 from cvestream.sources.base import (
     SourceAdapter,
@@ -1125,3 +1130,51 @@ async def test_live_euvd_fetch_matches_the_recorded_shape() -> None:
     assert kev
     assert all(r.kev[0].value.catalog is KevCatalog.EU_KEV for r in kev)
     assert result.next_cursor is not None
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("entry", "matches"),
+    [
+        (ProductEntry(name="php"), True),
+        (ProductEntry(name="php", min_version=Version("8.2")), True),
+        (ProductEntry(name="php", min_version=Version("8.5")), True),
+        (ProductEntry(name="php", min_version=Version("9.0")), False),
+    ],
+    ids=["php", "php-8.2", "php-8.5", "php-9.0"],
+)
+async def test_php_branch_wildcard_rows_filter_by_minimum_version(
+    respx_mock: respx.MockRouter,
+    make_adapter: Callable[..., tuple[EuvdAdapter, HttpClient]],
+    clock: FakeClock,
+    entry: ProductEntry,
+    matches: bool,
+) -> None:
+    # PHP2Shell (EUVD-2026-107260): the PHP CNA writes "8.2.* <8.2.35", which
+    # used to read as "versions unknown" and let `php >= X` filter nothing
+    # (wixyvir/cvestream#11).
+    clock.set(datetime(2026, 11, 3, 12, 0, 0, tzinfo=UTC))
+    _mock_dump(respx_mock)
+    _mock_pages(respx_mock, {0: _whole(_raw("euvd_php_branch_wildcard.json"))})
+    adapter, http = make_adapter(page_size=100)
+    async with http:
+        result = await adapter.fetch(None)
+    record = next(r for r in result.records if r.record_id == "EUVD-2026-107260")
+    assert sorted(a.value.version_text or "" for a in record.affected) == [
+        "8.2.* <8.2.35",
+        "8.3.* <8.3.36",
+        "8.4.* <8.4.27",
+        "8.5.* <8.5.12",
+    ]
+    normalized = normalize(record)
+    assert normalized is not None
+    vulnerability = build_vulnerability([normalized])
+    endpoint = Endpoint(id="team-php", name="PHP", products=(entry,))
+    outcome = match(vulnerability, endpoint)
+    if matches:
+        assert outcome is not None
+        assert outcome.matches[0].structured is True
+        assert outcome.matches[0].versions_unknown is False
+        assert outcome.labels == frozenset()
+    else:
+        assert outcome is None

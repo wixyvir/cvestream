@@ -104,8 +104,17 @@ Public record page: `https://euvd.enisa.europa.eu/vulnerability/{EUVD-ID}`.
   (`0.0981`). `0.0` means unknown: EUVD shows it for CVEs that have no EPSS score
   yet, and a real EPSS probability is never exactly 0.
 - **Products.** `enisaIdProduct[]` gives product, vendor and `product_version`
-  (free text, kept as is: parsing belongs to the matcher). A product named with a
-  placeholder is dropped (the record is kept); a placeholder version (`-`, `n/a`)
+  (free text, kept as is: parsing belongs to the matcher). The matcher
+  understands these version formats: a single version (`8.2.29`); `X <Y` and
+  `X ≤Y`, where `Y` may be `*` (`8.1.0 <8.2.29`); `<Y`, `<=Y`, `>=X`, `>X`;
+  `X - Y`; `*`; a branch `B.*` (`8.2.*` is the whole 8.2 branch) and the PHP CNA
+  format `B.* <Y` (`8.2.* <8.2.35`, as in PHP2Shell); a compound range
+  `>=X <Y` (also `>`, `<=`); a placeholder lower bound `* <Y` or
+  `unspecified <Y`. Anything else (`8.3.x`, `8.2rc1.*`, `>=8.0, <8.3`, `<= *`) is
+  an unknown version: `min_version` never drops the item on that row, and the
+  item is labelled "versions unknown" when no other row of the product reaches
+  the minimum. A product named with a placeholder is dropped (the
+  record is kept); a placeholder version (`-`, `n/a`)
   is an unknown version; a record with no product has no affected products.
 - **Aliases and references** are newline separated strings with a trailing newline.
   The EUVD ID comes first in the aliases, then the others in order, placeholders
