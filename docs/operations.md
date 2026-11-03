@@ -134,7 +134,7 @@ What a `source-drift` issue means: a live test failed. Either the source changed
 
 - The workflow opens **one** issue labelled `source-drift`, then adds a comment on each later failing night while the issue stays open. It never opens a second one and never closes it. It creates the label itself on its first failure.
 - The issue (or comment) links the run, names the commit tested and lists the failing tests (the `FAILED` and `ERROR` lines of pytest).
-- A run that fails before the tests (checkout, install, no `live` test collected) also reports, with "No test result" instead of a list.
+- A run that fails before the tests (checkout, install) also reports, with "No test result" instead of a list. A run where pytest prints no `FAILED` or `ERROR` line (no `live` test collected, the test step timed out, pytest crashed) reports "No failing-test line".
 - A green run opens nothing. A run that hits the 20-minute job timeout is cancelled and reports nothing: look at the Actions tab. A hung API fails the test step at 15 minutes and does report.
 
 Triage:
