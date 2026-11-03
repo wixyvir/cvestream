@@ -312,6 +312,24 @@ async def test_the_section_is_found_under_any_heading_case_and_fences_are_droppe
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    "heading",
+    ["# **Affected Products**", "# Affected Products:", "# `Products Affected`"],
+)
+async def test_the_section_heading_may_carry_emphasis_or_a_colon(
+    heading: str, respx_mock: respx.MockRouter, make_adapter: MakeAdapter
+) -> None:
+    payload = _advisory("2026_019_single_cve")
+    payload["content_markdown"] = payload["content_markdown"].replace(
+        "# Affected Products", heading
+    )
+    _serve(respx_mock, {"2026-019": payload}, rss=_rss(["2026-019"]))
+    record = (await _fetch(make_adapter, None)).records[0]
+    assert len(record.affected) == 1
+    assert "GitLab" in record.affected[0].value.product
+
+
+@pytest.mark.anyio
 async def test_a_loose_list_stays_one_list_under_its_lead_in(
     respx_mock: respx.MockRouter, make_adapter: MakeAdapter
 ) -> None:
