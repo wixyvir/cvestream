@@ -23,6 +23,11 @@ _BELOW = re.compile(rf"(?P<op><=|<)\s*(?P<hi>{_V})")
 _ABOVE = re.compile(rf"(?P<op>>=|>)\s*(?P<lo>{_V})")
 # The hyphen needs spaces on both sides: "1.0.0-rc.1" is a single version.
 _HYPHEN = re.compile(rf"(?P<lo>{_V}) - (?P<hi>{_V})")
+# A branch: a final release then ".*" (8.2.*, 8.*, v8.2.*). Not 8.2rc1.*, not 8.3.x.
+_BRANCH = r"(?P<branch>[vV]?\d+(?:\.\d+)*)\.\*"
+_BRANCH_ONLY = re.compile(_BRANCH)
+# PHP CNA: "<branch>.* <fixed>" (and "<=", or an open "*" upper bound)
+_BRANCH_TO = re.compile(rf"{_BRANCH}\s*(?P<op><=|<)\s*{_UPPER_OPEN}")
 
 
 def parse_version(text: str) -> Version | None:
@@ -31,6 +36,12 @@ def parse_version(text: str) -> Version | None:
         return Version(text.strip())
     except InvalidVersion:
         return None
+
+
+def _branch_end(branch: Version) -> Version:
+    """First version after the branch: 8.2 → 8.3, 8 → 9, 8.2.1 → 8.2.2."""
+    *head, last = branch.release
+    return Version(".".join(str(part) for part in (*head, last + 1)))
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,4 +101,12 @@ def parse_range(text: str | None) -> VersionRange | None:
         return _build(found["lo"], None, lower_inclusive=found["op"] == ">=")
     if found := _HYPHEN.fullmatch(normalized):
         return _build(found["lo"], found["hi"], upper_inclusive=True)
+    if found := _BRANCH_TO.fullmatch(normalized):
+        upper = None if found["hi"] == "*" else found["hi"]
+        return _build(found["branch"], upper, upper_inclusive=found["op"] == "<=")
+    if found := _BRANCH_ONLY.fullmatch(normalized):
+        start = parse_version(found["branch"])
+        if start is None:  # unreachable with _BRANCH, kept for the type checker
+            return None
+        return _build(found["branch"], str(_branch_end(start)))
     return None
