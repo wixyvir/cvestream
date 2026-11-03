@@ -54,14 +54,18 @@ def parse_version(text: str) -> Version | None:
     """Parse one version, `None` when `packaging` rejects it."""
     try:
         return Version(text.strip())
-    except InvalidVersion:
+    except InvalidVersion, ValueError:
+        # ValueError: a digit run over Python's int-string limit (4300 digits).
         return None
 
 
-def _branch_end(branch: Version) -> Version:
+def _branch_end(branch: Version) -> Version | None:
     """First version after the branch: 8.2 → 8.3, 8 → 9, 8.2.1 → 8.2.2."""
     *head, last = branch.release
-    return Version(".".join(str(part) for part in (*head, last + 1)))
+    try:
+        return parse_version(".".join(str(part) for part in (*head, last + 1)))
+    except ValueError:  # last + 1 is over the int-string limit (4300 digits)
+        return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,9 +133,12 @@ def parse_range(text: str | None) -> VersionRange | None:
         return _build(found["branch"], upper, upper_inclusive=found["op"] == "<=")
     if found := _BRANCH_ONLY.fullmatch(normalized):
         start = parse_version(found["branch"])
-        if start is None:  # unreachable with _BRANCH, kept for the type checker
+        if start is None:  # not a version (digit run over the int-string limit)
             return None
-        return _build(found["branch"], str(_branch_end(start)))
+        end = _branch_end(start)
+        if end is None:
+            return None
+        return _build(found["branch"], str(end))
     if found := _COMPOUND.fullmatch(normalized):
         return _build(
             found["lo"],
