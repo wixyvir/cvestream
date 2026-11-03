@@ -81,6 +81,7 @@ class SourcesSettings(BaseModel):
 
     euvd: EuvdSourceSettings = Field(default_factory=EuvdSourceSettings)
     cisa_kev: SourceSettings = Field(default_factory=SourceSettings)
+    cert_eu: SourceSettings = Field(default_factory=SourceSettings)
 
 
 class StateSettings(BaseModel):
