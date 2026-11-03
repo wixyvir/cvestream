@@ -65,7 +65,7 @@ _ORIGINAL_DATE = re.compile(
 )
 _H1 = re.compile(r"^#(?!#)\s*(?P<title>.*?)\s*$")
 _FENCE = re.compile(r"^\s*(```|~~~)")
-_BULLET = re.compile(r"^(?P<indent>\s*)[-*]\s+(?P<text>.*)$")
+_BULLET = re.compile(r"^(?P<indent>\s*)[-*+]\s+(?P<text>.*)$")
 _REFERENCE_LINK = re.compile(r"<(?P<url>https?://[^>\s]+)>")
 _BR = re.compile(r"<br\s*/?>", re.IGNORECASE)
 _NEW_MARKER = re.compile(r"\[New\]", re.IGNORECASE)

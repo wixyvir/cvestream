@@ -344,6 +344,22 @@ async def test_a_loose_list_stays_one_list_under_its_lead_in(
     ]
 
 
+@pytest.mark.anyio
+async def test_a_plus_sign_is_a_bullet_marker_too(
+    respx_mock: respx.MockRouter, make_adapter: MakeAdapter
+) -> None:
+    payload = _advisory("2026_019_single_cve")
+    payload["content_markdown"] = (
+        "# Affected Products\n\n+ Foo 1.0\n  + nested\n+ Bar 2.0\n"
+    )
+    _serve(respx_mock, {"2026-019": payload}, rss=_rss(["2026-019"]))
+    record = (await _fetch(make_adapter, None)).records[0]
+    assert [a.value.product for a in record.affected] == [
+        "Foo 1.0; nested",
+        "Bar 2.0",
+    ]
+
+
 # --- 1: CVE extraction ------------------------------------------------------------
 
 
