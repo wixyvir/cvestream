@@ -73,7 +73,7 @@ log:
   format: json
 
 sources:
-  # Polling settings per source: euvd, cisa_kev.
+  # Polling settings per source: euvd, cisa_kev, cert_eu.
   euvd:
     # Poll this source. Env: CVESTREAM_SOURCES__EUVD__ENABLED
     enabled: true
@@ -88,4 +88,10 @@ sources:
     # Env: CVESTREAM_SOURCES__CISA_KEV__ENABLED
     enabled: true
     # Env: CVESTREAM_SOURCES__CISA_KEV__INTERVAL
+    interval: PT15M
+  cert_eu:
+    # CERT-EU security advisories (RSS, then the JSON of each new advisory).
+    # Env: CVESTREAM_SOURCES__CERT_EU__ENABLED
+    enabled: true
+    # Env: CVESTREAM_SOURCES__CERT_EU__INTERVAL
     interval: PT15M

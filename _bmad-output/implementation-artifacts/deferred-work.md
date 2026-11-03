@@ -48,6 +48,12 @@ Findings deferred by code reviews, to pick up in a later story or when they bite
 
 - **A name between hyphens inside a path segment still counts** (`src/cvestream/domain/matcher.py`, `_description_pattern`): rule B only looks at the one character on each side of the hit, so `php` in `wp-content/plugins/insert-php-code-snippet/readme.txt` or `class-php-mailer.php` still matches in the description fallback. Outside the rule agreed on 2026-11-01; none of the 6 measured false positives had this shape. Revisit with trial data if WordPress-plugin paths keep leaking into `php` feeds (for example: a hit inside a whitespace-free token that contains `/` or `\` does not count).
 
+## Deferred from: story 2.1 (CERT-EU adapter, 2026-11-03)
+
+- **CERT-EU affected text is not parsed for versions** (`src/cvestream/sources/cert_eu.py`, `_affected_entries`): the entries are kept as free text with `version_text=None`, so a `min_version` entry gets "versions unknown" on CERT-EU-only items. "X versions prior to Y" and "from X before Y" (CERT-EU prose) are shapes `domain/version.py` does not handle. Trigger: CERT-EU affected text fed to `version.py`; then add the shapes there and extract `version_text` in the adapter.
+- **A CVE mentioned only for context gets a record** (`cert_eu.py`, `_cve_ids`): every CVE ID in `content_markdown` counts (References section, older CVEs named for context), so such a CVE can make an old vulnerability active again for 14 days. CERT-EU publishes about two advisories a month. Revisit with trial data if it produces noise (for example: only CVEs outside `# References`).
+- **A cursor held back by a broken advisory refetches newer ones** (`cert_eu.py`, `fetch`): harmless (an unchanged content hash touches nothing) and bounded by the 10 RSS items.
+
 ## Deferred by course correction (2026-11-01, epic 2 scope)
 
 See `planning-artifacts/sprint-change-proposal-2026-11-01-epic-2-scope.md`.
