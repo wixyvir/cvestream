@@ -6,11 +6,12 @@ matches its own stack, so a Slack RSS integration only posts what is relevant
 to them, with CVSS score, known-exploited status and affected versions
 in each item.
 
-**Status:** pre-release. Epic 1 (a first working pipeline) is in progress; this
-repository currently holds the project skeleton, the container image, the CI
-quality gate, the domain model, the endpoint configuration contract, the EUVD,
-CISA KEV and CERT-EU source adapters, and the state store with the correlation and
-publication decisions (each vulnerability is merged across sources and decided
+**Status:** pre-release. Epic 1 (a first working pipeline) is done and epic 2
+(European advisory sources) is in progress; this repository currently holds
+the project skeleton, the container image, the CI quality gate, the domain
+model, the endpoint configuration contract, the EUVD, CISA KEV and CERT-EU
+source adapters, and the state store with the correlation and publication
+decisions (each vulnerability is merged across sources and decided
 once per endpoint, surviving restarts), and the daemon that polls the sources
 and serves one token-protected RSS 2.0 feed per endpoint.
 
