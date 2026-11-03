@@ -11,6 +11,7 @@ from cvestream.settings import (
     SourcesSettings,
     load_settings,
 )
+from cvestream.sources.cert_eu import CertEuAdapter
 from cvestream.sources.cisa_kev import CisaKevAdapter
 from cvestream.sources.euvd import EuvdAdapter
 from cvestream.sources.registry import (
@@ -23,42 +24,47 @@ if TYPE_CHECKING:
     from tests.conftest import FakeClock
 
 
-def test_both_sources_enabled_in_settings_order_with_their_own_interval(
+def test_all_sources_enabled_in_settings_order_with_their_own_interval(
     fake_clock: FakeClock,
 ) -> None:
     settings = load_settings(
         {
             "CVESTREAM_SOURCES__EUVD__INTERVAL": "PT30M",
             "CVESTREAM_SOURCES__CISA_KEV__INTERVAL": "PT10M",
+            "CVESTREAM_SOURCES__CERT_EU__INTERVAL": "PT20M",
         }
     ).sources
     sources = build_sources(settings, HttpClient(), fake_clock)
-    assert [s.adapter.name for s in sources] == ["euvd", "cisa_kev"]
+    assert [s.adapter.name for s in sources] == ["euvd", "cisa_kev", "cert_eu"]
     assert [s.interval for s in sources] == [
         timedelta(minutes=30),
         timedelta(minutes=10),
+        timedelta(minutes=20),
     ]
     assert isinstance(sources[0].adapter, EuvdAdapter)
     assert isinstance(sources[1].adapter, CisaKevAdapter)
+    assert isinstance(sources[2].adapter, CertEuAdapter)
 
 
-def test_defaults_enable_both_sources_every_fifteen_minutes(
+def test_defaults_enable_every_source_every_fifteen_minutes(
     fake_clock: FakeClock,
 ) -> None:
     sources = build_sources(SourcesSettings(), HttpClient(), fake_clock)
-    assert [s.adapter.name for s in sources] == ["euvd", "cisa_kev"]
+    assert [s.adapter.name for s in sources] == ["euvd", "cisa_kev", "cert_eu"]
     assert {s.interval for s in sources} == {timedelta(minutes=15)}
 
 
 def test_a_disabled_source_is_absent(fake_clock: FakeClock) -> None:
     settings = SourcesSettings(euvd=EuvdSourceSettings(enabled=False))
     sources = build_sources(settings, HttpClient(), fake_clock)
-    assert [s.adapter.name for s in sources] == ["cisa_kev"]
+    assert [s.adapter.name for s in sources] == ["cisa_kev", "cert_eu"]
 
 
 def test_all_sources_disabled_gives_no_adapters(fake_clock: FakeClock) -> None:
     settings = SourcesSettings(
-        euvd=EuvdSourceSettings(enabled=False), cisa_kev=SourceSettings(enabled=False)
+        euvd=EuvdSourceSettings(enabled=False),
+        cisa_kev=SourceSettings(enabled=False),
+        cert_eu=SourceSettings(enabled=False),
     )
     assert build_sources(settings, HttpClient(), fake_clock) == ()
 
@@ -99,6 +105,6 @@ def test_scheduled_source_is_frozen(fake_clock: FakeClock) -> None:
 
 def test_the_euvd_adapter_gets_its_page_pause(fake_clock: FakeClock) -> None:
     settings = load_settings({"CVESTREAM_SOURCES__EUVD__PAGE_PAUSE": "PT3S"}).sources
-    (euvd_source, _) = build_sources(settings, HttpClient(), fake_clock)
+    (euvd_source, *_) = build_sources(settings, HttpClient(), fake_clock)
     assert isinstance(euvd_source.adapter, EuvdAdapter)
     assert euvd_source.adapter._page_pause == 3.0
