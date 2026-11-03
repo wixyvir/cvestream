@@ -72,8 +72,9 @@ uv run cvestream config validate endpoints.example.yaml
 ```
 
 `pytest` blocks the network (pytest-socket). Tests marked `live` hit real
-services and are deselected by default; tests marked `valkey` need a Valkey
-server.
+services and are deselected by default;
+`.github/workflows/source-drift.yml` runs them nightly (see
+`docs/operations.md`); tests marked `valkey` need a Valkey server.
 
 ### In a container
 
