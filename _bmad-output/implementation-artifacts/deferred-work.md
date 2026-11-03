@@ -54,6 +54,13 @@ Findings deferred by code reviews, to pick up in a later story or when they bite
 - **A CVE mentioned only for context gets a record** (`cert_eu.py`, `_cve_ids`): every CVE ID in `content_markdown` counts (References section, older CVEs named for context), so such a CVE can make an old vulnerability active again for 14 days. CERT-EU publishes about two advisories a month. Revisit with trial data if it produces noise (for example: only CVEs outside `# References`).
 - **A cursor held back by a broken advisory refetches newer ones** (`cert_eu.py`, `fetch`): harmless (an unchanged content hash touches nothing) and bounded by the 10 RSS items.
 
+## Deferred from: code review of 2-1-cert-eu-adapter.md (2026-11-03)
+
+- **Ordered lists and single-marker emphasis stay raw** (`src/cvestream/sources/cert_eu.py`, `_blocks`, `_clean_markdown`): `1. Foo` lines are read as one paragraph (`"1. Foo 1.0 2. Bar 2.0"`), and `*Foo*` / `_Foo_` keep their markers (`_` is kept on purpose for `mod_php`). The matcher still finds `*PHP*`, but not `_PHP_`. None of the 59 advisories checked on 2026-11-03 uses these shapes. Revisit when one appears.
+- **A lead-in written right under a bullet, without a blank line, continues that bullet** (`cert_eu.py`, `_blocks`): CommonMark lazy continuation, so two per-CVE blocks without a blank line between them merge into one entry attributed to both CVEs (FortiSIEM would reach the FortiOS record). The recorded 2025-008 has blank lines. Revisit if a per-CVE advisory leaks products across CVEs.
+- **A CVE removed by a revision keeps its record** (`cert_eu.py`, `_records`): records are keyed `<serial>:<CVE>`, and the adapter only emits what the current revision names, so a CVE dropped by a correction keeps its stale CERT-EU record and its merge with the EUVD vulnerability of that CVE. No retraction path exists for any source yet.
+- **An unclosed code fence drops the rest of the advisory** (`cert_eu.py`, `_section`): everything after a lone `` ``` `` is fenced, including `# References` and a later `# Affected Products`. Not seen in the recorded advisories.
+
 ## Deferred by course correction (2026-11-01, epic 2 scope)
 
 See `planning-artifacts/sprint-change-proposal-2026-11-01-epic-2-scope.md`.

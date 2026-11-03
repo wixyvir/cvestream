@@ -179,7 +179,27 @@ Scope set by the 2026-11-01 course correction (`_bmad-output/planning-artifacts/
 
 ### Review Findings
 
-<!-- Filled by bmad-code-review. -->
+Code review 2026-11-03 (`bmad-code-review`, claude-opus-5-5, autonomous run) of `git diff origin/main...HEAD` on PR wixyvir/cvestream#20. The session had no subagent tool, so the three layers (Blind Hunter, Edge Case Hunter, Acceptance Auditor) ran one after the other in the same session, each with its own inputs; edge cases were probed with scratch scripts against the real adapter. Result: 2 decision-needed, 3 patch (applied), 4 defer, 7 dismissed. The story stays in `review` until the two decisions are taken.
+
+- [ ] [Review][Decision] A missing advisory JSON blocks the whole source for up to 14 days — a final `4xx` on one advisory JSON is a `SourceTransportError` (AC 7), so the fetch fails, the cursor does not move, and no later advisory is fetched until the cursor falls behind the 14-day floor or the item leaves the RSS. Options: keep; skip-and-hold-back on a final `4xx` only (recommended); skip on any advisory transport error. Inline comment: https://github.com/wixyvir/cvestream/pull/20#discussion_r4458527147 [src/cvestream/sources/cert_eu.py:425]
+- [ ] [Review][Decision] A commentary paragraph after the bullet list becomes a structured affected product — in 2026-018 the "Many commercial and open-source products use PHP ... NCSC-NL GitHub repository" entry gives a `github` endpoint a structured hit on the three PHP2Shell CVEs (checked with `affected_hits`). Options: keep (documented risk); drop a paragraph that is neither a lead-in nor in a list-free section (recommended); keep such text for display only. Inline comment: https://github.com/wixyvir/cvestream/pull/20#discussion_r4458527159 [src/cvestream/sources/cert_eu.py:328]
+- [x] [Review][Patch] The affected-products heading with emphasis or a trailing colon (`# **Affected Products**`, `# Affected Products:`) hid the whole section [src/cvestream/sources/cert_eu.py:232] — fixed in `3529419`, parametrized contract test, `docs/sources.md` updated
+- [x] [Review][Patch] `+` was not a bullet marker, so a `+` list collapsed into one paragraph [src/cvestream/sources/cert_eu.py:68] — fixed in `7d043b5`, contract test
+- [x] [Review][Patch] README status still said epic 1 was in progress while this branch marks it done [README.md:9] — fixed in `884ac13`
+- [x] [Review][Defer] Ordered lists and single-marker emphasis (`*Foo*`, `_Foo_`) stay raw [src/cvestream/sources/cert_eu.py:244] — deferred, not seen in the 59 advisories checked
+- [x] [Review][Defer] A lead-in written right under a bullet, without a blank line, continues that bullet, so two per-CVE blocks can merge [src/cvestream/sources/cert_eu.py:298] — deferred, CommonMark-consistent and not seen in the recorded data
+- [x] [Review][Defer] A CVE removed by a revision keeps its stale record and merge [src/cvestream/sources/cert_eu.py:360] — deferred, no retraction path for any source yet
+- [x] [Review][Defer] An unclosed code fence drops the rest of the advisory, references included [src/cvestream/sources/cert_eu.py:222] — deferred, not seen in the recorded data
+
+Dismissed (7):
+
+- Billion-laughs and XXE: verified that the `doctype()` guard refuses the document in about 5 ms; expat's own amplification limit is a second line.
+- CVE attribution reads the cleaned entry text, not the raw text (AC 3 wording): cleaning removes only `**`, backticks, `[New]` and `[n]` markers, so the CVE set is the same.
+- `error_type="_InvalidRssItem"` in the RSS skip log names no real class: a label only, debug level.
+- An unusable RSS item is counted in `skipped` at every poll while it stays in the RSS: specified (AC 6), bounded by 10 items.
+- A future RSS `pubDate` is fetched again at every poll until the clock passes it: the cursor is capped at the fetch time as specified, and the unchanged content hash touches nothing.
+- Strict `>` on second-resolution `pubDate`s misses a second advisory published in the same second as the cursor: theoretical at about two advisories a month.
+- `RFC 2822` `-0000` and zone-less dates are refused (naive): intended, documented ("any other zone is unusable").
 
 ## Dev Notes
 
@@ -607,3 +627,4 @@ claude-sonnet-5-5 (`bmad-dev-story`, autonomous run, 2026-11-03).
 ### Change Log
 
 - 2026-11-03: implemented story 2.1 (CERT-EU adapter, settings and registry, title rule, PHP2Shell replay, docs); status set to review.
+- 2026-11-03: code review: 3 patches applied (heading, `+` bullets, README status), 4 items deferred, 2 decisions open on wixyvir/cvestream#20; status stays `review`.
