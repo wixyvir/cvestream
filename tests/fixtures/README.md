@@ -23,6 +23,7 @@ TLS-intercepting proxy, point `curl` at your CA bundle in your own shell only.
 | `euvd_epss_zero.json` | 2 records with `epss` 0.0, a positive score and a product: same 4 pages as `euvd_version_na.json`, then `jq -s '{items: ([.[].items[] \| select(.epss==0 and .baseScore>0 and (.enisaIdProduct\|length>0))] \| .[0:2]), total: .[0].total}'` |
 | `euvd_exploited.json` | `curl "$B/search?exploited=true&size=3&page=0" \| jq '.items \|= .[0:1]'`: one record carrying `exploitedSince` (ignored by the adapter) |
 | `euvd_php_branch_wildcard.json` | Recorded on 2026-11-03: `curl "$B/search?text=EUVD-2026-107260&size=10&page=0" \| jq .` (PHP2Shell, CVE-2026-109618; total 1): four `PHP` rows in the PHP CNA branch-wildcard format `8.2.* <8.2.35` … `8.5.* <8.5.12` (wixyvir/cvestream#11) |
+| `euvd_php2shell_second_cve.json` | Recorded on 2026-11-03: `curl "$B/search?text=EUVD-2026-107265&size=10&page=0" \| jq .` (PHP2Shell, CVE-2026-109619; total 1): the second CVE of CERT-EU 2026-018, replayed by `tests/integration/test_cert_eu_php2shell.py` |
 | `euvd_kev_dump.json` | `curl "$B/kev/dump" \| jq '[.[] \| select(.cveId=="CVE-2021-22555" or .cveId=="CVE-2023-3519" or .cveId=="CVE-2025-25231" or .cveId=="CVE-2026-67276" or .cveId=="CVE-2026-67277" or .cveId=="CVE-2020-1472")]'`: CISA-only (CVE-2021-22555), both lists (CVE-2023-3519, CVE-2020-1472, CVE-2026-67277), EU-only (CVE-2025-25231, CVE-2026-67276), two with `vulnerabilityName` |
 
 ## `cisa_kev/`
@@ -30,3 +31,16 @@ TLS-intercepting proxy, point `curl` at your CA bundle in your own shell only.
 | Fixture | How it was recorded |
 |---|---|
 | `cisa_kev_catalog.json` | `curl "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json" \| jq '.vulnerabilities \|= map(select(.cveID=="CVE-2026-114625" or .cveID=="CVE-2023-3519" or .cveID=="CVE-2020-1472" or .cveID=="CVE-2021-22555"))'`: `catalogVersion` 2026.10.23, `count` 1756 as returned; two `Known` and two `Unknown` entries |
+
+## `cert_eu/`
+
+Recorded on 2026-11-03 (CERT-EU, about 18:40 UTC). `R=https://cert.europa.eu/publications/security-advisories`.
+The RSS is stored as served (bytes unchanged, no XML declaration, `pubDate` in `CEST`); the advisory JSON is pretty-printed with `jq .`.
+
+| Fixture | How it was recorded |
+|---|---|
+| `cert_eu_rss.xml` | `curl "https://cert.europa.eu/publications/security-advisories-rss" -o cert_eu_rss.xml`: 10 items, 2026-018 at `Fri, 23 Oct 2026 16:36:26 CEST`, 2026-019 at `Thu, 22 Oct 2026 11:14:22 CEST` |
+| `cert_eu_2026_018_multi_cve_revised.json` | `curl "$R/2026-018/json" \| jq .`: PHP2Shell v1.2, three CVEs (CVE-2026-109618, CVE-2026-109619, CVE-2026-115560, the last one added by v1.2), `publish_date` `23-10-2026 14:36:26` |
+| `cert_eu_2026_019_single_cve.json` | `curl "$R/2026-019/json" \| jq .`: GitLab, one CVE (CVE-2026-110264), the lead-in paragraph names the product and the bullets do not |
+| `cert_eu_2025_029_no_cve.json` | `curl "$R/2025-029/json" \| jq .`: SonicWall, no CVE ID, `# Products Affected` is prose |
+| `cert_eu_2025_008_cve_blocks.json` | `curl "$R/2025-008/json" \| jq .`: Fortinet, three CVEs, one product block per CVE |

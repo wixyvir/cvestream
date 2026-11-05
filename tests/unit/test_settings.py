@@ -54,6 +54,8 @@ def test_defaults() -> None:
     assert settings.sources.euvd.enabled is True
     assert settings.sources.euvd.interval == timedelta(minutes=15)
     assert settings.sources.cisa_kev.interval == timedelta(minutes=15)
+    assert settings.sources.cert_eu.enabled is True
+    assert settings.sources.cert_eu.interval == timedelta(minutes=15)
 
 
 def test_empty_environ_does_not_fall_back_to_process_environment(
@@ -85,6 +87,23 @@ def test_env_bool_and_literal_override() -> None:
     )
     assert settings.sources.cisa_kev.enabled is False
     assert settings.log.format == "console"
+
+
+def test_cert_eu_settings_come_from_the_environment() -> None:
+    settings = load_settings(_env(CVESTREAM_SOURCES__CERT_EU__INTERVAL="PT30M"))
+    assert settings.sources.cert_eu.interval == timedelta(minutes=30)
+    assert settings.sources.euvd.interval == timedelta(minutes=15)
+
+
+def test_cert_eu_can_be_disabled_from_the_environment() -> None:
+    settings = load_settings(_env(CVESTREAM_SOURCES__CERT_EU__ENABLED="false"))
+    assert settings.sources.cert_eu.enabled is False
+    assert settings.sources.cisa_kev.enabled is True
+
+
+def test_cert_eu_interval_above_sixty_minutes_is_rejected() -> None:
+    with pytest.raises(ValidationError):
+        load_settings(_env(CVESTREAM_SOURCES__CERT_EU__INTERVAL="PT61M"))
 
 
 def test_euvd_page_pause_defaults_to_one_and_a_half_seconds() -> None:

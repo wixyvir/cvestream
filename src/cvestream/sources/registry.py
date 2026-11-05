@@ -12,6 +12,7 @@ from cvestream.clock import Clock
 from cvestream.http import HttpClient
 from cvestream.settings import SourceSettings, SourcesSettings
 from cvestream.sources.base import SourceAdapter
+from cvestream.sources.cert_eu import CertEuAdapter
 from cvestream.sources.cisa_kev import CisaKevAdapter
 from cvestream.sources.euvd import EuvdAdapter
 
@@ -24,6 +25,7 @@ ADAPTER_FACTORIES: dict[str, AdapterFactory] = {
         http, clock, page_pause=settings.euvd.page_pause.total_seconds()
     ),
     "cisa_kev": lambda http, clock, _settings: CisaKevAdapter(http, clock),
+    "cert_eu": lambda http, clock, _settings: CertEuAdapter(http, clock),
 }
 
 
