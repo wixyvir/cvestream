@@ -52,6 +52,7 @@ select = ["E", "F", "W", "I", "UP", "B", "DTZ", "BLE", "S", "RUF"]
 "tests/unit/config/test_models.py" = ["S105", "S106"]
 "tests/unit/config/test_provider.py" = ["S105", "S106"]
 "tests/unit/config/test_yaml_provider.py" = ["S105", "S106"]
+"tests/unit/config/test_valkey_provider.py" = ["S105", "S106"]
 "tests/unit/cli/test_config.py" = ["S105", "S106"]
 
 [tool.ty.environment]
@@ -165,15 +166,16 @@ source_modules = [
 forbidden_modules = ["sqlalchemy", "alembic"]
 allow_indirect_imports = true
 
-# valkey: only cvestream.config.valkey_provider. The other config modules are
-# listed one by one (a forbidden contract cannot exclude a submodule): a new
-# module in cvestream.config must be added to source_modules below.
+# valkey: only cvestream.config.valkey_provider. The whole cvestream.config
+# package is a source (so a new module there is covered at once) and the one
+# allowed import is listed in ignore_imports.
 [[tool.importlinter.contracts]]
 name = "valkey only in config.valkey_provider"
 type = "forbidden"
 source_modules = [
     "cvestream.http",
     "cvestream.domain",
+    "cvestream.config",
     "cvestream.sources",
     "cvestream.state",
     "cvestream.pipeline",
@@ -183,15 +185,10 @@ source_modules = [
     "cvestream.log",
     "cvestream.clock",
     "cvestream.errors",
-    "cvestream.config",
-    "cvestream.config.keys",
-    "cvestream.config.models",
-    "cvestream.config.provider",
-    "cvestream.config.schema",
-    "cvestream.config.yaml_provider",
 ]
 forbidden_modules = ["valkey"]
 allow_indirect_imports = true
+ignore_imports = ["cvestream.config.valkey_provider -> valkey"]
 
 [[tool.importlinter.contracts]]
 name = "starlette and uvicorn only in app"
