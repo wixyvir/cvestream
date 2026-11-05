@@ -31,8 +31,11 @@ main
 
 ## Status
 
-- wixyvir/cvestream#20 (2.1, base `main`): review done, **2 open decisions** left as review comments on the PR.
-- wixyvir/cvestream#19 (2.2, base `story-2-1-cert-eu-adapter`): review pending at the time of writing, so open decisions are not known yet. Check the PR for inline review comments marked "decision needed".
+Epic 2 is **done** (2026-11-05): both PRs are merged, bottom-up as planned.
+
+- wixyvir/cvestream#19 (2.2) merged into `story-2-1-cert-eu-adapter` on 2026-11-03, review with 0 decision needed.
+- wixyvir/cvestream#20 (2.1, carrying 2.2) merged into `main` on 2026-11-03, the 2 open review decisions recorded in the story file.
+- The nightly `source-drift.yml` workflow only runs from `main`: its first real run happens after this merge.
 
 ### Why 2.1 and 2.2 are developed in parallel, then serialized
 
