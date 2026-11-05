@@ -34,6 +34,22 @@ class ConfigUnavailableError(ConfigError):
     """The configuration store cannot be read (missing file, store down)."""
 
 
+class ConfigAccessDeniedError(ConfigUnavailableError):
+    """The store refused the credentials or the command (authentication, ACL).
+
+    Unlike a network failure it does not heal by waiting: the daemon does not
+    retry it at startup.
+    """
+
+
+class ConfigConflictError(ConfigUnavailableError):
+    """The revision kept moving during a read, or a write kept losing its race.
+
+    Transient: the next read or the next attempt may succeed, so it is retried
+    like a network failure.
+    """
+
+
 class ConfigValidationError(ConfigError):
     """The configuration was read but is invalid; `errors` names each field."""
 

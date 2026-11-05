@@ -4,6 +4,8 @@ import pytest
 
 from cvestream.config.models import EndpointConfig
 from cvestream.config.provider import (
+    ConfigAccessDeniedError,
+    ConfigConflictError,
     ConfigError,
     ConfigProvider,
     ConfigUnavailableError,
@@ -50,11 +52,25 @@ def test_validation_error_without_errors() -> None:
 
 
 def test_exception_family() -> None:
-    for cls in (ConfigError, ConfigUnavailableError, ConfigValidationError):
+    for cls in (
+        ConfigError,
+        ConfigUnavailableError,
+        ConfigValidationError,
+        ConfigAccessDeniedError,
+        ConfigConflictError,
+    ):
         assert issubclass(cls, CvestreamError)
         assert cls.__name__.endswith("Error")
     assert issubclass(ConfigUnavailableError, ConfigError)
     assert issubclass(ConfigValidationError, ConfigError)
+
+
+def test_access_denied_and_conflict_are_unavailable() -> None:
+    # `reload_config` and the startup loader tell them apart: access denied is
+    # not retried, a conflict is.
+    assert issubclass(ConfigAccessDeniedError, ConfigUnavailableError)
+    assert issubclass(ConfigConflictError, ConfigUnavailableError)
+    assert not issubclass(ConfigConflictError, ConfigAccessDeniedError)
 
 
 def test_build_snapshot_maps_tokens_to_endpoints() -> None:
