@@ -121,13 +121,13 @@ def _format_error(location: tuple[int | str, ...], message: str) -> str:
     return f"{path}: {message}" if path else message
 
 
-def build_snapshot(data: object, *, revision: str, source: str) -> ConfigSnapshot:
-    """Validate raw configuration `data` and build a snapshot.
+def validate_document(data: object, *, source: str) -> ConfigDocument:
+    """Validate raw configuration `data` into a document.
 
-    Shared by every provider (YAML now, Valkey later).
+    The error message names fields and problems, never the input (a token).
     """
     try:
-        document = ConfigDocument.model_validate(data)
+        return ConfigDocument.model_validate(data)
     except ValidationError as exc:
         # Not `str(exc)`: it embeds `input_value`, which can be a token.
         errors = [
@@ -135,6 +135,14 @@ def build_snapshot(data: object, *, revision: str, source: str) -> ConfigSnapsho
             for error in exc.errors(include_input=False, include_url=False)
         ]
         raise ConfigValidationError(source, errors) from None
+
+
+def build_snapshot(data: object, *, revision: str, source: str) -> ConfigSnapshot:
+    """Validate raw configuration `data` and build a snapshot.
+
+    Shared by every provider (YAML now, Valkey later).
+    """
+    document = validate_document(data, source=source)
     endpoints = tuple(endpoint.to_domain() for endpoint in document.endpoints)
     tokens = {endpoint.token: endpoint.id for endpoint in document.endpoints}
     return ConfigSnapshot(
