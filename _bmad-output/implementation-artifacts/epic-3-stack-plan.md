@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-- Epic 3 ("Shared configuration store, operator CLI and release") ships as a **linear stack of 3 PRs** on `wixyvir/cvestream`: `main <- 3.1 <- 3.3 <- 3.2`. PR numbers are filled in once the PRs exist (see the Status section).
+- Epic 3 ("Shared configuration store, operator CLI and release") ships as a **linear stack of 3 PRs** on `wixyvir/cvestream`: `main <- 3.1 <- 3.3 <- 3.2`, i.e. `main <- wixyvir/cvestream#22 <- wixyvir/cvestream#21 <- wixyvir/cvestream#23` (see the Status section).
 - Each PR's base is the story below it, so each PR diff shows **only that story's changes**. The 3.1 PR also carries this plan.
 - The stack is not in story-number order on purpose: **3.3 (release, Kubernetes) sits below 3.2 (operator CLI)** because it only needs 3.1's `deploy/valkey/` files, so you can test it earlier; 3.2 needs 3.1's Valkey provider and nothing from 3.3.
 - Schedule: 3.1 and 3.3 are created and developed **concurrently** (wave 9). 3.1 is reviewed first; 3.3 is then rebased onto the reviewed 3.1 and reviewed. 3.2 (wave 10) starts from the reviewed 3.1 branch and is developed while 3.3 is rebased and reviewed; it is then rebased onto the reviewed 3.3, its PR retargeted to the 3.3 branch, and reviewed.
@@ -19,30 +19,30 @@
 
 ```
 main
- └─ story-3-1-valkey-configuration-provider                  (3.1, also carries this plan)
-     └─ story-3-3-release-and-kubernetes-deployment          (3.3, started from 3.1 at the plan commit,
+ └─ story-3-1-valkey-configuration-provider                  (3.1, wixyvir/cvestream#22, also carries this plan)
+     └─ story-3-3-release-and-kubernetes-deployment          (3.3, wixyvir/cvestream#21, started from 3.1 at the plan commit,
          │                                                     rebased onto the reviewed 3.1 branch)
          └─ story-3-2-operator-cli-for-endpoints-products-and-tokens
-                                                              (3.2, started from the reviewed 3.1 branch,
+                                                              (3.2, wixyvir/cvestream#23, started from the reviewed 3.1 branch,
                                                                rebased onto the reviewed 3.3 branch,
                                                                PR retargeted from 3.1 to 3.3)
 ```
 
 | Story | PR | Branch | PR base | Depends on (sprint-status) | What it adds |
 |---|---|---|---|---|---|
-| 3.1 | TBD | `story-3-1-valkey-configuration-provider` | `main` | 1.3, 1.6 | `config/keys.py` (the `cvestream:v1:*` key layout) and `config/valkey_provider.py`: consistent snapshot read (revision → pipelined read → revision, up to 3 retries, else keep the last valid snapshot), validated with the 1.3 models; write protocol `WATCH revision` → `MULTI` → writes → `INCR revision` → `EXEC`, retried on conflict. `config_provider: valkey`, `valkey.url`, `CVESTREAM_VALKEY__PASSWORD_FILE`, `valkey.startup_timeout` (60 s): startup retries with backoff then **exit code 3** and `config.unavailable`; during an outage the last valid configuration is kept and each run logs `config.unavailable`. `deploy/valkey/valkey.conf` (AOF, `appendfsync everysec`) and `deploy/valkey/users.acl` (`default` off, `cvestream-daemon` read-only, `cvestream-admin` read/write, `connector-example` limited to `endpoint:*:products` and `revision`, never `token:*`), `valkey`-marked integration tests for each restriction, `tests/integration/test_startup_requires_valkey.py`, `valkey` service in `compose.yml` on a private network, `valkey/valkey:9.1` service in `ci.yml`, `docs/config-contract.md` |
-| 3.3 | TBD | `story-3-3-release-and-kubernetes-deployment` | 3.1 branch (after rebase) | 1.6 (+ 3.1's `deploy/valkey/` files) | `.github/workflows/release.yml` (tag `v*` = `pyproject.toml` version check, amd64 + arm64, GHCR tags `X.Y.Z`, `X.Y`, `latest`, OCI labels, SBOM, provenance `mode=max` attestation, GitHub Release); `deploy/k8s/base` + `deploy/k8s/overlays/example` (Deployment: 1 replica, `Recreate`, UID 999, read-only root, capabilities dropped, `terminationGracePeriodSeconds: 60`, exec probes on `cvestream healthcheck [--ready]`; RWO PVC on `/data`; Services `cvestream-public` 8080 and `cvestream-private` 9090; `NetworkPolicy`; example `Ingress` on the public Service only; example Valkey `StatefulSet` mounting 3.1's `valkey.conf` and `users.acl`; secret example); Kustomize build check in `ci.yml`; Kubernetes sections in `docs/operations.md` and `README.md` (block storage for SQLite, single replica) |
-| 3.2 | TBD | `story-3-2-operator-cli-for-endpoints-products-and-tokens` | 3.1 branch, then 3.3 branch (after rebase and retarget) | 1.3, 3.1 | `cvestream endpoint create\|list\|show\|edit\|delete`, `cvestream product add\|remove\|list`, `cvestream token rotate <endpoint>`, `cvestream config export\|import`, written through the active provider (YAML file rewritten and validated, Valkey through the 3.1 write protocol); token from `secrets.token_urlsafe(32)` through an injectable function; `endpoint show` prints the feed URL; kebab-case options, `--json` on `list`, exit 2 on user errors, exit 1 with a trace only under `--debug`; `docs/operations.md` token rotation and configuration backup |
+| 3.1 | wixyvir/cvestream#22 | `story-3-1-valkey-configuration-provider` | `main` | 1.3, 1.6 | `config/keys.py` (the `cvestream:v1:*` key layout) and `config/valkey_provider.py`: consistent snapshot read (revision → pipelined read → revision, up to 3 retries, else keep the last valid snapshot), validated with the 1.3 models; write protocol `WATCH revision` → `MULTI` → writes → `INCR revision` → `EXEC`, retried on conflict. `config_provider: valkey`, `valkey.url`, `CVESTREAM_VALKEY__PASSWORD_FILE`, `valkey.startup_timeout` (60 s): startup retries with backoff then **exit code 3** and `config.unavailable`; during an outage the last valid configuration is kept and each run logs `config.unavailable`. `deploy/valkey/valkey.conf` (AOF, `appendfsync everysec`) and `deploy/valkey/users.acl` (`default` off, `cvestream-daemon` read-only, `cvestream-admin` read/write, `connector-example` limited to `endpoint:*:products` and `revision`, never `token:*`), `valkey`-marked integration tests for each restriction, `tests/integration/test_startup_requires_valkey.py`, `valkey` service in `compose.yml` on a private network, `valkey/valkey:9.1` service in `ci.yml`, `docs/config-contract.md` |
+| 3.3 | wixyvir/cvestream#21 | `story-3-3-release-and-kubernetes-deployment` | 3.1 branch (after rebase) | 1.6 (+ 3.1's `deploy/valkey/` files) | `.github/workflows/release.yml` (tag `v*` = `pyproject.toml` version check, amd64 + arm64, GHCR tags `X.Y.Z`, `X.Y`, `latest`, OCI labels, SBOM, provenance `mode=max` attestation, GitHub Release); `deploy/k8s/base` + `deploy/k8s/overlays/example` (Deployment: 1 replica, `Recreate`, UID 999, read-only root, capabilities dropped, `terminationGracePeriodSeconds: 60`, exec probes on `cvestream healthcheck [--ready]`; RWO PVC on `/data`; Services `cvestream-public` 8080 and `cvestream-private` 9090; `NetworkPolicy`; example `Ingress` on the public Service only; example Valkey `StatefulSet` mounting 3.1's `valkey.conf` and `users.acl`; secret example); Kustomize build check in `ci.yml`; Kubernetes sections in `docs/operations.md` and `README.md` (block storage for SQLite, single replica) |
+| 3.2 | wixyvir/cvestream#23 | `story-3-2-operator-cli-for-endpoints-products-and-tokens` | 3.1 branch, then 3.3 branch (after rebase and retarget) | 1.3, 3.1 | `cvestream endpoint create\|list\|show\|edit\|delete`, `cvestream product add\|remove\|list`, `cvestream token rotate <endpoint>`, `cvestream config export\|import`, written through the active provider (YAML file rewritten and validated, Valkey through the 3.1 write protocol); token from `secrets.token_urlsafe(32)` through an injectable function; `endpoint show` prints the feed URL; kebab-case options, `--json` on `list`, exit 2 on user errors, exit 1 with a trace only under `--debug`; `docs/operations.md` token rotation and configuration backup |
 
 ## Status
 
-Not started. PR numbers are filled in here once each `bmad-create-story` step has opened its draft PR.
+:factory: PR numbers recorded. 3.1 is reviewed with 0 open decisions; 3.3 and 3.2 were pending review at the time of writing (their PR comments carry the final review summary).
 
 | Story | PR | State |
 |---|---|---|
-| 3.1 | TBD | plan committed |
-| 3.3 | TBD | branch created locally at the plan commit, not pushed yet |
-| 3.2 | TBD | waits for the 3.1 review |
+| 3.1 | wixyvir/cvestream#22 | reviewed, 0 open decisions |
+| 3.3 | wixyvir/cvestream#21 | pending review |
+| 3.2 | wixyvir/cvestream#23 | pending review |
 
 ### Why this order: `main <- 3.1 <- 3.3 <- 3.2`
 
