@@ -12,7 +12,9 @@ a writer was in the middle of a change, so the read starts over (at most
 Write protocol (`update`): `WATCH revision`, read, apply the change, validate,
 `MULTI`, write every key, `INCR revision`, `EXEC`; a concurrent writer makes
 `EXEC` fail with `WatchError` and the whole sequence runs again (at most
-`WRITE_ATTEMPTS` attempts).
+`WRITE_ATTEMPTS` attempts). `replace` is the same transaction for a whole
+document, without parsing what is stored: it repairs an invalid or unseeded
+store (`cvestream config import`).
 
 Messages never carry a password, a token or a raw value: a valkey-py exception
 message is never forwarded, and a value is never quoted. Host, port, user name
@@ -39,6 +41,8 @@ from valkey.exceptions import (
     ValkeyError,
     WatchError,
 )
+from valkey.exceptions import ConnectionError as ValkeyConnectionError
+from valkey.exceptions import TimeoutError as ValkeyTimeoutError
 
 from cvestream.config import keys
 from cvestream.config.models import ConfigDocument
@@ -50,6 +54,7 @@ from cvestream.config.provider import (
     ConfigValidationError,
     build_snapshot,
 )
+from cvestream.errors import CvestreamError
 from cvestream.settings import ValkeySettings
 
 SOURCE: Final = "valkey"
@@ -259,6 +264,14 @@ def _endpoint_json(document: ConfigDocument, endpoint_id: str) -> tuple[str, str
     return _dump(dumped), _dump(products)
 
 
+class _ChangeFailedError(CvestreamError):
+    """Carries an exception raised by a caller's `change` out of the mapping."""
+
+    def __init__(self, original: Exception) -> None:
+        self.original = original
+        super().__init__()
+
+
 # --- The provider -------------------------------------------------------------
 
 
@@ -401,18 +414,30 @@ class ValkeyConfigProvider:
         """The current revision (`"0"` when the key is missing). One `GET`."""
         return self._read_revision()
 
-    def load(self) -> ConfigSnapshot:
-        """A consistent, validated snapshot; see the module docstring."""
+    def _consistent_read(self) -> tuple[str, RawConfig]:
+        """The raw configuration and the revision it was read at."""
         for _ in range(SNAPSHOT_RETRIES + 1):
             before = self._read_revision()
             raw = self._read_raw()
             after = self._read_revision()
             if before == after:
-                return validated_snapshot(
-                    assemble(raw), revision=before, ids=sorted(raw.endpoints)
-                )
+                return before, raw
         msg = f"{SOURCE}: the revision kept changing during the read"
         raise ConfigConflictError(msg)
+
+    def load(self) -> ConfigSnapshot:
+        """A consistent, validated snapshot; see the module docstring."""
+        revision, raw = self._consistent_read()
+        return validated_snapshot(
+            assemble(raw), revision=revision, ids=sorted(raw.endpoints)
+        )
+
+    def document(self) -> ConfigDocument:
+        """The consistent, validated stored document (same read as `load()`)."""
+        revision, raw = self._consistent_read()
+        document = assemble(raw)
+        validated_snapshot(document, revision=revision, ids=sorted(raw.endpoints))
+        return _document_of(document)
 
     # -- writing --
 
@@ -420,23 +445,78 @@ class ValkeyConfigProvider:
         """Apply `change` to the stored document; return the new revision.
 
         `change` is pure and may run several times (once per attempt). An
-        invalid result raises `ConfigValidationError` and writes nothing.
+        invalid result raises `ConfigValidationError` and writes nothing. An
+        exception raised by `change` reaches the caller unchanged.
         """
+
+        def build(raw: RawConfig) -> ConfigDocument:
+            current = self._current_document(raw)
+            try:
+                return change(current)
+            except Exception as exc:  # noqa: BLE001 - handed back unchanged
+                raise _ChangeFailedError(exc) from None
+
+        return self._write(build)
+
+    def replace(self, document: ConfigDocument) -> str:
+        """Make `document` the whole stored configuration; return the revision.
+
+        What is stored is not parsed: an invalid or unseeded store is repaired,
+        endpoints absent from `document` are removed.
+        """
+        # Validated once, before any connection: duplicates are caught here.
+        validated_snapshot(
+            document.model_dump(mode="json"),
+            revision="pending",
+            ids=[e.id for e in document.endpoints],
+        )
+        return self._write(lambda _: document, repair=True)
+
+    def _write(
+        self, build: Callable[[RawConfig], ConfigDocument], *, repair: bool = False
+    ) -> str:
         for _ in range(WRITE_ATTEMPTS):
             try:
                 with self._mapped():
-                    return self._attempt(change)
-            except WatchError:
+                    return self._attempt(build, repair=repair)
+            except WatchError as exc:
+                if lost := self._lost_connection(exc):
+                    msg = f"{SOURCE}: cannot reach {self._address}: {lost}"
+                    raise ConfigUnavailableError(msg) from None
                 continue
+            except _ChangeFailedError as failed:
+                raise failed.original from None
         msg = f"{SOURCE}: write conflict, gave up after {WRITE_ATTEMPTS} attempts"
         raise ConfigConflictError(msg)
 
-    def _attempt(self, change: Callable[[ConfigDocument], ConfigDocument]) -> str:
+    @staticmethod
+    def _lost_connection(exc: WatchError) -> str | None:
+        """The name of the connection error behind a `WatchError`, if any.
+
+        valkey-py raises `WatchError` from inside its connection-error handler
+        when the connection drops while keys are watched: that is not a lost
+        race, retrying it would only hide an outage.
+        """
+        cause = exc.__context__
+        if isinstance(cause, ValkeyTimeoutError | TimeoutError):
+            return "TimeoutError"
+        if isinstance(cause, ValkeyConnectionError | OSError):
+            return "ConnectionError"
+        return None
+
+    def _attempt(
+        self, build: Callable[[RawConfig], ConfigDocument], *, repair: bool
+    ) -> str:
         with self._client.pipeline(transaction=True) as pipe:
             pipe.watch(keys.REVISION)  # immediate mode from here to `multi()`
-            raw = self._read_raw_watched(pipe)
-            current = self._current_document(raw)
-            new = change(current)
+            if repair:
+                # The stored content is not parsed: only the ids it names.
+                old_ids = self._read_valid_ids_watched(pipe)
+                new = build(RawConfig(None, {}))
+            else:
+                raw = self._read_raw_watched(pipe)
+                old_ids = sorted(raw.endpoints)
+                new = build(raw)
             new_json = new.model_dump(mode="json")
             validated_snapshot(
                 new_json,
@@ -444,11 +524,15 @@ class ValkeyConfigProvider:
                 ids=[e.id for e in new.endpoints],
             )
             new_ids = sorted(e.id for e in new.endpoints)
-            removed = sorted(set(raw.endpoints) - set(new_ids))
+            removed = sorted(set(old_ids) - set(new_ids))
             pipe.multi()
             pipe.set(keys.SCHEMA, str(keys.SCHEMA_VALUE))
+            if repair:
+                # Drops every member, valid or not, then the set is rebuilt.
+                pipe.delete(keys.ENDPOINTS)
             if removed:
-                pipe.srem(keys.ENDPOINTS, *removed)
+                if not repair:
+                    pipe.srem(keys.ENDPOINTS, *removed)
                 pipe.delete(
                     *(
                         key
@@ -475,6 +559,27 @@ class ValkeyConfigProvider:
             msg = f"{SOURCE}: unexpected reply type {type(revision).__name__}"
             raise ConfigUnavailableError(msg)
         return str(revision)
+
+    def _read_valid_ids_watched(self, pipe: Any) -> list[str]:
+        """The members of the `endpoints` set that are valid slugs.
+
+        Anything else is dropped, never used to build a key.
+        """
+        try:
+            members = _as_members(pipe.smembers(keys.ENDPOINTS))
+        except ResponseError as exc:
+            if str(exc).startswith("WRONGTYPE"):
+                return []  # `DEL` replaces a key of any type
+            raise self._map_response(exc, keys.ENDPOINTS) from None
+        ids: list[str] = []
+        for member in members:
+            try:
+                text = member.decode("utf-8")
+            except UnicodeDecodeError:
+                continue
+            if keys.ENDPOINT_ID.fullmatch(text) is not None:
+                ids.append(text)
+        return sorted(ids)
 
     def _read_raw_watched(self, pipe: Any) -> RawConfig:
         """Read the stored keys in immediate mode, inside `WATCH`."""
