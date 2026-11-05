@@ -21,7 +21,10 @@ and the `live` contract tests check them against the real APIs.
   response), `SourcePayloadError` (not JSON, not XML, a DOCTYPE in XML, bad encoding, too large) and
   `SourceContractError` (valid JSON in an unexpected shape: the API drifted).
   A fetch is all-or-nothing: on any of them there is no result, so the cursor
-  does not advance.
+  does not advance. `SourceTransportError.status_code` carries the final HTTP
+  status (`None` without a response), so an adapter that fetches one document
+  per record (CERT-EU) can treat a final 4xx on that document as a record-level
+  skip.
 - **Record-level failures are skipped and counted** (`FetchResult.skipped`), not
   fatal: an item that fails validation, has an unusable ID or an unparseable
   `dateUpdated`.
@@ -272,13 +275,16 @@ field); the feed items link to the advisory page and credit the source as
     has 10 items). CERT-EU publishes about two a month.
 - **Failures.** All-or-nothing on source-level problems, per-advisory skips
   otherwise:
-  - an RSS transport error, or a transport error on any advisory JSON, is a
-    `SourceTransportError` (no result, cursor unchanged);
+  - an RSS transport error, or an advisory JSON answering a 5xx or a 429 after
+    retries, a timeout or a network error, is a `SourceTransportError` (no
+    result, cursor unchanged);
   - an RSS that is not XML, has a DOCTYPE, or exceeds 1 MiB is a
     `SourcePayloadError`; an RSS without `channel` or `item`, or whose items are
     all unusable, is a `SourceContractError`;
-  - an advisory whose JSON is not JSON, is too large (2 MiB), has an unexpected
-    shape or another `serial_number` than the RSS is **skipped and counted**; the
+  - an advisory whose JSON answers a final 4xx other than 429 (withdrawn,
+    renamed, or not exported yet), is not JSON, is too large (2 MiB), has an
+    unexpected shape or another `serial_number` than the RSS is **skipped and
+    counted**, so one missing advisory never silences the source; the
     others are still emitted, and the cursor stays strictly below the failed
     advisory's `pubDate` so the next fetch retries it. When every advisory fetched
     is unusable, the fetch is a `SourceContractError`.

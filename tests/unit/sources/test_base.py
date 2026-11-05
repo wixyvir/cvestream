@@ -90,6 +90,7 @@ async def test_status_error_becomes_transport_error(
         with pytest.raises(SourceTransportError) as excinfo:
             await get_json(http, "cisa_kev", URL)
     assert excinfo.value.source == "cisa_kev"
+    assert excinfo.value.status_code == status
 
 
 @pytest.mark.anyio
@@ -98,8 +99,9 @@ async def test_network_error_becomes_transport_error(
 ) -> None:
     respx_mock.get(URL).mock(side_effect=httpx.ConnectError("refused"))
     async with _client() as http:
-        with pytest.raises(SourceTransportError):
+        with pytest.raises(SourceTransportError) as excinfo:
             await get_json(http, "euvd", URL)
+    assert excinfo.value.status_code is None
 
 
 @pytest.mark.anyio

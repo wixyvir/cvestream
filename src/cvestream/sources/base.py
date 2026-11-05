@@ -19,6 +19,7 @@ from cvestream.http import (
     HttpClient,
     HttpError,
     HttpResponseTooLargeError,
+    HttpStatusError,
 )
 
 # Opaque, owned by the adapter; the state layer stores it as text.
@@ -58,6 +59,13 @@ class SourceError(CvestreamError):
 class SourceTransportError(SourceError):
     """No usable response: network, TLS, timeout or HTTP error status."""
 
+    def __init__(
+        self, source: str, message: str, *, status_code: int | None = None
+    ) -> None:
+        super().__init__(source, message)
+        # The final HTTP status; `None` when no response arrived.
+        self.status_code = status_code
+
 
 class SourcePayloadError(SourceError):
     """A response that is not data: not JSON, bad encoding, too large."""
@@ -83,6 +91,10 @@ async def get_bytes(
         return await http.get(url, params=params, max_bytes=max_bytes)
     except HttpResponseTooLargeError as exc:
         raise SourcePayloadError(source, str(exc)) from exc
+    except HttpStatusError as exc:
+        raise SourceTransportError(
+            source, str(exc), status_code=exc.status_code
+        ) from exc
     except HttpError as exc:
         raise SourceTransportError(source, str(exc)) from exc
 

@@ -13,8 +13,11 @@ Assumptions, all checked against the live site on 2026-11-03 and documented in
   `email.utils` does not understand; the JSON `publish_date` is UTC;
 - the RSS is parsed with the standard library and a DOCTYPE is refused, so no
   entity is ever declared or expanded (XXE, "billion laughs");
-- "Affected Products" is prose or bullets without a product name, so the whole
-  section is kept as text blocks; versions stay unknown (`version_text=None`);
+- "Affected Products" is prose or bullets without a product name, so the
+  section is kept as text blocks (a lead-in with its list); versions stay
+  unknown (`version_text=None`);
+- a final 4xx on one advisory JSON (withdrawn, not exported yet) skips that
+  advisory; a 5xx, a 429 or a network error fails the whole fetch;
 - CERT-EU has no score field: `scores` is empty, never `0`.
 """
 
@@ -36,6 +39,7 @@ from cvestream.sources.base import (
     FetchResult,
     SourceContractError,
     SourcePayloadError,
+    SourceTransportError,
     clean_text,
     get_bytes,
     get_json,
@@ -382,6 +386,12 @@ def _records(
     return tuple(records)
 
 
+def _is_missing(error: SourceTransportError) -> bool:
+    """A final 4xx other than 429: this advisory is gone, not the source."""
+    status = error.status_code
+    return status is not None and 400 <= status < 500 and status != 429
+
+
 def _encode_cursor(moment: datetime) -> Cursor:
     return moment.astimezone(UTC).strftime(_CURSOR_FORMAT)
 
@@ -422,8 +432,20 @@ class CertEuAdapter:
         for item in due:
             try:
                 advisory = await self._advisory(item.serial)
+            except SourceTransportError as exc:
+                if not _is_missing(exc):
+                    raise  # an outage, a timeout or a 429 fails the whole fetch
+                skipped += 1
+                failed.append(item.pub_date)
+                log.debug(
+                    "source.record_skipped",
+                    source=NAME,
+                    record_id=item.serial,
+                    error_type=type(exc).__name__,
+                    status=exc.status_code,
+                )
+                continue
             except (SourcePayloadError, _InvalidAdvisoryError) as exc:
-                # A transport error is not caught: it fails the whole fetch.
                 skipped += 1
                 failed.append(item.pub_date)
                 log.debug(
