@@ -100,5 +100,5 @@ development_status:
   epic-3: in-progress
   3-1-valkey-configuration-provider: done
   3-2-operator-cli-for-endpoints-products-and-tokens: backlog
-  3-3-release-and-kubernetes-deployment: backlog
+  3-3-release-and-kubernetes-deployment: ready-for-dev
   epic-3-retrospective: optional
