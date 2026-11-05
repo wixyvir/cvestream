@@ -165,11 +165,11 @@ source_modules = [
 forbidden_modules = ["sqlalchemy", "alembic"]
 allow_indirect_imports = true
 
-# valkey: only cvestream.config.valkey_provider. That module does not exist
-# yet, so for now only cvestream.config as a whole may import it; story 3.1
-# tightens this to cvestream.config.valkey_provider.
+# valkey: only cvestream.config.valkey_provider. The other config modules are
+# listed one by one (a forbidden contract cannot exclude a submodule): a new
+# module in cvestream.config must be added to source_modules below.
 [[tool.importlinter.contracts]]
-name = "valkey only in config"
+name = "valkey only in config.valkey_provider"
 type = "forbidden"
 source_modules = [
     "cvestream.http",
@@ -183,6 +183,12 @@ source_modules = [
     "cvestream.log",
     "cvestream.clock",
     "cvestream.errors",
+    "cvestream.config",
+    "cvestream.config.keys",
+    "cvestream.config.models",
+    "cvestream.config.provider",
+    "cvestream.config.schema",
+    "cvestream.config.yaml_provider",
 ]
 forbidden_modules = ["valkey"]
 allow_indirect_imports = true
