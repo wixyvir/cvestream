@@ -227,7 +227,7 @@ Prerequisites:
 Secrets (never commit real values):
 
 - YAML provider (the base): `kubectl -n <ns> create secret generic cvestream-endpoints --from-file=endpoints.yaml=<file>`. It is mounted as the `/config` directory, never with `subPath`, so a Secret update reaches the pod and the daemon reloads at its next cycle.
-- Valkey provider (the example overlay): the Secret `cvestream-valkey` (key `password`, the password of `cvestream-daemon`) and the ACL Secret generated from `deploy/valkey/users.acl`. The committed `users.acl` holds the hashes of public development passwords: for production, ship your own `users.acl` (for example a `secretGenerator` with `behavior: replace` in your overlay) and a matching `cvestream-valkey` Secret. `secret.example.yaml` contains placeholders only.
+- Valkey provider (the example overlay): the Secret `cvestream-valkey` (key `password`, the password of `cvestream-daemon`) and the ACL Secret generated from `deploy/valkey/users.acl`. The committed `users.acl` holds the hashes of public development passwords: for production, ship your own `users.acl` (for example a `secretGenerator` with `behavior: replace` in your overlay) and a matching `cvestream-valkey` Secret. `secret.example.yaml` contains placeholders only: its `password` must be the one whose hash is on the `cvestream-daemon` line of the `users.acl` you deploy (with the committed file, the public dev password in `deploy/valkey/dev-secrets/cvestream-daemon.password`, for a test cluster only), otherwise Valkey refuses the daemon and it exits with code 3.
 
 Private image: `wixyvir/cvestream` is a private repository, so its GHCR package is private too. Create a pull Secret with a token that has `read:packages` (`kubectl create secret docker-registry ghcr-pull --docker-server=ghcr.io --docker-username=<user> --docker-password=<token>`) and uncomment `imagePullSecrets` in your overlay, or make the package public.
 
@@ -255,6 +255,8 @@ Exposure: route only `cvestream-public`, only `/feeds/`, through an Ingress or a
 cvestream may only reach DNS (`kube-dns` in `kube-system`), TCP 443 and, in the example overlay, Valkey. The example Valkey has no egress.
 
 Valkey (example overlay): a single instance with its AOF on a `volumeClaimTemplates` volume and no TLS inside the cluster; use your own Valkey for anything more (`CVESTREAM_VALKEY__URL`, `valkeys://` across hosts). A change to `valkey.conf` or `users.acl` rolls the pod (Kustomize hashes the generated names). Admin access without a pod of your own: `kubectl -n <ns> exec -it cvestream-valkey-0 -- valkey-cli --user cvestream-admin --pass <password>` (inside the pod, so `NetworkPolicy` does not apply). When Valkey is down at start, the daemon retries for `valkey.startup_timeout` (60 s), then exits with code 3 (`CrashLoopBackOff`); while running it keeps the last configuration.
+
+The example Valkey starts empty: until it is seeded the daemon rejects the store and exits with code 2 (`CrashLoopBackOff`). Seed it as `cvestream-admin` with the transaction of [config-contract.md](config-contract.md#valkey-cli-example-admin), sent through `kubectl -n <ns> exec -i cvestream-valkey-0 -- valkey-cli --no-auth-warning --user cvestream-admin --pass <password>` instead of `docker compose exec`; the pod restarts by itself and becomes ready.
 
 Backup: `kubectl -n <ns> exec deploy/cvestream -- cvestream db backup /data/backup-<date>.db`, then `kubectl -n <ns> cp <pod>:/data/backup-<date>.db .`.
 

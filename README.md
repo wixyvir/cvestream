@@ -58,15 +58,20 @@ your own overlay rather than editing the example.
 ```sh
 kubectl create namespace cvestream
 kubectl label namespace cvestream pod-security.kubernetes.io/enforce=restricted
-# the example overlay reads its configuration from Valkey: set the placeholder
-# password in deploy/k8s/overlays/example/secret.example.yaml first (never commit it)
+# the example overlay reads its configuration from Valkey: the password in
+# deploy/k8s/overlays/example/secret.example.yaml must match the cvestream-daemon
+# hash of deploy/valkey/users.acl (public dev passwords: test clusters only;
+# ship your own users.acl otherwise). Never commit a real password.
 kubectl apply -k deploy/k8s/overlays/example
+# the store starts empty (the daemon exits with code 2 until then): seed it
+# through `kubectl -n cvestream exec -i cvestream-valkey-0 -- valkey-cli ...`
 ```
 
 One replica with `Recreate`, a `ReadWriteOnce` block-storage volume for the
 state, restricted Pod Security, `NetworkPolicy`. The image is a private GHCR
-package: add an `imagePullSecrets` or make it public. Details, Secrets and
-Ingress access logs: [`docs/operations.md`](docs/operations.md#kubernetes).
+package: add an `imagePullSecrets` or make it public. Details, Secrets,
+seeding and Ingress access logs:
+[`docs/operations.md`](docs/operations.md#kubernetes).
 
 ## Releases and image tags
 
