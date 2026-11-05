@@ -247,15 +247,24 @@ def run(
     return result
 
 
-def reload_config(provider: ConfigProvider, current: ConfigSnapshot) -> ConfigSnapshot:
+def _same_content(a: ConfigSnapshot, b: ConfigSnapshot) -> bool:
+    return a.endpoints == b.endpoints and dict(a.tokens) == dict(b.tokens)
+
+
+def reload_config(
+    provider: ConfigProvider, current: ConfigSnapshot, *, force: bool = False
+) -> ConfigSnapshot:
     """The snapshot to use now: a valid new one, else `current`.
 
     An invalid or unreadable configuration keeps the last valid one and is
-    logged. Never logs the snapshot or its tokens.
+    logged. Never logs the snapshot or its tokens. With `force` the revision
+    comparison is skipped (the safety net for a writer that forgot to bump the
+    revision): the configuration is loaded again, and `config.reloaded` is
+    logged only when it differs from `current`.
     """
     try:
         revision = provider.revision()
-        if revision == current.revision:
+        if revision == current.revision and not force:
             return current
         snapshot = provider.load()
     except ConfigValidationError as exc:
@@ -264,7 +273,11 @@ def reload_config(provider: ConfigProvider, current: ConfigSnapshot) -> ConfigSn
     except ConfigUnavailableError as exc:
         log.warning("config.unavailable", error_type=type(exc).__name__)
         return current
-    log.info("config.reloaded", count=len(snapshot.endpoints))
+    if snapshot.revision == current.revision and _same_content(snapshot, current):
+        return current
+    log.info(
+        "config.reloaded", count=len(snapshot.endpoints), revision=snapshot.revision
+    )
     return snapshot
 
 
@@ -274,10 +287,12 @@ def cycle(
     snapshot: ConfigSnapshot,
     outcomes: Sequence[SourceOutcome],
     clock: Clock,
+    *,
+    force_reload: bool = False,
 ) -> CycleResult:
     """One pipeline cycle: reload the config, run, log `cycle.summary`."""
     started = time.monotonic()
-    snapshot = reload_config(provider, snapshot)
+    snapshot = reload_config(provider, snapshot, force=force_reload)
     batches = [
         SourceBatch(o.source, o.result) for o in outcomes if o.result is not None
     ]

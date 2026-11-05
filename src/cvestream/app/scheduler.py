@@ -11,10 +11,12 @@ All waits and randomness are injected, so tests never sleep for real.
 """
 
 import asyncio
+import functools
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from typing import Protocol
 
 import structlog
 
@@ -34,9 +36,23 @@ CRASH_BACKOFF_BASE = 1.0
 CRASH_BACKOFF_CAP = 300.0
 
 type Sleep = Callable[[float], Awaitable[None]]
-type RunCycle = Callable[
-    [State, ConfigProvider, ConfigSnapshot, list[SourceOutcome], Clock], CycleResult
-]
+# Every N-th pipeline run reloads the configuration even when its revision did
+# not change: the safety net for a writer that forgot to bump the revision.
+FULL_RELOAD_EVERY = 12
+
+
+class RunCycle(Protocol):
+    def __call__(
+        self,
+        state: State,
+        provider: ConfigProvider,
+        snapshot: ConfigSnapshot,
+        outcomes: list[SourceOutcome],
+        clock: Clock,
+        *,
+        force_reload: bool = False,
+    ) -> CycleResult: ...
+
 
 log = structlog.get_logger()
 
@@ -78,6 +94,7 @@ class PipelineWorker:
         self._run_cycle = run_cycle
         self._queue: asyncio.Queue[_Job] = asyncio.Queue()
         self._closed = False
+        self._runs = 0
         self.snapshot = snapshot
 
     async def submit(self, outcome: SourceOutcome) -> bool:
@@ -125,14 +142,20 @@ class PipelineWorker:
 
     async def _run(self, jobs: list[_Job]) -> None:
         outcomes = [job.outcome for job in jobs]
+        self._runs += 1
+        # Never on the first run: the configuration was loaded just before it.
+        force_reload = self._runs % FULL_RELOAD_EVERY == 0
         try:
             result = await asyncio.to_thread(
-                self._run_cycle,
-                self._state,
-                self._provider,
-                self.snapshot,
-                outcomes,
-                self._clock,
+                functools.partial(
+                    self._run_cycle,
+                    self._state,
+                    self._provider,
+                    self.snapshot,
+                    outcomes,
+                    self._clock,
+                    force_reload=force_reload,
+                )
             )
             self.snapshot = result.snapshot
             self._holder.current = FeedCache.build(
