@@ -4,7 +4,7 @@ baseline_commit: 6c02c2c
 
 # Story 3.1: Valkey configuration provider
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -77,57 +77,57 @@ so that other tools (BoM connectors, CD workers) can maintain product lists thro
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: dependency and layering** (AC: 9)
-  - [ ] 1.1 `uv add 'valkey>=6.2.0'` (valkey-py 6.2.0, released 2026-10-12, `py.typed`, requires Python >= 3.11). Never edit `uv.lock` by hand. Do **not** add `valkey[libvalkey]` (C parser): not needed.
-  - [ ] 1.2 `pyproject.toml` `[tool.importlinter]`: replace the "valkey only in config" contract by "valkey only in config.valkey_provider": add `cvestream.config.models`, `cvestream.config.provider`, `cvestream.config.keys`, `cvestream.config.yaml_provider`, `cvestream.config.schema` (and `cvestream.config` itself, the package `__init__`) to `source_modules`; keep `allow_indirect_imports = true`. Remove the "story 3.1 tightens this" comment and say that a new `config/` module must be added to the list. Run `uv run lint-imports`.
-- [ ] **Task 2: settings** (AC: 3)
-  - [ ] 2.1 `settings.py`: `ValkeySettings(BaseModel, extra="forbid")` with `url: str | None = None`, `password: SecretStr | None = None`, `startup_timeout: timedelta = Field(default=timedelta(seconds=60), gt=timedelta(0), le=timedelta(hours=1))`. `Settings.valkey: ValkeySettings = Field(default_factory=ValkeySettings)`; `config_provider: Literal["yaml", "valkey"] = "yaml"`.
-  - [ ] 2.2 `url` validator (see Dev Notes, "Settings"): scheme `valkey` or `valkeys`, a host, an optional port, an optional `/<db>` path of digits, no password, no query, no fragment. Error messages never include the URL.
-  - [ ] 2.3 `Settings` `model_validator(mode="after")`: `config_provider == "valkey"` requires `valkey.url`.
-  - [ ] 2.4 `tests/unit/test_settings.py`: delete `test_valkey_config_provider_is_rejected_until_it_exists`; replace the test-only `_SettingsWithNestedSecret` by the real field (`CVESTREAM_VALKEY__PASSWORD_FILE` read, both forms set → `SettingsError`, trailing newline stripped); add URL validation cases (password in URL rejected and not echoed, `redis://` rejected, query rejected, `valkeys://` accepted, missing url with provider valkey rejected), `startup_timeout` default and `PT10S` from the environment.
-- [ ] **Task 3: key layout** (AC: 1)
-  - [ ] 3.1 `config/keys.py`: `PREFIX = "cvestream:v1:"`, `SCHEMA`, `REVISION`, `ENDPOINTS`, and `endpoint(id)`, `products(id)`, `token(id)` builders (they assume a valid slug; callers validate ids first). Plus `SCHEMA_VALUE = 1` taken from `config.models.SCHEMA_VERSION`. No I/O, no `valkey` import.
-  - [ ] 3.2 `tests/unit/config/test_keys.py`: the exact strings (they are the public contract), and that no builder can produce a key under `token:` other than `token(id)`.
-- [ ] **Task 4: provider errors** (AC: 1, 2, 4)
-  - [ ] 4.1 `config/provider.py`: add `ConfigAccessDeniedError(ConfigUnavailableError)` (authentication or ACL refusal: not retried at startup) and `ConfigConflictError(ConfigUnavailableError)` (revision kept moving during a read, or write retries exhausted). Docstrings say which is retried.
-  - [ ] 4.2 `tests/unit/test_errors.py` or `tests/unit/config/test_provider.py`: both inherit `ConfigError` → `CvestreamError` and end in `Error`.
-- [ ] **Task 5: Valkey provider** (AC: 1, 2, 5)
-  - [ ] 5.1 `config/valkey_provider.py`: `ValkeyConfigProvider` with `revision()`, `load()`, `update(change)`, `close()`, built by `ValkeyConfigProvider.from_settings(settings.valkey)` (see Dev Notes, "Provider design"). Client built once with `valkey.Valkey.from_url(url, password=..., socket_timeout=5, socket_connect_timeout=5, decode_responses=False)`.
-  - [ ] 5.2 Snapshot read with the revision bracket and `SNAPSHOT_RETRIES = 3`; assembly of the document in a **pure function** (`assemble(raw) -> dict`, no client) so it is unit-tested without a server.
-  - [ ] 5.3 Error mapping (Dev Notes, "Error mapping"): `AuthenticationError`/`AuthorizationError`/`NoPermissionError` → `ConfigAccessDeniedError`; other `ConnectionError`, `TimeoutError`, `BusyLoadingError` → `ConfigUnavailableError`; `WRONGTYPE`, bad JSON, bad UTF-8, missing keys → `ConfigValidationError(source="valkey", ...)` naming the key; `WatchError` → retry, then `ConfigConflictError`. Messages never contain a password, a token or a raw value; host, port and user name are fine.
-  - [ ] 5.4 `update(change: Callable[[ConfigDocument], ConfigDocument]) -> str`: the write protocol of AC 2, writes every key of the new document, `SREM`/`DEL` the keys of removed endpoints, `SET schema 1`, `INCR revision`; returns the new revision. Validates before `MULTI` (an invalid result raises `ConfigValidationError` and writes nothing). Story 3.2 builds the CLI on it.
-  - [ ] 5.5 `tests/unit/config/test_valkey_provider.py` (no server): `assemble()` cases (happy path, shorthand products, missing `schema` → validation error, bad JSON in one key names the key and not the value, endpoint JSON carrying `id`/`token`/`products` rejected, missing products key → `[]`, missing token → error naming the endpoint, invalid UTF-8, ids sorted, revision absent → `"0"`), the revision-bracket retry logic through a fake reader (Dev Notes, "Testability seam"), the error-message hygiene (a token value never appears in any message).
-- [ ] **Task 6: pipeline and runtime wiring** (AC: 3, 4, 5)
-  - [ ] 6.1 `config/provider.py`: `open_provider(settings) -> tuple[ConfigProvider, Callable[[], None]]`, the provider and its close function (YAML → `YamlConfigProvider(settings.endpoints_file)` and a no-op; Valkey → `ValkeyConfigProvider.from_settings(...)` and its `close`, imported **inside** the function so YAML mode never imports `valkey`). The `ConfigProvider` protocol and every test fake stay unchanged.
-  - [ ] 6.2 `pipeline/run.py`: `reload_config(provider, current, *, force=False)` and `cycle(..., force_reload=False)`; with `force`, skip the revision comparison; log `config.reloaded` (with `count` and `revision`) only when the new snapshot differs from `current`. Add `revision` to `config.reloaded`.
-  - [ ] 6.3 `app/scheduler.py` `PipelineWorker`: count runs; pass `force_reload=True` every `FULL_RELOAD_EVERY = 12` runs (not on the first). Unit test with the injected `run_cycle`.
-  - [ ] 6.4 `app/runtime.py`: use `open_provider(settings)` in `_start` and `poll_once`; new `provider_factory` and `monotonic` injectables on `serve`/`poll_once`; a startup loader that, for Valkey, retries `ConfigUnavailableError` (not `ConfigAccessDeniedError`) with the backoff of AC 4 until `startup_timeout`, using the injected `sleep` and `monotonic`; YAML keeps today's behaviour (exit 3 at once when the file is unreadable). Log `config.loaded` (info, `count`, `revision`) once loaded. Call the close function returned by `open_provider` in `_shutdown` and in the `finally` of `poll_once`.
-  - [ ] 6.5 `tests/unit/app/test_runtime.py` and `tests/unit/pipeline/test_run.py`: startup retries then exit 3 (fake provider + fake sleep/monotonic, count of attempts and waits `1, 2, 4, ...` capped and cut to the deadline), access denied → exit 3 with no retry, validation error → exit 2, `/readyz` 503 while retrying, `force_reload`, `config.unavailable` warning per run during an outage with the last snapshot kept.
-- [ ] **Task 7: server files** (AC: 6)
-  - [ ] 7.1 `deploy/valkey/valkey.conf` exactly as in Dev Notes ("Server files"), comments allowed there.
-  - [ ] 7.2 `deploy/valkey/users.acl` exactly as in Dev Notes: four `user` lines, **no comment**, hashes of the dev passwords.
-  - [ ] 7.3 `deploy/valkey/dev-secrets/{cvestream-daemon,cvestream-admin,connector-example}.password`: dev-only passwords (one line, no trailing newline). Hash: `printf '%s' "$(cat file)" | sha256sum`.
-  - [ ] 7.4 `tests/unit/test_deploy_valkey.py` (no server): `users.acl` has only `user` lines, has `user default off ...`, each hash equals the SHA-256 of its dev secret file, no `>` plaintext password, no `allkeys`/`~*`/`+@all`, and the `connector-example` line has no pattern that matches `cvestream:v1:token:x` (use `fnmatch.fnmatchcase`); `valkey.conf` has `appendonly yes`, `appendfsync everysec` and `aclfile /usr/local/etc/valkey/users.acl`.
-- [ ] **Task 8: integration tests against a real Valkey** (AC: 2, 4, 6)
-  - [ ] 8.1 `tests/integration/conftest.py` (or a fixture module): `VALKEY_TEST_ADDRESS` → skip with a clear reason when unset, **fail** when unset and `CI` is set; admin cleanup fixture that deletes every `cvestream:v1:*` key the test wrote (via the `endpoints` set, then `schema`, `revision`); clients per user built from `deploy/valkey/dev-secrets/`.
-  - [ ] 8.2 `tests/integration/test_valkey_provider.py` (`pytestmark = [pytest.mark.valkey, pytest.mark.allow_hosts([<host>])]`): every case of Dev Notes, "Integration tests".
-  - [ ] 8.3 `tests/integration/test_startup_requires_valkey.py`: `serve()` with `config_provider=valkey`, a closed local port (bind a socket, read its port, close it), `startup_timeout=PT3S`, fake `sleep`/`monotonic` → returns 3, `config.unavailable` logged, `/readyz` never ready; this case needs no server and is **not** marked `valkey`. Add the wrong-password and disabled-`default` cases marked `valkey` (exit 3 at once, `ConfigAccessDeniedError`).
-  - [ ] 8.4 Run them locally against a disposable container (Dev Notes, "Running the valkey tests locally"), then stop it.
-- [ ] **Task 9: dev stack and CI** (AC: 7)
-  - [ ] 9.1 `compose.yml`: `valkey` service and secrets as in Dev Notes ("compose.yml"); update the header comment ("Valkey joins in story 3.1" → how to switch the app to Valkey and seed it). `docker compose config` must parse.
-  - [ ] 9.2 `.github/workflows/ci.yml`: a "Start Valkey" step after checkout and before `pytest`, a readiness wait, `VALKEY_TEST_ADDRESS` on the pytest step (Dev Notes, "CI"). Do not add a second job.
-- [ ] **Task 10: documentation** (AC: 8, 9)
-  - [ ] 10.1 New `docs/config-contract.md` (outline in Dev Notes).
-  - [ ] 10.2 `docs/configuration.md`: `config_provider` (`yaml` | `valkey`), the `valkey.*` keys, secrets sentence ("the Valkey password will follow" → it exists now), "Reloading" for Valkey (revision key, full reload every 12 cycles).
-  - [ ] 10.3 `settings.example.yaml`: `config_provider` comment and a commented `valkey:` section with every key and its `Env:` line.
-  - [ ] 10.4 `docs/operations.md`: TL;DR bullet, exit code 3 now covers Valkey, `config.loaded`, `config.unavailable` wording for Valkey (startup retries, outage), a `## Valkey` section (running it, ACL users, rotating a Valkey password, AOF and backup, outage behaviour), token rotation note for Valkey (until story 3.2: `SET token:<id>` + `INCR revision` as `cvestream-admin`).
-  - [ ] 10.5 `README.md`: one paragraph on the Valkey provider, and how to run the `valkey` tests (`VALKEY_TEST_ADDRESS`).
-  - [ ] 10.6 `CLAUDE.md`: library ownership `valkey` only in `config/valkey_provider.py`; gates: the `valkey` tests need `VALKEY_TEST_ADDRESS`.
-  - [ ] 10.7 `_bmad-output/planning-artifacts/architecture.md` and `_bmad-output/project-context.md`: amend the patterns changed here (Dev Notes, "Architecture amendments").
-  - [ ] 10.8 `_bmad-output/implementation-artifacts/deferred-work.md`: update "Configuration reload waits for a source fetch" (still deferred, see Decisions) and record anything new you defer.
-- [ ] **Task 11: gates and bookkeeping** (AC: 9)
-  - [ ] 11.1 Every gate of `CLAUDE.md` in the worktree, plus the `valkey` tests against a disposable container. `docker build --target runtime -t cvestream:story-3-1-valkey-configuration-provider .`: try once; behind the proxy it fails on `ghcr.io` with x509: report it, do not disable verification, rely on CI.
-  - [ ] 11.2 Dev Agent Record, File List, status `review` here and in `sprint-status.yaml`.
+- [x] **Task 1: dependency and layering** (AC: 9)
+  - [x] 1.1 `uv add 'valkey>=6.2.0'` (valkey-py 6.2.0, released 2026-10-12, `py.typed`, requires Python >= 3.11). Never edit `uv.lock` by hand. Do **not** add `valkey[libvalkey]` (C parser): not needed.
+  - [x] 1.2 `pyproject.toml` `[tool.importlinter]`: replace the "valkey only in config" contract by "valkey only in config.valkey_provider": add `cvestream.config.models`, `cvestream.config.provider`, `cvestream.config.keys`, `cvestream.config.yaml_provider`, `cvestream.config.schema` (and `cvestream.config` itself, the package `__init__`) to `source_modules`; keep `allow_indirect_imports = true`. Remove the "story 3.1 tightens this" comment and say that a new `config/` module must be added to the list. Run `uv run lint-imports`.
+- [x] **Task 2: settings** (AC: 3)
+  - [x] 2.1 `settings.py`: `ValkeySettings(BaseModel, extra="forbid")` with `url: str | None = None`, `password: SecretStr | None = None`, `startup_timeout: timedelta = Field(default=timedelta(seconds=60), gt=timedelta(0), le=timedelta(hours=1))`. `Settings.valkey: ValkeySettings = Field(default_factory=ValkeySettings)`; `config_provider: Literal["yaml", "valkey"] = "yaml"`.
+  - [x] 2.2 `url` validator (see Dev Notes, "Settings"): scheme `valkey` or `valkeys`, a host, an optional port, an optional `/<db>` path of digits, no password, no query, no fragment. Error messages never include the URL.
+  - [x] 2.3 `Settings` `model_validator(mode="after")`: `config_provider == "valkey"` requires `valkey.url`.
+  - [x] 2.4 `tests/unit/test_settings.py`: delete `test_valkey_config_provider_is_rejected_until_it_exists`; replace the test-only `_SettingsWithNestedSecret` by the real field (`CVESTREAM_VALKEY__PASSWORD_FILE` read, both forms set → `SettingsError`, trailing newline stripped); add URL validation cases (password in URL rejected and not echoed, `redis://` rejected, query rejected, `valkeys://` accepted, missing url with provider valkey rejected), `startup_timeout` default and `PT10S` from the environment.
+- [x] **Task 3: key layout** (AC: 1)
+  - [x] 3.1 `config/keys.py`: `PREFIX = "cvestream:v1:"`, `SCHEMA`, `REVISION`, `ENDPOINTS`, and `endpoint(id)`, `products(id)`, `token(id)` builders (they assume a valid slug; callers validate ids first). Plus `SCHEMA_VALUE = 1` taken from `config.models.SCHEMA_VERSION`. No I/O, no `valkey` import.
+  - [x] 3.2 `tests/unit/config/test_keys.py`: the exact strings (they are the public contract), and that no builder can produce a key under `token:` other than `token(id)`.
+- [x] **Task 4: provider errors** (AC: 1, 2, 4)
+  - [x] 4.1 `config/provider.py`: add `ConfigAccessDeniedError(ConfigUnavailableError)` (authentication or ACL refusal: not retried at startup) and `ConfigConflictError(ConfigUnavailableError)` (revision kept moving during a read, or write retries exhausted). Docstrings say which is retried.
+  - [x] 4.2 `tests/unit/test_errors.py` or `tests/unit/config/test_provider.py`: both inherit `ConfigError` → `CvestreamError` and end in `Error`.
+- [x] **Task 5: Valkey provider** (AC: 1, 2, 5)
+  - [x] 5.1 `config/valkey_provider.py`: `ValkeyConfigProvider` with `revision()`, `load()`, `update(change)`, `close()`, built by `ValkeyConfigProvider.from_settings(settings.valkey)` (see Dev Notes, "Provider design"). Client built once with `valkey.Valkey.from_url(url, password=..., socket_timeout=5, socket_connect_timeout=5, decode_responses=False)`.
+  - [x] 5.2 Snapshot read with the revision bracket and `SNAPSHOT_RETRIES = 3`; assembly of the document in a **pure function** (`assemble(raw) -> dict`, no client) so it is unit-tested without a server.
+  - [x] 5.3 Error mapping (Dev Notes, "Error mapping"): `AuthenticationError`/`AuthorizationError`/`NoPermissionError` → `ConfigAccessDeniedError`; other `ConnectionError`, `TimeoutError`, `BusyLoadingError` → `ConfigUnavailableError`; `WRONGTYPE`, bad JSON, bad UTF-8, missing keys → `ConfigValidationError(source="valkey", ...)` naming the key; `WatchError` → retry, then `ConfigConflictError`. Messages never contain a password, a token or a raw value; host, port and user name are fine.
+  - [x] 5.4 `update(change: Callable[[ConfigDocument], ConfigDocument]) -> str`: the write protocol of AC 2, writes every key of the new document, `SREM`/`DEL` the keys of removed endpoints, `SET schema 1`, `INCR revision`; returns the new revision. Validates before `MULTI` (an invalid result raises `ConfigValidationError` and writes nothing). Story 3.2 builds the CLI on it.
+  - [x] 5.5 `tests/unit/config/test_valkey_provider.py` (no server): `assemble()` cases (happy path, shorthand products, missing `schema` → validation error, bad JSON in one key names the key and not the value, endpoint JSON carrying `id`/`token`/`products` rejected, missing products key → `[]`, missing token → error naming the endpoint, invalid UTF-8, ids sorted, revision absent → `"0"`), the revision-bracket retry logic through a fake reader (Dev Notes, "Testability seam"), the error-message hygiene (a token value never appears in any message).
+- [x] **Task 6: pipeline and runtime wiring** (AC: 3, 4, 5)
+  - [x] 6.1 `config/provider.py`: `open_provider(settings) -> tuple[ConfigProvider, Callable[[], None]]`, the provider and its close function (YAML → `YamlConfigProvider(settings.endpoints_file)` and a no-op; Valkey → `ValkeyConfigProvider.from_settings(...)` and its `close`, imported **inside** the function so YAML mode never imports `valkey`). The `ConfigProvider` protocol and every test fake stay unchanged.
+  - [x] 6.2 `pipeline/run.py`: `reload_config(provider, current, *, force=False)` and `cycle(..., force_reload=False)`; with `force`, skip the revision comparison; log `config.reloaded` (with `count` and `revision`) only when the new snapshot differs from `current`. Add `revision` to `config.reloaded`.
+  - [x] 6.3 `app/scheduler.py` `PipelineWorker`: count runs; pass `force_reload=True` every `FULL_RELOAD_EVERY = 12` runs (not on the first). Unit test with the injected `run_cycle`.
+  - [x] 6.4 `app/runtime.py`: use `open_provider(settings)` in `_start` and `poll_once`; new `provider_factory` and `monotonic` injectables on `serve`/`poll_once`; a startup loader that, for Valkey, retries `ConfigUnavailableError` (not `ConfigAccessDeniedError`) with the backoff of AC 4 until `startup_timeout`, using the injected `sleep` and `monotonic`; YAML keeps today's behaviour (exit 3 at once when the file is unreadable). Log `config.loaded` (info, `count`, `revision`) once loaded. Call the close function returned by `open_provider` in `_shutdown` and in the `finally` of `poll_once`.
+  - [x] 6.5 `tests/unit/app/test_runtime.py` and `tests/unit/pipeline/test_run.py`: startup retries then exit 3 (fake provider + fake sleep/monotonic, count of attempts and waits `1, 2, 4, ...` capped and cut to the deadline), access denied → exit 3 with no retry, validation error → exit 2, `/readyz` 503 while retrying, `force_reload`, `config.unavailable` warning per run during an outage with the last snapshot kept.
+- [x] **Task 7: server files** (AC: 6)
+  - [x] 7.1 `deploy/valkey/valkey.conf` exactly as in Dev Notes ("Server files"), comments allowed there.
+  - [x] 7.2 `deploy/valkey/users.acl` exactly as in Dev Notes: four `user` lines, **no comment**, hashes of the dev passwords.
+  - [x] 7.3 `deploy/valkey/dev-secrets/{cvestream-daemon,cvestream-admin,connector-example}.password`: dev-only passwords (one line, no trailing newline). Hash: `printf '%s' "$(cat file)" | sha256sum`.
+  - [x] 7.4 `tests/unit/test_deploy_valkey.py` (no server): `users.acl` has only `user` lines, has `user default off ...`, each hash equals the SHA-256 of its dev secret file, no `>` plaintext password, no `allkeys`/`~*`/`+@all`, and the `connector-example` line has no pattern that matches `cvestream:v1:token:x` (use `fnmatch.fnmatchcase`); `valkey.conf` has `appendonly yes`, `appendfsync everysec` and `aclfile /usr/local/etc/valkey/users.acl`.
+- [x] **Task 8: integration tests against a real Valkey** (AC: 2, 4, 6)
+  - [x] 8.1 `tests/integration/conftest.py` (or a fixture module): `VALKEY_TEST_ADDRESS` → skip with a clear reason when unset, **fail** when unset and `CI` is set; admin cleanup fixture that deletes every `cvestream:v1:*` key the test wrote (via the `endpoints` set, then `schema`, `revision`); clients per user built from `deploy/valkey/dev-secrets/`.
+  - [x] 8.2 `tests/integration/test_valkey_provider.py` (`pytestmark = [pytest.mark.valkey, pytest.mark.allow_hosts([<host>])]`): every case of Dev Notes, "Integration tests".
+  - [x] 8.3 `tests/integration/test_startup_requires_valkey.py`: `serve()` with `config_provider=valkey`, a closed local port (bind a socket, read its port, close it), `startup_timeout=PT3S`, fake `sleep`/`monotonic` → returns 3, `config.unavailable` logged, `/readyz` never ready; this case needs no server and is **not** marked `valkey`. Add the wrong-password and disabled-`default` cases marked `valkey` (exit 3 at once, `ConfigAccessDeniedError`).
+  - [x] 8.4 Run them locally against a disposable container (Dev Notes, "Running the valkey tests locally"), then stop it.
+- [x] **Task 9: dev stack and CI** (AC: 7)
+  - [x] 9.1 `compose.yml`: `valkey` service and secrets as in Dev Notes ("compose.yml"); update the header comment ("Valkey joins in story 3.1" → how to switch the app to Valkey and seed it). `docker compose config` must parse.
+  - [x] 9.2 `.github/workflows/ci.yml`: a "Start Valkey" step after checkout and before `pytest`, a readiness wait, `VALKEY_TEST_ADDRESS` on the pytest step (Dev Notes, "CI"). Do not add a second job.
+- [x] **Task 10: documentation** (AC: 8, 9)
+  - [x] 10.1 New `docs/config-contract.md` (outline in Dev Notes).
+  - [x] 10.2 `docs/configuration.md`: `config_provider` (`yaml` | `valkey`), the `valkey.*` keys, secrets sentence ("the Valkey password will follow" → it exists now), "Reloading" for Valkey (revision key, full reload every 12 cycles).
+  - [x] 10.3 `settings.example.yaml`: `config_provider` comment and a commented `valkey:` section with every key and its `Env:` line.
+  - [x] 10.4 `docs/operations.md`: TL;DR bullet, exit code 3 now covers Valkey, `config.loaded`, `config.unavailable` wording for Valkey (startup retries, outage), a `## Valkey` section (running it, ACL users, rotating a Valkey password, AOF and backup, outage behaviour), token rotation note for Valkey (until story 3.2: `SET token:<id>` + `INCR revision` as `cvestream-admin`).
+  - [x] 10.5 `README.md`: one paragraph on the Valkey provider, and how to run the `valkey` tests (`VALKEY_TEST_ADDRESS`).
+  - [x] 10.6 `CLAUDE.md`: library ownership `valkey` only in `config/valkey_provider.py`; gates: the `valkey` tests need `VALKEY_TEST_ADDRESS`.
+  - [x] 10.7 `_bmad-output/planning-artifacts/architecture.md` and `_bmad-output/project-context.md`: amend the patterns changed here (Dev Notes, "Architecture amendments").
+  - [x] 10.8 `_bmad-output/implementation-artifacts/deferred-work.md`: update "Configuration reload waits for a source fetch" (still deferred, see Decisions) and record anything new you defer.
+- [x] **Task 11: gates and bookkeeping** (AC: 9)
+  - [x] 11.1 Every gate of `CLAUDE.md` in the worktree, plus the `valkey` tests against a disposable container. `docker build --target runtime -t cvestream:story-3-1-valkey-configuration-provider .`: try once; behind the proxy it fails on `ghcr.io` with x509: report it, do not disable verification, rely on CI.
+  - [x] 11.2 Dev Agent Record, File List, status `review` here and in `sprint-status.yaml`.
 
 ## Dev Notes
 
@@ -517,14 +517,79 @@ Recorded here and in the PR; the code review may raise them as "decision needed"
 
 ### Agent Model Used
 
+Claude Sonnet 5.5 (`claude-sonnet-5-5`), autonomous run of `bmad-dev-story` (2026-11-05).
+
 ### Debug Log References
+
+- `valkey-py` sends `INCR` as `INCRBY key 1`: the first integration run failed with `NOPERM ... 'incrby'` for `cvestream-admin`. Fixed by adding `+incrby` next to `+incr` in the admin and connector ACL lines (own commit `fix(story-3.1): allow INCRBY in the ACL users`); `docs/config-contract.md` and `architecture.md` say so.
+- `str(ValidationError)` embeds the input value (a URL carrying a password would leak, truncated to 50 characters). The CLI already prints `errors(include_input=False)`, so the test asserts on that path and a CLI test (`test_a_valkey_url_with_a_password_is_never_echoed`) covers the real output.
+- import-linter: a `forbidden` contract whose source is the package `cvestream.config` also covers `cvestream.config.valkey_provider`, so listing sibling modules one by one (as the story suggested) does not work with the package in the list and misses new modules without it. Kept `cvestream.config` as a source and added `ignore_imports = ["cvestream.config.valkey_provider -> valkey"]`; verified that an `import valkey` added to `config/keys.py` breaks the contract.
 
 ### Completion Notes List
 
 - Story created by `bmad-create-story` (autonomous run, 2026-11-05). Ultimate context engine analysis completed: comprehensive developer guide created. Choices made without a human: see "Decisions taken autonomously".
+- Implemented every task. 1340 tests pass with a server (`VALKEY_TEST_ADDRESS` set; 28 `valkey`-marked tests run against a disposable `valkey/valkey:9.1.3` with the repo's `deploy/valkey/` files), 1312 pass and 28 skip without one; with `CI` set and no server the 25 server tests fail on purpose. Gates green locally: `uv sync --locked`, ruff check and format, ty, lint-imports (7 contracts kept), pytest, `config schema --check` (schema unchanged: no model change), `config validate endpoints.example.yaml`, `docker compose config` (also with the devcontainer overlay) and a real `docker compose up valkey` PING. `docker build --target runtime` fails on this machine with the known x509 error on `ghcr.io` (proxy CA not trusted by the daemon): not worked around, the CI `ci` check is the gate. No `deploy/k8s` yet (story 3.3).
+- Manual end-to-end checks against the disposable server: `cvestream run` on the Valkey provider logs `config.loaded` (count, revision) and serves `/readyz` 200; unreachable Valkey with `PT3S` gives two `config.unavailable` warnings (`retry_in` 1.0 then 2.0, cut to the deadline) then exit 3 with one stderr line; a wrong password exits 3 at once with `ConfigAccessDeniedError`; `docker pause` of Valkey while running keeps `/readyz` at 200 and logs `config.unavailable`, the daemon recovers after `unpause`.
+- Deviations and autonomous choices (the review may raise them):
+  1. **import-linter** uses `ignore_imports` instead of a module list (see Debug Log).
+  2. **`+incrby`** added to the ACL lines of the admin and the connector (valkey-py sends `INCRBY`).
+  3. **`keys.ENDPOINT_ID`** (compiled `[a-z0-9-]{1,40}`) added to `config/keys.py`, with a test that it agrees with the model's `EndpointId`; ids read from the `endpoints` set are checked against it before any key is built.
+  4. **`RunCycle` is now a `Protocol`** with a `force_reload` keyword (the `PipelineWorker` always passes it): the three test fakes in `tests/unit/app/test_scheduler.py` gained the keyword. `cycle()` and `reload_config()` default `force` to `False`, so every other caller is unchanged.
+  5. **`reload_config`** with the same revision and the same content returns `current` silently even when forced; with a different revision it logs `config.reloaded` as before (also when the content is identical, as for a YAML whitespace edit), now with `revision`.
+  6. **`poll_once`** also got injectable `provider_factory`, `sleep` and `monotonic` (like `serve`), so its startup retry is testable without real time.
+  7. **`update()` on an unseeded store** (no `schema`, no endpoints) starts from an empty document, so the first write seeds it; `load()` on the same store still rejects it ("not seeded"). A store with endpoints but no `schema` is invalid for both.
+  8. **Per-key diagnosis:** pipelined reads use `execute(raise_on_error=False)` so a `WRONGTYPE` or `NOPERM` names the key (`cvestream:v1:endpoint:<id>: wrong type`).
+  9. **`ExecAbortError`** (a command refused inside `MULTI`) is mapped to `ConfigAccessDeniedError`.
+  10. The `valkey` tests import their helpers from `tests/integration/valkey_support.py` and share an `admin` fixture in `tests/integration/conftest.py` (the story allowed either).
+  11. Compose: the `app` service gets the `valkey` URL and the secret file variables even in YAML mode (they are unused there); `CVESTREAM_CONFIG_PROVIDER` defaults to `yaml`.
+- Interface for story 3.3: unchanged from the story (`deploy/valkey/valkey.conf` and `users.acl` paths, `valkey-server /usr/local/etc/valkey/valkey.conf`, `/data`, port 6379, the three user names, the daemon settings). The only change a 3.3 rebase may notice: `users.acl` now lists `+incrby` for the admin and connector lines.
+- Decisions recorded for the review (unchanged from "Decisions taken autonomously"): user in the URL and password through `valkey.password`; hashes only in `users.acl`; explicit command lists; TLS accepted, untested; startup backoff and no retry for access denied; full reload every 12 cycles; no independent revision poll (still deferred, `deferred-work.md` updated); `valkey` tests skip locally and fail on CI; image tag `9.1.3`; missing products key means `[]`.
+- New deferred items recorded in `deferred-work.md`: no stale-connection retry on the Valkey client; TLS not tested end to end.
 
 ### File List
+
+src/cvestream/config/keys.py (new)
+src/cvestream/config/valkey_provider.py (new)
+src/cvestream/config/provider.py
+src/cvestream/settings.py
+src/cvestream/pipeline/run.py
+src/cvestream/app/runtime.py
+src/cvestream/app/scheduler.py
+pyproject.toml
+uv.lock
+deploy/valkey/valkey.conf (new)
+deploy/valkey/users.acl (new)
+deploy/valkey/dev-secrets/cvestream-daemon.password (new)
+deploy/valkey/dev-secrets/cvestream-admin.password (new)
+deploy/valkey/dev-secrets/connector-example.password (new)
+compose.yml
+.github/workflows/ci.yml
+settings.example.yaml
+README.md
+CLAUDE.md
+docs/config-contract.md (new)
+docs/configuration.md
+docs/operations.md
+_bmad-output/planning-artifacts/architecture.md
+_bmad-output/project-context.md
+_bmad-output/implementation-artifacts/deferred-work.md
+_bmad-output/implementation-artifacts/sprint-status.yaml
+_bmad-output/implementation-artifacts/3-1-valkey-configuration-provider.md
+tests/unit/config/test_keys.py (new)
+tests/unit/config/test_valkey_provider.py (new)
+tests/unit/config/test_provider.py
+tests/unit/test_settings.py
+tests/unit/test_deploy_valkey.py (new)
+tests/unit/cli/test_run.py
+tests/unit/app/test_runtime.py
+tests/unit/app/test_scheduler.py
+tests/unit/pipeline/test_cycle.py
+tests/integration/conftest.py (new)
+tests/integration/valkey_support.py (new)
+tests/integration/test_valkey_provider.py (new)
+tests/integration/test_startup_requires_valkey.py (new)
 
 ### Change Log
 
 - 2026-11-05: story created (`ready-for-dev`).
+- 2026-11-05: story implemented (Valkey provider, settings, startup and outage behaviour, full reload every 12 cycles, server files, dev compose service, CI step, contract and operations docs, architecture amendments); status `review`.
