@@ -21,7 +21,7 @@ per-role access rules, so that other tools (BoM connectors, CD workers) can
 maintain product lists. The daemon waits for Valkey at startup, rides out an
 outage on its last valid configuration and reloads when the revision changes.
 Contract and access rules: [`docs/config-contract.md`](docs/config-contract.md);
-server files: [`deploy/valkey/`](deploy/valkey/).
+server files: [`deploy/valkey/`](deploy/valkey/). :factory:
 
 Design: [`_bmad-output/planning-artifacts/architecture.md`](_bmad-output/planning-artifacts/architecture.md).
 Sources and their assumptions: [`docs/sources.md`](docs/sources.md).
