@@ -1,8 +1,19 @@
-# Dev loop: `docker compose watch`. Valkey joins in story 3.1.
+# Dev loop: `docker compose watch`.
 #
-# The stack serves the placeholder tokens of endpoints.example.yaml:
+# By default the stack serves the placeholder tokens of endpoints.example.yaml:
 #   http://127.0.0.1:8080/feeds/REPLACE-ME-with-secrets-token-urlsafe-32-team-php.xml
 # Point CVESTREAM_ENDPOINTS_FILE at your own file to serve real tokens.
+#
+# The `valkey` service (the configuration store, docs/config-contract.md) is
+# always started but only used with CVESTREAM_CONFIG_PROVIDER=valkey:
+#   CVESTREAM_CONFIG_PROVIDER=valkey docker compose watch
+# The store starts empty: the daemon waits for it (valkey.startup_timeout) and
+# exits with code 3, or with code 2 while it is unseeded. Seed it as
+# cvestream-admin (a seeding example is in docs/config-contract.md):
+#   docker compose exec valkey valkey-cli --user cvestream-admin \
+#     --pass "$(cat deploy/valkey/dev-secrets/cvestream-admin.password)"
+# The passwords in deploy/valkey/dev-secrets/ are public, for development only.
+# Valkey is on an internal network: no host port, no access from outside.
 services:
   app:
     build:
@@ -12,6 +23,12 @@ services:
     environment:
       CVESTREAM_ENDPOINTS_FILE: ${CVESTREAM_ENDPOINTS_FILE:-endpoints.example.yaml}
       CVESTREAM_LOG__FORMAT: console
+      CVESTREAM_CONFIG_PROVIDER: ${CVESTREAM_CONFIG_PROVIDER:-yaml}
+      CVESTREAM_VALKEY__URL: valkey://cvestream-daemon@valkey:6379/0
+      # A secret file, never an inline password.
+      CVESTREAM_VALKEY__PASSWORD_FILE: /run/secrets/valkey-daemon-password
+    networks: [default, config]
+    secrets: [valkey-daemon-password]
     # Loopback only: the private listener (9090) is never published.
     ports:
       - "127.0.0.1:8080:8080"
@@ -28,3 +45,22 @@ services:
           path: ./uv.lock
         - action: rebuild
           path: ./pyproject.toml
+  valkey:
+    image: valkey/valkey:9.1.3
+    command: ["valkey-server", "/usr/local/etc/valkey/valkey.conf"]
+    volumes:
+      - ./deploy/valkey:/usr/local/etc/valkey:ro
+      - valkey-data:/data
+    # Internal network: no host port, no way out.
+    networks: [config]
+
+networks:
+  config:
+    internal: true
+
+secrets:
+  valkey-daemon-password:
+    file: ./deploy/valkey/dev-secrets/cvestream-daemon.password
+
+volumes:
+  valkey-data:
