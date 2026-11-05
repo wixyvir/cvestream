@@ -1,0 +1,51 @@
+# Enforced only with a NetworkPolicy-aware CNI. Rule order matters: overlays
+# patch ingress rule 0 (8080 peer) and append egress rules.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cvestream
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: cvestream
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    # Rule 0, feeds: pods labelled cvestream.io/public-access=true, in any
+    # namespace (label your Ingress controller pods, or narrow the peer in an
+    # overlay to the controller's namespace).
+    - from:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              cvestream.io/public-access: "true"
+      ports:
+        - port: 8080
+          protocol: TCP
+    # Rule 1, health and status: pods labelled cvestream.io/private-access=true
+    # in this namespace. The probes are exec, so the kubelet needs neither
+    # port; kubectl port-forward is not filtered by NetworkPolicy.
+    - from:
+        - podSelector:
+            matchLabels:
+              cvestream.io/private-access: "true"
+      ports:
+        - port: 9090
+          protocol: TCP
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # The sources (EUVD, CISA KEV): HTTPS, directly. cvestream ignores proxy
+    # variables, so the cluster needs direct egress on 443.
+    - ports:
+        - port: 443
+          protocol: TCP

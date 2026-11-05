@@ -1,0 +1,13 @@
+# /healthz, /readyz, /status. Never exposed; the NetworkPolicy admits only pods
+# labelled cvestream.io/private-access=true (e.g. a metrics scraper).
+apiVersion: v1
+kind: Service
+metadata:
+  name: cvestream-private
+spec:
+  selector:
+    app.kubernetes.io/name: cvestream
+  ports:
+    - name: http
+      port: 9090
+      targetPort: private

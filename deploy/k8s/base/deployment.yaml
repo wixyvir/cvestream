@@ -1,0 +1,106 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cvestream
+spec:
+  # Single writer by design (SQLite, one pipeline worker): one replica, and
+  # Recreate so the old pod is gone before the new one opens the database.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cvestream
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cvestream
+    spec:
+      # Lets the pipeline run in progress finish on SIGTERM.
+      terminationGracePeriodSeconds: 60
+      automountServiceAccountToken: false
+      # No Docker-link variables: Services named cvestream-* would otherwise
+      # inject CVESTREAM_PUBLIC_PORT and friends into the CVESTREAM_ namespace
+      # that pydantic-settings reads.
+      enableServiceLinks: false
+      # The GHCR package of a private repository is private: uncomment and
+      # create the Secret (see docs/operations.md, "Kubernetes"), or make the
+      # package public.
+      # imagePullSecrets:
+      #   - name: ghcr-pull
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: cvestream
+          # Pinned to the release; a test keeps it equal to the pyproject.toml
+          # version. Never edge or latest.
+          image: ghcr.io/wixyvir/cvestream:0.1.0
+          args: ["run"]
+          envFrom:
+            - configMapRef:
+                name: cvestream-settings
+          ports:
+            - name: public
+              containerPort: 8080
+            - name: private
+              containerPort: 9090
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          # exec probes: the image has no curl. Each probe starts a Python
+          # process, and the healthcheck itself waits up to 2 s: 5 s timeouts.
+          # The startup budget (24 x 5 s = 120 s) covers the migration and the
+          # Valkey provider's 60 s startup timeout.
+          startupProbe:
+            exec:
+              command: ["cvestream", "healthcheck", "--ready"]
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 24
+          readinessProbe:
+            exec:
+              command: ["cvestream", "healthcheck", "--ready"]
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["cvestream", "healthcheck"]
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            # A directory mount, never subPath, so that Secret updates reach
+            # the pod and the daemon reloads at its next cycle.
+            - name: endpoints
+              mountPath: /config
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: cvestream-data
+        - name: endpoints
+          secret:
+            secretName: cvestream-endpoints
+            # Owner root, group fsGroup (999): group-readable only.
+            defaultMode: 0440
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
