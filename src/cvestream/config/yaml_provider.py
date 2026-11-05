@@ -18,6 +18,7 @@ from typing import Any, Final
 
 import yaml
 from yaml.constructor import ConstructorError
+from yaml.tokens import ScalarToken
 
 from cvestream.config.models import ConfigDocument
 from cvestream.config.provider import (
@@ -36,7 +37,8 @@ WRITE_ATTEMPTS: Final = 5
 HEADER: Final = (
     "# Written by cvestream; comments are not kept (docs/configuration.md#cli).\n"
 )
-_COMMENT = re.compile(r"(?:^|\s)#")
+# A `#` at the start or after whitespace: a comment, unless a scalar holds it.
+_COMMENT = re.compile(r"(?<!\S)#")
 
 
 class _UniqueKeyLoader(yaml.SafeLoader):
@@ -114,12 +116,29 @@ def dump_document(document: ConfigDocument) -> str:
 
 
 def _has_comments(content: bytes | None) -> bool:
-    """Whether `content` holds a comment other than the cvestream header."""
+    """Whether `content` holds a comment other than the cvestream header.
+
+    A `#` inside a scalar (`name: 'Team #1'`, a block scalar) is not a comment:
+    the YAML scanner gives the scalars' spans. Text the scanner rejects counts
+    as commented when it holds a candidate `#` (the notice is only a notice).
+    """
     if content is None:
         return False
-    lines = content.decode("utf-8", errors="replace").splitlines()
+    text = content.decode("utf-8", errors="replace")
+    start = len(HEADER) if text.startswith(HEADER) else 0
+    hashes = [m.start() for m in _COMMENT.finditer(text) if m.start() >= start]
+    if not hashes:
+        return False
+    try:
+        scalars = [
+            (token.start_mark.index, token.end_mark.index)
+            for token in yaml.scan(text, Loader=yaml.SafeLoader)
+            if isinstance(token, ScalarToken)
+        ]
+    except yaml.YAMLError:
+        return True
     return any(
-        _COMMENT.search(line) is not None for line in lines if line + "\n" != HEADER
+        not any(begin <= index < end for begin, end in scalars) for index in hashes
     )
 
 

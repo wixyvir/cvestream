@@ -514,6 +514,25 @@ def test_an_inline_comment_is_reported(tmp_path: Path) -> None:
     assert provider.dropped_comments is True
 
 
+def test_a_hash_inside_a_value_is_not_a_comment(tmp_path: Path) -> None:
+    path = _write(tmp_path, VALID.replace("PHP team", "'PHP team #1'"))
+    provider = YamlConfigProvider(path)
+    provider.update(_add_endpoint("other"))
+    assert provider.dropped_comments is False
+    # The rewritten file quotes the name again: still no comment to report.
+    assert "#1" in path.read_text(encoding="utf-8")
+    provider.update(_add_endpoint("third", token="v" * 43))
+    assert provider.dropped_comments is False
+
+
+def test_a_hash_in_a_block_scalar_is_not_a_comment(tmp_path: Path) -> None:
+    content = VALID.replace("name: PHP team", "name: |-\n      PHP # team")
+    path = _write(tmp_path, content)
+    provider = YamlConfigProvider(path)
+    provider.update(_add_endpoint("other"))
+    assert provider.dropped_comments is False
+
+
 def test_replace_reports_dropped_comments(tmp_path: Path) -> None:
     path = _write(tmp_path, "# notes\n" + VALID)
     provider = YamlConfigProvider(path)
