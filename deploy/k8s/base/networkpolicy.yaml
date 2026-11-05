@@ -32,6 +32,8 @@ spec:
         - port: 9090
           protocol: TCP
   egress:
+    # DNS: kube-dns in kube-system. Adapt this peer for NodeLocal DNSCache or
+    # another DNS deployment.
     - to:
         - namespaceSelector:
             matchLabels:

@@ -220,7 +220,7 @@ Build with `kubectl kustomize deploy/k8s/overlays/example`, apply with `kubectl 
 Prerequisites:
 
 - A namespace with the `restricted` Pod Security Standard: `kubectl create namespace cvestream && kubectl label namespace cvestream pod-security.kubernetes.io/enforce=restricted`. The manifests are admitted under it.
-- A CNI that enforces `NetworkPolicy`.
+- A CNI that enforces `NetworkPolicy`. The DNS egress rule admits the `k8s-app: kube-dns` pods of `kube-system`: with NodeLocal DNSCache or another DNS deployment, adapt that peer in your overlay, or name resolution, hence every source, fails.
 - Direct HTTPS egress to the sources (cvestream ignores proxy variables).
 - A block-storage `StorageClass` for the SQLite volume (`cvestream-data`, `ReadWriteOnce`). Never NFS, SMB or CIFS.
 
@@ -231,7 +231,7 @@ Secrets (never commit real values):
 
 Private image: `wixyvir/cvestream` is a private repository, so its GHCR package is private too. Create a pull Secret with a token that has `read:packages` (`kubectl create secret docker-registry ghcr-pull --docker-server=ghcr.io --docker-username=<user> --docker-password=<token>`) and uncomment `imagePullSecrets` in your overlay, or make the package public.
 
-Invariants, and why (a test guards the ones in the first group):
+Invariants, and why (`tests/unit/test_deploy_manifests.py` guards them on the base `Deployment`, except the ConfigMap note):
 
 - One replica and `strategy: Recreate`: SQLite has one writer, and the old pod must be gone before the new one opens the database. A `ReadWriteOnce` volume also keeps a second writer away.
 - `terminationGracePeriodSeconds: 60`: the pipeline run in progress finishes on SIGTERM.
