@@ -4,7 +4,7 @@ baseline_commit: 6c02c2c
 
 # Story 3.1: Valkey configuration provider
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -128,6 +128,18 @@ so that other tools (BoM connectors, CD workers) can maintain product lists thro
 - [x] **Task 11: gates and bookkeeping** (AC: 9)
   - [x] 11.1 Every gate of `CLAUDE.md` in the worktree, plus the `valkey` tests against a disposable container. `docker build --target runtime -t cvestream:story-3-1-valkey-configuration-provider .`: try once; behind the proxy it fails on `ghcr.io` with x509: report it, do not disable verification, rely on CI.
   - [x] 11.2 Dev Agent Record, File List, status `review` here and in `sprint-status.yaml`.
+
+### Review Findings
+
+Code review 2026-11-05 (`bmad-code-review`, claude-opus-5-5, autonomous run) of `git diff origin/main...HEAD` on PR wixyvir/cvestream#22. The session had no subagent tool, so the three layers (Blind Hunter on the diff alone, Edge Case Hunter with project access, Acceptance Auditor against this story) ran one after the other in the same session, each with its own inputs. Checks run: valkey-py 6.2.0 read in the locked environment (`_parsers/base.py` error-prefix mapping, `_parsers/url_parser.py`, `SSLConnection` defaults, `Pipeline._execute_transaction`, connection retry defaults); the whole suite against a disposable `valkey/valkey:9.1.3` started with `deploy/valkey/` (1340 passed before the patch). Result: 0 decision-needed, 1 patch (applied), 4 defer, 6 dismissed.
+
+- [x] [Review][Patch] `valkeys://` did not verify the server host name [src/cvestream/config/valkey_provider.py:286] — valkey-py's `SSLConnection` defaults to `ssl_check_hostname=False`, so any certificate signed by a CA in the system store was accepted whatever host it names (an on-path attacker with any public certificate could read the daemon's password and the feed tokens). `from_settings()` now passes `ssl_cert_reqs="required"` and `ssl_check_hostname=True` for TLS URLs only (the plain connection class rejects `ssl_*` arguments); unit tests check the kwargs and the real `SSLConnection` object; `docs/configuration.md` says the host name is checked. Fixed in `fix(story-3.1): verify the Valkey TLS host name`.
+- [x] [Review][Defer] `update()` cannot repair an invalid store [src/cvestream/config/valkey_provider.py:_current_document] — deferred to story 3.2: the write protocol validates the stored document before calling `change`, so once a connector writes invalid products JSON, every `update()` raises `ConfigValidationError` and only `valkey-cli` can fix the store. `cvestream config import` (3.2, "import semantics: replace vs merge" is already a 3.2 decision) needs a replace path that ignores the current content.
+- [x] [Review][Defer] An exception from the `change` callback is mapped like a Valkey failure [src/cvestream/config/valkey_provider.py:update] — deferred to story 3.2: `change` runs inside `_mapped()`, so an `OSError` raised by a callback (e.g. reading a file) becomes "valkey: cannot reach ..."; 3.1 has no caller.
+- [x] [Review][Defer] A connection lost while `WATCH`ing is reported as a write conflict [src/cvestream/config/valkey_provider.py:update] — deferred to story 3.2: valkey-py turns a connection error during `WATCH` into `WatchError`, so `update()` retries 5 times and ends with "write conflict, gave up after 5 attempts" instead of "cannot reach". Only the CLI (3.2) surfaces that message.
+- [x] [Review][Defer] Connectors can `SET` the revision to any value [deploy/valkey/users.acl:4] — deferred, hardening: `connector-example` needs `%RW~revision` for `INCR` and `+set` for products, so it can also `SET cvestream:v1:revision abc` (the daemon then logs `config.rejected` every cycle and the admin's `INCR` fails) or rewind it. Same blast radius as an invalid products array, which a connector can already write. ACL selectors (`(+set %W~...:products)`, `(+incr +incrby %RW~...:revision)`) would restrict it; that changes the published ACL line, so it waits for a hardening pass.
+
+Dismissed (6): the `NOAUTH`/`WRONGPASS`/`NOPERM` prefix checks in `_map_response` are dead code (valkey-py strips those prefixes and raises typed exceptions) but harmless; `ExecAbortError` mapped to access denied is reachable only when no queued error was collected (valkey-py raises the queued `NoPermissionError` itself); an IPv6 host is shown without brackets in messages (cosmetic); a database number above the server's limit surfaces as "unexpected reply" after the startup retries (operator error, still exit 3 with a clean message); AC 5's "at most 5 s" is per Valkey call, not per cycle (documented as "the 5 s socket timeouts"); the import-linter contract uses the whole `cvestream.config` package plus one `ignore_imports` entry instead of the module list of Task 1.2 (stricter: a new `config/` module is covered at once; documented in `architecture.md`).
 
 ## Dev Notes
 
@@ -593,3 +605,4 @@ tests/integration/test_startup_requires_valkey.py (new)
 
 - 2026-11-05: story created (`ready-for-dev`).
 - 2026-11-05: story implemented (Valkey provider, settings, startup and outage behaviour, full reload every 12 cycles, server files, dev compose service, CI step, contract and operations docs, architecture amendments); status `review`.
+- 2026-11-05: code review (0 decision-needed, 1 patch applied, 4 deferred, 6 dismissed); status `done`.
