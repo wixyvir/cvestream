@@ -63,10 +63,10 @@ _Versions verified online on 2026-10-26 (architecture.md). Before adding any dep
 
 **Configuration (Valkey / YAML):**
 - `config/models.py` (Pydantic, `extra="forbid"`) is the single source of truth, shared by both providers and the CLI.
-- Valkey keys only through `config/keys.py`, under `cvestream:v1:*`. Values are plain JSON strings. A new key must fit the ACL patterns in `deploy/valkey/users.acl`. Tokens stay under `cvestream:v1:token:*`, never under a pattern a connector can read.
+- Valkey keys only through `config/keys.py`, under `cvestream:v1:*`. Values are plain JSON strings. A new key must fit the ACL patterns in `deploy/valkey/users.acl`. Tokens stay under `cvestream:v1:token:*`, never under a pattern a connector can read. The token value is raw text, not JSON. `users.acl` takes no comment line (Valkey 9.1 loads only `user` lines) and lists explicit commands, never `+@read`/`+@write`.
 - Write protocol: `WATCH cvestream:v1:revision → MULTI → writes → INCR revision → EXEC`, retry on conflict.
 - Read protocol: revision → pipelined read → revision again, at most 3 retries, otherwise keep the last valid config. An invalid snapshot keeps the last valid config and logs `config.rejected`. The daemon never persists config. YAML revision = SHA-256 of the file.
-- Valkey down at startup: retry for `valkey.startup_timeout` (60 s), then log `config.unavailable` and exit with code 3. Down while running: keep the in-memory config and warn on each run.
+- Valkey down at startup: retry (1 s doubling, at most 10 s) for `valkey.startup_timeout` (60 s), then log `config.unavailable` and exit with code 3; `ConfigAccessDeniedError` (bad password, `NOPERM`) is not retried, exit 3 at once; an invalid or unseeded store exits 2. Down while running: keep the in-memory config and warn on each run. Every 12th pipeline cycle reloads the configuration whatever the revision. Errors: `ConfigAccessDeniedError` and `ConfigConflictError` extend `ConfigUnavailableError`; never forward a valkey-py exception message (build the message), never quote a value or a token. The Valkey client always has socket timeouts (valkey-py has none by default). The password is never in `valkey.url`.
 
 **HTTP (Starlette + two embedded `uvicorn.Server`):**
 - Public `:8080`: only `GET`/`HEAD /feeds/{token}.xml`, `application/rss+xml; charset=utf-8`, `ETag`/`Last-Modified`/`304`, `Cache-Control: max-age=300`. Unknown token → `404` with an empty body.
@@ -87,11 +87,11 @@ _Versions verified online on 2026-10-26 (architecture.md). Before adding any dep
 - **Layout:** `tests/unit/` mirrors `src/cvestream/` · `tests/contract/<source>/` holds adapter contract tests · `tests/integration/` covers flows across SQLite and Valkey · `tests/fixtures/<source>/<case>.json|xml`.
 - **Fixtures are recorded from the real APIs, never hand-written.** Name them after what they show (`euvd_no_score.json`, `euvd_version_na.json`). Every adapter change adds or updates a fixture. Raw payloads kept 30 days in state are the capture source.
 - **Network blocked by default** (pytest-socket, with `--allow-unix-socket` so anyio tests can run). Mock HTTP with respx. Real network only under the `live` marker.
-- **Markers:** `live` (deselected by default, run nightly by `source-drift.yml`), `valkey` (needs a server; CI provides a `valkey/valkey:9.1` service).
+- **Markers:** `live` (deselected by default, run nightly by `source-drift.yml`), `valkey` (needs a server named by `VALKEY_TEST_ADDRESS=<ip>:<port>`; skipped locally without it, a failure when `CI` is set; the test gets its socket through `@pytest.mark.allow_hosts([<ip>])`, never `enable_socket`; CI starts `valkey/valkey:9.1.3` with a `docker run` step after checkout, since a `services:` container cannot mount the repo's `deploy/valkey/`).
 - **Async tests** use the anyio pytest plugin, not pytest-asyncio.
 - **No real time, no sleeps:** use `FakeClock` and injected randomness from `tests/conftest.py`, which also provides the tmp SQLite and provider fixtures.
 - **Domain tests are pure:** no database, no network, no mocks of the layers below.
-- **Guardrail tests that must stay green:** `test_restart_no_repost.py` (NFR-3 / SM-4, no re-post after restart) and `test_startup_requires_valkey.py` (exit code 3 after `startup_timeout`).
+- **Guardrail tests that must stay green:** `test_restart_no_repost.py` (NFR-3 / SM-4, no re-post after restart) and `test_startup_requires_valkey.py` (exit code 3 after `startup_timeout`, against a closed port: needs no server).
 - **Cover the unknown paths:** for each adapter and the matcher, test missing score, missing or `n/a` versions, and naive source dates, not only the happy path.
 - **Configuration contract:** CI fails if `schemas/config-v1.json` is stale. Regenerate it whenever `config/models.py` changes.
 - pytest config lives in `pyproject.toml` (`[tool.pytest.ini_options]`), never in `pytest.ini`.

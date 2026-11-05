@@ -37,7 +37,7 @@ Findings deferred by code reviews, to pick up in a later story or when they bite
 ## Deferred from: code review of 1-6-feeds-served-by-the-daemon.md (2026-10-26)
 
 - **Feeds have no item cap** (`src/cvestream/pipeline/run.py`, feed rendering in `run()`): every publication of the last 14 days is rendered, and every cycle reloads and re-normalizes the records of all of them. The story sizes a feed at a few hundred items; a broad product list (`linux`, `windows`) could reach thousands per endpoint. Consider a per-feed item cap (newest first) if feeds grow.
-- **Configuration reload waits for a source fetch** (`src/cvestream/pipeline/run.py`, `cycle()`): spec-compliant (FR-23, "at the next poll cycle"), but a revoked or rotated token keeps serving until the next fetch of any source (up to 60 min + 10 % jitter), and with every source disabled the configuration never reloads. Consider a short config-revision poll that triggers a cycle when the Valkey provider arrives (story 3.1).
+- **Configuration reload waits for a source fetch** (`src/cvestream/pipeline/run.py`, `cycle()`): spec-compliant (FR-23, "at the next poll cycle"), but a revoked or rotated token keeps serving until the next fetch of any source (up to 60 min + 10 % jitter), and with every source disabled the configuration never reloads. Still deferred after story 3.1 (decision recorded there): the Valkey provider reloads at the next cycle like the YAML one, and every 12th cycle forces a reload as a safety net; a rotated token reaches the daemon at the next source fetch (at most one interval). A short config-revision poll that triggers a cycle, independent of the source fetches, can be added by story 3.2 or later.
 - **`cvestream healthcheck` always probes `127.0.0.1`** (`src/cvestream/cli/healthcheck.py`): a private listener bound to one specific non-loopback address makes the probe, and the image `HEALTHCHECK`, fail. Document it or add `--host` with the Kubernetes manifests (story 3.3).
 
 ## Deferred from: trial of 1-6-feeds-served-by-the-daemon.md (2026-10-31)
@@ -71,3 +71,8 @@ See `planning-artifacts/sprint-change-proposal-2026-11-01-epic-2-scope.md`.
 ## Deferred from: code review of 2-2-source-drift-detection.md (2026-11-03)
 
 - **Workflow files are not linted in CI** (`.github/workflows/`): story 2.2 checked `source-drift.yml` by hand with actionlint (shellcheck included) and `zizmor --offline`, both clean. A later edit (a Dependabot bump of the pinned SHAs, a new step) is not checked. A `ci.yml` step or a separate job running both tools would catch template injection, unpinned actions and shell mistakes. Re-enter as a chore when the workflows change again.
+
+## Deferred from: development of story 3.1 (2026-11-05)
+
+- **No stale-connection retry on the Valkey client** (`src/cvestream/config/valkey_provider.py`): valkey-py's default retry is none, so the first command after Valkey restarted fails on the dead pooled socket (one `config.unavailable` warning), and the next cycle reconnects. Harmless (the last configuration is kept) and a retry would double the worst-case 5 s delay of a cycle; revisit if the warning proves noisy.
+- **TLS (`valkeys://`) is not tested** end to end: CI runs no TLS Valkey. Only the client construction (certificate verification on) is unit tested.
