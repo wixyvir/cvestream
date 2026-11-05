@@ -1,4 +1,4 @@
-"""Typer root application: `run`, `poll`, `healthcheck`, `config` and `db`.
+"""Typer root application: the daemon commands and the operator commands.
 
 The commands that start the daemon import `cvestream.app` inside their body, so
 `cvestream healthcheck` and the other commands never load the HTTP stack.
@@ -14,6 +14,7 @@ from cvestream import __version__
 from cvestream.cli.config import config_app
 from cvestream.cli.context import CliState, settings_or_exit, user_error
 from cvestream.cli.db import db_app
+from cvestream.cli.endpoint import endpoint_app
 from cvestream.cli.healthcheck import healthcheck
 from cvestream.log import configure_logging
 from cvestream.settings import Settings
@@ -33,6 +34,7 @@ app = typer.Typer(
 )
 app.add_typer(config_app, name="config")
 app.add_typer(db_app, name="db")
+app.add_typer(endpoint_app, name="endpoint")
 app.command("healthcheck")(healthcheck)
 
 
@@ -59,7 +61,7 @@ def root(
         ),
     ] = False,
 ) -> None:
-    """cvestream: filtered vulnerability RSS feeds from EUVD and CISA KEV."""
+    """cvestream: filtered vulnerability RSS feeds for the products you run."""
     # `ensure_object`: a state injected by a test (`invoke(obj=...)`) survives.
     ctx.ensure_object(CliState).debug = debug
     _DEBUG.set(debug)

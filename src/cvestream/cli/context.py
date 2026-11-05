@@ -8,6 +8,7 @@ stdout carries the command output, and `--json` must stay parseable.
 """
 
 import secrets
+import sys
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -84,3 +85,18 @@ def open_store() -> Generator[Session]:
 def state_of(ctx: typer.Context) -> CliState:
     """The `CliState` of the running command (a default one outside the root)."""
     return ctx.ensure_object(CliState)
+
+
+def warn_dropped_comments(session: Session) -> None:
+    """After a write: tell once that the YAML rewrite dropped comments."""
+    if getattr(session.store, "dropped_comments", False):
+        typer.echo(
+            f"{session.settings.endpoints_file}: comments were not kept "
+            "(the CLI rewrites the file)",
+            err=True,
+        )
+
+
+def is_interactive() -> bool:
+    """Whether stdin is a terminal (a prompt would not hang)."""
+    return sys.stdin.isatty()
