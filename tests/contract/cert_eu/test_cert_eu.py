@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import httpx
 import pytest
 import respx
 from packaging.version import Version
@@ -762,14 +763,62 @@ async def test_an_rss_error_status_is_a_transport_error(
 
 
 @pytest.mark.anyio
-async def test_an_advisory_404_fails_the_whole_fetch(
+@pytest.mark.parametrize("status", [404, 410, 403])
+async def test_a_missing_advisory_is_skipped_and_held_back(
+    respx_mock: respx.MockRouter, make_adapter: MakeAdapter, status: int
+) -> None:
+    respx_mock.get(RSS_URL).respond(200, content=_rss(["2026-018", "2026-019"]))
+    respx_mock.get(JSON_URL.format(serial="2026-018")).respond(
+        200, content=json.dumps(_advisory("2026_018_multi_cve_revised")).encode()
+    )
+    respx_mock.get(JSON_URL.format(serial="2026-019")).respond(
+        status, content=b"<html/>"
+    )
+    with capture_logs() as logs:
+        result = await _fetch(make_adapter, None)
+    assert [r.record_id for r in result.records] == [f"2026-018:{c}" for c in CVES_018]
+    assert result.skipped == 1
+    skipped = [e for e in logs if e["event"] == "source.record_skipped"]
+    assert [(e["record_id"], e["status"]) for e in skipped] == [("2026-019", status)]
+    # 2026-019 is `2026-10-22T09:14:22Z`: the cursor stays strictly below it
+    assert result.next_cursor == "2026-10-09T15:00:00Z"
+
+
+@pytest.mark.anyio
+async def test_every_advisory_missing_is_a_contract_error(
+    respx_mock: respx.MockRouter, make_adapter: MakeAdapter
+) -> None:
+    respx_mock.get(RSS_URL).respond(200, content=_rss(["2026-019"]))
+    respx_mock.get(JSON_URL.format(serial="2026-019")).respond(404)
+    with pytest.raises(SourceContractError):
+        await _fetch(make_adapter, None)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("status", [500, 503, 429])
+async def test_an_advisory_outage_fails_the_whole_fetch(
+    respx_mock: respx.MockRouter, make_adapter: MakeAdapter, status: int
+) -> None:
+    respx_mock.get(RSS_URL).respond(200, content=_rss(["2026-018", "2026-019"]))
+    respx_mock.get(JSON_URL.format(serial="2026-018")).respond(
+        200, content=json.dumps(_advisory("2026_018_multi_cve_revised")).encode()
+    )
+    respx_mock.get(JSON_URL.format(serial="2026-019")).respond(status)
+    with pytest.raises(SourceTransportError):
+        await _fetch(make_adapter, None)
+
+
+@pytest.mark.anyio
+async def test_an_advisory_network_error_fails_the_whole_fetch(
     respx_mock: respx.MockRouter, make_adapter: MakeAdapter
 ) -> None:
     respx_mock.get(RSS_URL).respond(200, content=_rss(["2026-018", "2026-019"]))
     respx_mock.get(JSON_URL.format(serial="2026-018")).respond(
         200, content=json.dumps(_advisory("2026_018_multi_cve_revised")).encode()
     )
-    respx_mock.get(JSON_URL.format(serial="2026-019")).respond(404, content=b"<html/>")
+    respx_mock.get(JSON_URL.format(serial="2026-019")).mock(
+        side_effect=httpx.ConnectError("refused")
+    )
     with pytest.raises(SourceTransportError):
         await _fetch(make_adapter, None)
 
