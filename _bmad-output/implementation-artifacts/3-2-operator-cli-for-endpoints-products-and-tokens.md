@@ -4,7 +4,7 @@ baseline_commit: 22d0ef0
 
 # Story 3.2: Operator CLI for endpoints, products and tokens
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -144,7 +144,16 @@ so that I never edit Valkey keys by hand and can rotate a leaked feed URL in one
 
 ### Review Findings
 
-_(filled by `bmad-code-review`)_
+Code review (`bmad-code-review`, autonomous run, 2026-11-05) of `git diff origin/story-3-3-release-and-kubernetes-deployment...HEAD` against this story. No subagent tool was available, so the three layers (Blind Hunter on the diff alone, Edge Case Hunter with project access and a manual run of the CLI on a scratch YAML file, Acceptance Auditor against this file) ran in sequence in one session. Result: 0 decision-needed, 3 patch (applied), 1 defer, 10 dismissed.
+
+- [x] [Review][Patch] The comment notice treated a `#` inside a value as a comment [src/cvestream/config/yaml_provider.py:_has_comments] — `name: 'Team #1'` (or any value with ` #`) printed "comments were not kept" on every rewrite, not once. The YAML scanner now gives the scalars' spans and a `#` inside one is ignored; tests for a quoted value and a block scalar. Fixed in `fix(story-3.2): ignore a hash inside a YAML value in the comment notice`.
+- [x] [Review][Patch] The atomic rewrite did not keep the file's owner and group [src/cvestream/config/yaml_provider.py:_write] — the rename gives the file to the writer, so `sudo cvestream endpoint ...` left a root-owned `0600` file the daemon user can no longer read (every reload fails). The writer now `fchown`s the temporary file to the old owner and group before `fchmod` (best effort: `PermissionError` ignored when not root and not the owner). Tests with a recording/refusing `os.fchown`; `docs/configuration.md` and `project-context.md` updated. Fixed in `fix(story-3.2): keep the owner and group of a rewritten YAML file`.
+- [x] [Review][Patch] The Kubernetes part of `docs/operations.md` did not say how to run the CLI [docs/operations.md:Kubernetes] — "Stack and rebase onto 3.3" asks for it after the rebase; the section still seeded the example Valkey with raw `valkey-cli` only. Added the port-forward recipe as `cvestream-admin`, the read-only cvestream pod, the YAML Secret round trip (`--dry-run=client -o yaml | kubectl apply -f -`) and a commented `CVESTREAM_HTTP__PUBLIC__BASE_URL` in `deploy/k8s/base/configmap-settings.yaml` (the optional item of "Settings: `http.public.base_url`"). Fixed in `fix(story-3.2): document the operator CLI on Kubernetes`.
+- [x] [Review][Defer] `config import` cannot repair a non-integer revision key [src/cvestream/config/valkey_provider.py:_attempt] — deferred, pre-existing (same root as the 3.1 item "Connectors can `SET` the revision"): Valkey does not roll a `MULTI` back on a runtime error, so the `SET`/`DEL`s are applied and the final `INCR` fails; the CLI reports an unexpected reply while the keys changed and the revision did not. The daemon already rejects such a store.
+
+Dismissed (10): the micro-window between the SHA-256 re-check and `os.replace` (documented, already in `deferred-work.md`); a `WatchError` raised after `EXEC` was sent is reported as "cannot reach" although the write may have landed (safer than a retry, the operator can check with `endpoint show`); keys of invalid `endpoints` set members are left behind by `replace` (the story forbids building a key from them); a descriptor leak if `os.fdopen` fails in `config export` (practically impossible); `endpoint delete` asks for confirmation before checking that the id exists (cosmetic); an id holding a newline is echoed on two stderr lines (operator input); the target directory must be writable for the atomic rename (documented trade-off); an unknown id is echoed even if the operator pasted a token by mistake (the operator's own input); `--name` accepts a newline (contract `Term`, pre-existing, the YAML file allows it too); a `WatchError` whose context is an `AuthenticationError` would read "ConnectionError" (authentication happens at connect, before `WATCH`).
+
+The autonomous decisions 1 to 10 of "Decisions taken autonomously" were checked and none is contested: no open decision.
 
 ## Dev Notes
 
@@ -403,3 +412,4 @@ Claude Sonnet 5.5 (`claude-sonnet-5-5`), `bmad-dev-story`, autonomous run, 2026-
 
 - 2026-11-05: story created (`ready-for-dev`).
 - 2026-11-05: story implemented (provider write API, pure edits, `http.public.base_url`, endpoint/product/token/config commands, tests, docs); status `review`.
+- 2026-11-05: code review: 3 patches applied (comment notice, owner and group kept, Kubernetes CLI docs), 1 deferred, 10 dismissed, no open decision; status `done`.
