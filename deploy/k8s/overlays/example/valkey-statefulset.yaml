@@ -41,7 +41,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: valkey
-          # Same pin as compose.yml and ci.yml.
+          # Same pin as compose.yml and ci.yml (a test keeps it equal to compose.yml).
           image: valkey/valkey:9.1.3
           # valkey.conf names the ACL file by its absolute path in the same
           # directory.

@@ -15,6 +15,10 @@ ROOT = Path(__file__).resolve().parents[2]
 IMAGE = "ghcr.io/wixyvir/cvestream"
 DEPLOYMENT = ROOT / "deploy" / "k8s" / "base" / "deployment.yaml"
 COMPOSE = ROOT / "deploy" / "compose" / "compose.yml"
+DEV_COMPOSE = ROOT / "compose.yml"
+VALKEY_STATEFULSET = (
+    ROOT / "deploy" / "k8s" / "overlays" / "example" / "valkey-statefulset.yaml"
+)
 
 Manifest = dict[str, Any]
 
@@ -58,6 +62,17 @@ def test_compose_image_is_pinned_to_the_release(version: str) -> None:
     image = _load(COMPOSE)["services"]["cvestream"]["image"]
     assert image == f"{IMAGE}:{version}", (
         "deploy/compose/compose.yml must use the pyproject.toml version"
+    )
+
+
+def test_example_valkey_image_matches_the_dev_stack() -> None:
+    # Dependabot does not bump these pins: keep the copies equal by hand.
+    expected = _load(DEV_COMPOSE)["services"]["valkey"]["image"]
+    documents = yaml.safe_load_all(VALKEY_STATEFULSET.read_text(encoding="utf-8"))
+    statefulset = next(d for d in documents if d["kind"] == "StatefulSet")
+    containers = statefulset["spec"]["template"]["spec"]["containers"]
+    assert [c["image"] for c in containers] == [expected], (
+        "the example Valkey StatefulSet must use the Valkey image of compose.yml"
     )
 
 
