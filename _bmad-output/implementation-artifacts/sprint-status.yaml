@@ -97,8 +97,8 @@ development_status:
   2-2-source-drift-detection: done
   epic-2-retrospective: optional
 
-  epic-3: backlog
-  3-1-valkey-configuration-provider: backlog
+  epic-3: in-progress
+  3-1-valkey-configuration-provider: ready-for-dev
   3-2-operator-cli-for-endpoints-products-and-tokens: backlog
   3-3-release-and-kubernetes-deployment: backlog
   epic-3-retrospective: optional
