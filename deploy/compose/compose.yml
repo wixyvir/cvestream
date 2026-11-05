@@ -11,8 +11,8 @@
 # Never commit config/endpoints.yaml: it holds the tokens (it is gitignored).
 services:
   cvestream:
-    # Pin a release tag (X.Y.Z) once release.yml publishes one (story 3.3).
-    image: ghcr.io/wixyvir/cvestream:edge
+    # The tag follows the releases (release.yml); `edge` follows main.
+    image: ghcr.io/wixyvir/cvestream:0.1.0
     restart: unless-stopped
     read_only: true
     tmpfs:
