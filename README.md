@@ -6,8 +6,10 @@ matches its own stack, so a Slack RSS integration only posts what is relevant
 to them, with CVSS score, known-exploited status and affected versions
 in each item.
 
-**Status:** pre-release. Epic 1 (a first working pipeline) is done and epic 2
-(European advisory sources) is in progress; this repository currently holds
+**Status:** pre-release. Epic 1 (a first working pipeline) and epic 2
+(European advisory sources) are done and epic 3 (the Valkey provider, the
+operator CLI and the Kubernetes deployment) is in progress; this repository
+currently holds
 the project skeleton, the container image, the CI quality gate, the domain
 model, the endpoint configuration contract, the EUVD, CISA KEV and CERT-EU
 source adapters, and the state store with the correlation and publication
@@ -22,6 +24,13 @@ maintain product lists. The daemon waits for Valkey at startup, rides out an
 outage on its last valid configuration and reloads when the revision changes.
 Contract and access rules: [`docs/config-contract.md`](docs/config-contract.md);
 server files: [`deploy/valkey/`](deploy/valkey/). :factory:
+
+The **operator CLI** manages endpoints, products and tokens on whichever
+provider is active, so nobody edits Valkey keys by hand: `cvestream endpoint
+create|list|show|edit|delete`, `cvestream product add|remove|list`,
+`cvestream token rotate <endpoint>`, `cvestream config export|import`.
+Commands and options: [`docs/configuration.md`](docs/configuration.md#cli).
+:factory:
 
 Design: [`_bmad-output/planning-artifacts/architecture.md`](_bmad-output/planning-artifacts/architecture.md).
 Sources and their assumptions: [`docs/sources.md`](docs/sources.md).
@@ -42,6 +51,13 @@ mkdir config && cp ../../endpoints.example.yaml config/endpoints.yaml
 #   python -c "import secrets; print(secrets.token_urlsafe(32))"
 docker compose up -d
 ```
+
+Instead of editing the file by hand you can use the CLI where the file is
+writable (the compose file mounts `./config` read-only into the container, so
+run it on the host): `uv run cvestream endpoint create team-php --name "PHP
+team"` prints the new feed URL, `uv run cvestream product add team-php "php >=
+8.2"` adds a product (see [`docs/configuration.md`](docs/configuration.md#cli)).
+The daemon picks the change up at its next cycle. :factory:
 
 Each endpoint's feed is `http://<host>:8080/feeds/<token>.xml`: subscribe your
 Slack channel to it with the RSS app. The first items appear after the first

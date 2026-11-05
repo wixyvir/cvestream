@@ -9,9 +9,9 @@
 - Feed URL: `http://<host>:8080/feeds/<token>.xml`. The token is the access control: put an HTTPS reverse proxy in front and **turn off its path logging for `/feeds/`**.
 - Health: `cvestream healthcheck [--ready] [--port N]`, `/healthz`, `/readyz`, `/status`. The image already has a `HEALTHCHECK`.
 - Logs are JSON lines on stdout. `cycle.summary` says what each cycle did; `source.failed`, `source.stale`, `config.rejected` and `pipeline.failed` are the ones to alert on.
-- Edit `endpoints.yaml` (or the Valkey store, `config_provider: valkey`) and the daemon picks it up at the next cycle, no restart. Rotate a token by editing it.
+- Manage endpoints, products and tokens with the operator CLI (`cvestream endpoint`, `product`, `token`, see [configuration.md](configuration.md#cli)): it writes through the active provider (the YAML file or Valkey) and the daemon picks the change up at the next cycle, no restart. Hand-editing `endpoints.yaml` still works. Rotate a leaked token with `cvestream token rotate <id>`. :factory:
 - With the Valkey provider the daemon waits for Valkey at startup (`valkey.startup_timeout`), exits `3` when it stays unreachable or refuses the credentials, and rides out an outage on the last valid configuration (see [Valkey](#valkey)).
-- Back up the state with `cvestream db backup <file>`.
+- Back up the state with `cvestream db backup <file>` and the configuration with `cvestream config export -o <file>` (it holds the tokens: keep it private).
 - A nightly GitHub workflow (`source-drift`) runs the live contract tests against the real source APIs and opens or updates one `source-drift` issue when a source changed or was unreachable.
 
 ## Run
@@ -178,12 +178,19 @@ A `--ref` other than `main` runs that branch's copy of the workflow (useful to t
 
 ## Token rotation
 
-1. Generate a new token: `python -c "import secrets; print(secrets.token_urlsafe(32))"`.
-2. Replace the endpoint's `token` in `endpoints.yaml`.
-3. At the next cycle the daemon logs `config.reloaded`; the new URL serves the feed and the old one returns `404`.
-4. Give the team the new URL: they must resubscribe their channel.
+A feed URL leaked (a log, a screenshot, a departed colleague): rotate the token of that endpoint. :factory:
 
-With the Valkey provider, step 2 is, as `cvestream-admin` (until the operator CLI exists): `SET cvestream:v1:token:<id> <new token>` then `INCR cvestream:v1:revision`, inside one `MULTI` so a reader never sees one without the other (see [config-contract.md](config-contract.md)). :factory:
+```sh
+cvestream token rotate team-php
+# feed: https://feeds.example.org/feeds/<new token>.xml
+# the old URL stops working once the daemon reloads (next cycle); give the new URL to the subscribers
+```
+
+1. `cvestream token rotate <id>` draws a new token (`secrets.token_urlsafe(32)`, 256 bits) and writes it through the active provider: the YAML file is rewritten atomically, Valkey gets one write-protocol transaction (the revision grows by 1). It prints the new feed URL on stdout (the base is `http.public.base_url`, see [configuration.md](configuration.md#cli)); the token is never taken from a command-line option.
+2. The daemon reloads the configuration at its next cycle, that is after the next source fetch, within the polling interval (15 minutes by default), and logs `config.reloaded`. From then on the new URL serves the feed and the old one returns `404`. Until then the old URL still works.
+3. Give the team the new URL: they must resubscribe their channel.
+
+Without the CLI (YAML provider only): generate a token with `python -c "import secrets; print(secrets.token_urlsafe(32))"`, replace the endpoint's `token` in `endpoints.yaml`, and continue at step 2. With the Valkey provider, never write `cvestream:v1:token:<id>` by hand: the CLI does it in the transaction that keeps the revision consistent (see [config-contract.md](config-contract.md)). :factory:
 
 ## Valkey
 
@@ -192,10 +199,20 @@ With `config_provider: valkey` the configuration lives in a Valkey service ([con
 - **Running it:** the dev stack has a `valkey` service (`compose.yml`, internal network, no host port, AOF on the `valkey-data` volume). In production run `valkey/valkey:9.1.3` (or newer 9.1) with [`deploy/valkey/valkey.conf`](../deploy/valkey/valkey.conf) and your own ACL file, on a private network that only the daemon, the operator and the connectors reach. Never publish the port.
 - **ACL users:** `cvestream-daemon` reads `cvestream:v1:*` and writes nothing; `cvestream-admin` reads and writes `cvestream:v1:*` and nothing else; `connector-<name>` users read the configuration and write only `endpoint:*:products` and `revision`, and can neither read nor write `token:*`. `default` is disabled. The `users.acl` in the repository carries SHA-256 hashes of public development passwords: **write your own** (`printf '%s' "$PASSWORD" | sha256sum`) and keep the file in a secret.
 - **Rotating a Valkey password:** compute the new hash, replace the `#<hash>` of the user in `users.acl`, reload the ACL (`ACL LOAD` as a user allowed to, or restart Valkey), then update the secret file the daemon reads (`CVESTREAM_VALKEY__PASSWORD_FILE`) and restart the daemon. A daemon with the wrong password logs `config.unavailable` (`ConfigAccessDeniedError`) at each cycle and keeps serving its last configuration; at startup it exits `3` at once.
-- **Persistence and backup:** AOF with `appendfsync everysec` (at most one second of writes lost on a crash), data in `/data`. Back it up by copying `/data` (the AOF directory, plus the RDB snapshot Valkey writes on its default save points) from a replica or after `BGSAVE`; or export the configuration with the operator CLI once it exists. The configuration is small: losing the store means re-seeding it.
+- **Persistence and backup:** AOF with `appendfsync everysec` (at most one second of writes lost on a crash), data in `/data`. Back it up by copying `/data` (the AOF directory, plus the RDB snapshot Valkey writes on its default save points) from a replica or after `BGSAVE`, and keep a portable copy of the configuration with `cvestream config export -o <file>` (see [Backup](#backup)). The configuration is small: losing the store means restoring it with `cvestream config import <file>`.
 - **Outage while running:** each cycle logs a `config.unavailable` warning and uses the last valid configuration. Feeds and polling continue, `/readyz` stays 200, the daemon does not exit. A cycle is delayed at most by the 5 s socket timeouts. When Valkey is back the next cycle reads the revision and reloads if it changed.
 - **Outage at startup:** the daemon waits up to `valkey.startup_timeout` and exits `3`. Start Valkey first, or let the orchestrator restart the daemon.
-- **Unseeded store:** a Valkey without `cvestream:v1:schema` is rejected with `config.rejected` ("the store is not seeded") and exit `2`: seed it (see [config-contract.md](config-contract.md)).
+- **Unseeded store:** a Valkey without `cvestream:v1:schema` is rejected with `config.rejected` ("the store is not seeded") and exit `2`: seed it with the first `cvestream endpoint create` or with `cvestream config import <file>` (see [config-contract.md](config-contract.md)).
+- **Running the CLI against Valkey:** the CLI reads the same settings as the daemon, so point it at the store as the `cvestream-admin` user, from a host or a pod that may reach Valkey: :factory:
+
+  ```sh
+  export CVESTREAM_CONFIG_PROVIDER=valkey
+  export CVESTREAM_VALKEY__URL=valkey://cvestream-admin@<host>:6379/0
+  export CVESTREAM_VALKEY__PASSWORD_FILE=<file holding the admin password>
+  cvestream endpoint list
+  ```
+
+  As `cvestream-daemon` the read commands (`endpoint list|show`, `product list`, `config export`) work and every write exits `2` with one line naming the user. In the dev stack run it in a one-off container on the compose network: `docker compose run --rm -e CVESTREAM_VALKEY__URL=valkey://cvestream-admin@valkey:6379/0 -e CVESTREAM_VALKEY__PASSWORD=<admin password> app cvestream endpoint list` (the development passwords are in `deploy/valkey/dev-secrets/`; never commit a real one). The daemon keeps running as `cvestream-daemon`.
 
 ## Security
 
@@ -298,6 +315,18 @@ docker compose cp cvestream:/data/backup-2026-10-26.db .
 ```
 
 Restore: stop the daemon, replace `cvestream.db` in the data volume with the backup, start the daemon. Without the state, nothing remembers what was published: every endpoint would be backfilled with the last 7 days and the team would see those items again.
+
+### Configuration backup :factory:
+
+`cvestream config export [-o FILE]` writes the whole active configuration (the YAML file or the Valkey store) as a v1 YAML document, tokens included, endpoints sorted by id, so the same configuration always gives the same bytes. `-o FILE` refuses an existing file and creates the new one with mode `0600`; without `-o` it prints on stdout.
+
+```sh
+cvestream config export -o endpoints-2026-11-05.yaml
+```
+
+The export holds every feed token: keep it private, and encrypt it if it goes to git or to a shared drive. With Valkey also back up the AOF/RDB files of `/data` (see [Valkey](#valkey)); the export is the portable copy, the AOF/RDB the exact one.
+
+Restore with `cvestream config import FILE`: the file is validated first (like `cvestream config validate`), then the configuration of the active provider is **replaced** in one write: endpoints absent from the file are removed. It works on an invalid, emptied or never seeded store, which is its job as the repair path; a failure leaves the provider unchanged. It prints how many endpoints were added, updated and removed. Importing into the YAML provider rewrites `endpoints_file` (comments are dropped); importing the active file itself is refused.
 
 ## Limits
 
