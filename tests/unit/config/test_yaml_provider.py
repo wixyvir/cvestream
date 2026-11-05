@@ -303,6 +303,51 @@ def test_update_keeps_the_file_mode(tmp_path: Path) -> None:
     assert stat.S_IMODE(path.stat().st_mode) == 0o640
 
 
+def test_update_keeps_the_owner_and_group(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = _write(tmp_path, VALID)
+    before = path.stat()
+    calls: list[tuple[int, int]] = []
+    real_fchown = os.fchown
+
+    def fchown(fd: int, uid: int, gid: int) -> None:
+        calls.append((uid, gid))
+        real_fchown(fd, uid, gid)
+
+    monkeypatch.setattr(os, "fchown", fchown)
+    YamlConfigProvider(path).update(_add_endpoint("other"))
+    assert calls == [(before.st_uid, before.st_gid)]
+    assert (path.stat().st_uid, path.stat().st_gid) == (before.st_uid, before.st_gid)
+
+
+def test_update_writes_when_the_owner_cannot_be_kept(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = _write(tmp_path, VALID)
+    path.chmod(0o640)
+
+    def fchown(fd: int, uid: int, gid: int) -> None:
+        raise PermissionError(errno.EPERM, "not permitted")
+
+    monkeypatch.setattr(os, "fchown", fchown)
+    YamlConfigProvider(path).update(_add_endpoint("other"))
+    assert stat.S_IMODE(path.stat().st_mode) == 0o640
+    assert [e.id for e in YamlConfigProvider(path).document().endpoints] == [
+        "team-php",
+        "other",
+    ]
+
+
+def test_a_new_file_is_not_chowned(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[int] = []
+    monkeypatch.setattr(os, "fchown", lambda fd, uid, gid: calls.append(fd))
+    YamlConfigProvider(tmp_path / "endpoints.yaml").update(_add_endpoint("other"))
+    assert calls == []
+
+
 def test_update_writes_through_a_symlink(tmp_path: Path) -> None:
     real = tmp_path / "real.yaml"
     real.write_text(VALID, encoding="utf-8")

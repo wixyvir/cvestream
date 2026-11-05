@@ -258,11 +258,17 @@ class YamlConfigProvider:
 
         A temporary file in the target's own directory, `fsync`, then
         `os.replace`: the daemon sees the old or the new file, never a mix.
+        The old file's mode is kept, and its owner and group when the writer
+        may set them (root, or the owner itself): `sudo cvestream ...` must not
+        leave a root-owned file the daemon can no longer read.
         """
         data = text.encode("utf-8")
         target = self._path.resolve()  # a symlink is written through, not replaced
+        owner: tuple[int, int] | None = None
         try:
-            mode = stat.S_IMODE(target.stat().st_mode)
+            status = target.stat()
+            mode = stat.S_IMODE(status.st_mode)
+            owner = (status.st_uid, status.st_gid)
         except FileNotFoundError:
             mode = 0o600
         except OSError as exc:
@@ -275,7 +281,9 @@ class YamlConfigProvider:
             with os.fdopen(fd, "wb") as handle:
                 handle.write(data)
                 handle.flush()
-                os.fchmod(handle.fileno(), mode)
+                if owner is not None:
+                    self._keep_owner(handle.fileno(), owner)
+                os.fchmod(handle.fileno(), mode)  # after `fchown`, which clears bits
                 os.fsync(handle.fileno())
             if check and not self._unchanged(expected):
                 return None
@@ -288,6 +296,16 @@ class YamlConfigProvider:
             if temporary is not None:
                 Path(temporary).unlink(missing_ok=True)
         return hashlib.sha256(data).hexdigest()
+
+    @staticmethod
+    def _keep_owner(fd: int, owner: tuple[int, int]) -> None:
+        """Give the new file the old file's owner and group, when allowed."""
+        try:
+            os.fchown(fd, *owner)
+        except PermissionError:
+            # Not root and not allowed to give the file away: it keeps the
+            # writer's owner and group, as any other editor would.
+            pass
 
     def _cannot_write(self, exc: OSError) -> ConfigUnavailableError:
         msg = f"{self._path}: cannot write: {type(exc).__name__}"
