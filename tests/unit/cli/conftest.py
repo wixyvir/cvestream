@@ -21,10 +21,10 @@ GENERATED = ["".join([c] * 43) for c in "tuvwxyz"]
 class Cli:
     path: Path
     runner: CliRunner = field(default_factory=CliRunner)
-    _tokens: Iterator[str] = field(default_factory=lambda: iter(GENERATED))
+    tokens: Iterator[str] = field(default_factory=lambda: iter(GENERATED))
 
     def run(self, *args: str, input: str | None = None) -> Result:
-        state = CliState(new_token=lambda: next(self._tokens))
+        state = CliState(new_token=lambda: next(self.tokens))
         return self.runner.invoke(app, list(args), obj=state, input=input)
 
     def stderr(self, result: Result) -> str:
