@@ -279,12 +279,22 @@ class ValkeyConfigProvider:
             raise ConfigValidationError("settings", [msg])
         parts = urlsplit(settings.url)
         password = settings.password.get_secret_value() if settings.password else None
+        # valkey-py verifies the certificate chain but not the host name by
+        # default (`ssl_check_hostname=False`): any certificate from a trusted CA
+        # would do. Both are required here. Only for `valkeys://`: the plain
+        # connection class takes no `ssl_*` argument.
+        tls: dict[str, Any] = (
+            {"ssl_cert_reqs": "required", "ssl_check_hostname": True}
+            if parts.scheme == "valkeys"
+            else {}
+        )
         client = Valkey.from_url(
             settings.url,
             password=password,
             socket_timeout=SOCKET_TIMEOUT,
             socket_connect_timeout=SOCKET_CONNECT_TIMEOUT,
             decode_responses=False,
+            **tls,
         )
         host = parts.hostname or "valkey"
         return cls(

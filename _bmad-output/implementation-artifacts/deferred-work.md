@@ -75,4 +75,4 @@ See `planning-artifacts/sprint-change-proposal-2026-11-01-epic-2-scope.md`.
 ## Deferred from: development of story 3.1 (2026-11-05)
 
 - **No stale-connection retry on the Valkey client** (`src/cvestream/config/valkey_provider.py`): valkey-py's default retry is none, so the first command after Valkey restarted fails on the dead pooled socket (one `config.unavailable` warning), and the next cycle reconnects. Harmless (the last configuration is kept) and a retry would double the worst-case 5 s delay of a cycle; revisit if the warning proves noisy.
-- **TLS (`valkeys://`) is not tested** end to end: CI runs no TLS Valkey. Only the client construction (certificate verification on) is unit tested.
+- **TLS (`valkeys://`) is not tested** end to end: CI runs no TLS Valkey. Only the client construction (certificate chain and host name verification on) is unit tested.

@@ -1,12 +1,14 @@
 """Valkey provider logic that needs no server (the server tests are marked `valkey`)."""
 
 import json
+import ssl
 from collections.abc import Iterator
 from typing import Any
 
 import pytest
 from pydantic import SecretStr
 from valkey import Valkey
+from valkey.connection import SSLConnection
 from valkey.exceptions import (
     AuthenticationError,
     AuthorizationError,
@@ -500,9 +502,38 @@ def test_from_settings_with_tls_scheme() -> None:
     )
     try:
         kwargs = provider._client.connection_pool.connection_kwargs
-        assert kwargs.get("ssl_cert_reqs", "required") == "required"
+        assert kwargs["ssl_cert_reqs"] == "required"
+        # valkey-py's default is False: the host name must be checked too.
+        assert kwargs["ssl_check_hostname"] is True
         assert provider._client.connection_pool.connection_class.__name__.startswith(
             "SSL"
         )
+    finally:
+        provider.close()
+
+
+def test_tls_connections_check_the_host_name() -> None:
+    """The SSL context of a real connection object verifies chain and name."""
+    provider = ValkeyConfigProvider.from_settings(
+        ValkeySettings(url="valkeys://u@h:6380")
+    )
+    try:
+        connection = provider._client.connection_pool.make_connection()
+        assert isinstance(connection, SSLConnection)
+        assert connection.check_hostname is True
+        assert connection.cert_reqs == ssl.CERT_REQUIRED
+    finally:
+        provider.close()
+
+
+def test_plain_connections_take_no_tls_options() -> None:
+    provider = ValkeyConfigProvider.from_settings(
+        ValkeySettings(url="valkey://u@h:6379")
+    )
+    try:
+        kwargs = provider._client.connection_pool.connection_kwargs
+        assert not any(name.startswith("ssl_") for name in kwargs)
+        # Building a plain connection must not choke on a stray `ssl_*` argument.
+        provider._client.connection_pool.make_connection()
     finally:
         provider.close()
