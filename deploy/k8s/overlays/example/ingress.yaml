@@ -1,0 +1,29 @@
+# Only the feeds are routed: the /feeds/ prefix of the public Service. The
+# private Service (health, status) is never exposed.
+#
+# The controller's access log contains the request path, which contains the
+# feed token. Turn path logging off for this route, or keep these logs
+# private. Traefik: use an IngressRoute with observability.accessLogs: false
+# instead of this generic Ingress.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cvestream
+spec:
+  # Example values: use your controller's class, host and TLS Secret.
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - cvestream.example.com
+      secretName: cvestream-tls
+  rules:
+    - host: cvestream.example.com
+      http:
+        paths:
+          - path: /feeds/
+            pathType: Prefix
+            backend:
+              service:
+                name: cvestream-public
+                port:
+                  name: http

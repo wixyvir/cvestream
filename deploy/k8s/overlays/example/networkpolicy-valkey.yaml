@@ -1,0 +1,26 @@
+# Valkey accepts 6379 only from cvestream and from pods that opt in with the
+# label cvestream.io/valkey-access=true (connectors, an operator CLI pod),
+# all in this namespace. It needs no outbound traffic: no egress rule.
+# Admin access without a pod of your own: `kubectl exec cvestream-valkey-0`
+# (not subject to NetworkPolicy).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cvestream-valkey
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: valkey
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: cvestream
+        - podSelector:
+            matchLabels:
+              cvestream.io/valkey-access: "true"
+      ports:
+        - port: 6379
+          protocol: TCP
+  egress: []

@@ -1,0 +1,104 @@
+# Example Valkey for the configuration provider: a single instance, AOF on its
+# own volume, no TLS inside the cluster. For production, point
+# CVESTREAM_VALKEY__URL at your own Valkey (and use valkeys:// across hosts).
+apiVersion: v1
+kind: Service
+metadata:
+  name: cvestream-valkey
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: valkey
+  ports:
+    - name: valkey
+      port: 6379
+      targetPort: valkey
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: cvestream-valkey
+spec:
+  serviceName: cvestream-valkey
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: valkey
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: valkey
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: valkey
+          # Same pin as compose.yml and ci.yml.
+          image: valkey/valkey:9.1.3
+          # valkey.conf names the ACL file by its absolute path in the same
+          # directory.
+          args: ["valkey-server", "/usr/local/etc/valkey/valkey.conf"]
+          ports:
+            - name: valkey
+              containerPort: 6379
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+          # tcpSocket: `default` is off, so `valkey-cli ping` without
+          # credentials would answer NOAUTH.
+          startupProbe:
+            tcpSocket:
+              port: valkey
+            periodSeconds: 2
+            failureThreshold: 30
+          readinessProbe:
+            tcpSocket:
+              port: valkey
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: valkey
+            periodSeconds: 20
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: config
+              mountPath: /usr/local/etc/valkey
+              readOnly: true
+      volumes:
+        # valkey.conf (ConfigMap) and users.acl (Secret) side by side, as
+        # the aclfile path in valkey.conf expects. The names are rewritten
+        # to the hashed ones by Kustomize: a change rolls the pod.
+        - name: config
+          projected:
+            defaultMode: 0440
+            sources:
+              - configMap:
+                  name: cvestream-valkey-config
+              - secret:
+                  name: cvestream-valkey-acl
+  # The AOF of the configuration store. Block storage, never NFS/SMB/CIFS.
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi

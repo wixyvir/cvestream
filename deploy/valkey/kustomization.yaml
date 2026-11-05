@@ -1,0 +1,16 @@
+# Used by the Kubernetes example overlay (deploy/k8s/overlays/example): it
+# turns valkey.conf into a ConfigMap and users.acl into a Secret (it holds
+# password hashes). Kustomize refuses files outside the overlay's own
+# directory in a generator (load restrictor), but allows a directory under
+# `resources:`: that is why this file exists. The compose service mounts this
+# directory as is and ignores this file.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+configMapGenerator:
+  - name: cvestream-valkey-config
+    files:
+      - valkey.conf
+secretGenerator:
+  - name: cvestream-valkey-acl
+    files:
+      - users.acl
