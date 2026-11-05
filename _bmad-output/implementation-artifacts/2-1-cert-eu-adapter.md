@@ -51,7 +51,7 @@ Scope set by the 2026-11-01 course correction (`_bmad-output/planning-artifacts/
    - The section is the level-1 heading `Affected Products` or `Products Affected` (any case), up to the next level-1 heading. It becomes `AffectedProduct(product=<text>, vendor=None, version_text=None)` entries, following the block rule in Dev Notes:
      - a prose paragraph followed by a bullet list is one entry, `"<paragraph>: <bullet>; <bullet>"`;
      - a bullet list without a lead-in paragraph gives one entry per top-level bullet, with its nested bullets inline;
-     - a paragraph without a list is one entry;
+     - a paragraph without a list is one entry, only in a section without any list; in a section with a list, a paragraph that is not a lead-in is commentary and is dropped (review decision, wixyvir/cvestream#20);
      - fenced code blocks are dropped.
    - Markdown emphasis, `[New]` markers and `[n]` reference markers are removed, and whitespace is collapsed (non-breaking spaces included).
    - An entry that mentions CVE IDs goes only to those CVEs' records. An entry that mentions none goes to every record of the advisory.
@@ -69,11 +69,11 @@ Scope set by the 2026-11-01 course correction (`_bmad-output/planning-artifacts/
    - An RSS `pubDate` in `CEST`/`CET` is converted with its real offset (`Fri, 23 Oct 2026 16:36:26 CEST` gives `14:36:26Z`). An RSS item whose date cannot be read becomes skipped.
 7. **Failures (NFR-5).**
    - These raise a `SourceError` subclass, return nothing and leave the cursor unchanged:
-     - RSS transport error, or a transport error on any advisory JSON: `SourceTransportError`;
+     - RSS transport error, or an advisory JSON answering a 5xx or a 429 after retries, a timeout or a network error: `SourceTransportError`;
      - RSS not XML, DTD present, or too large: `SourcePayloadError`;
      - RSS without `channel` or without `item`, or every item unusable: `SourceContractError`;
      - every fetched advisory unusable: `SourceContractError`.
-   - An advisory whose JSON is not JSON, has an unexpected shape, or whose `serial_number` does not match the RSS serial is **skipped and counted**. The other advisories are still emitted, and the cursor stays below that advisory's `pubDate`, so the next fetch retries it.
+   - An advisory whose JSON answers a final `4xx` other than `429` (withdrawn, renamed, not exported yet), is not JSON, has an unexpected shape, or whose `serial_number` does not match the RSS serial is **skipped and counted** (the `4xx` case is a review decision, wixyvir/cvestream#20). The other advisories are still emitted, and the cursor stays below that advisory's `pubDate`, so the next fetch retries it.
 8. **Registry and settings (FR-4, NFR-1).**
    - `SourcesSettings.cert_eu: SourceSettings` (enabled, 15 min by default) and a `cert_eu` factory in `ADAPTER_FACTORIES`.
    - `CVESTREAM_SOURCES__CERT_EU__INTERVAL=PT61M` is rejected (above 60 minutes).
@@ -179,10 +179,10 @@ Scope set by the 2026-11-01 course correction (`_bmad-output/planning-artifacts/
 
 ### Review Findings
 
-Code review 2026-11-03 (`bmad-code-review`, claude-opus-5-5, autonomous run) of `git diff origin/main...HEAD` on PR wixyvir/cvestream#20. The session had no subagent tool, so the three layers (Blind Hunter, Edge Case Hunter, Acceptance Auditor) ran one after the other in the same session, each with its own inputs; edge cases were probed with scratch scripts against the real adapter. Result: 2 decision-needed, 3 patch (applied), 4 defer, 7 dismissed. The story stays in `review` until the two decisions are taken.
+Code review 2026-11-03 (`bmad-code-review`, claude-opus-5-5, autonomous run) of `git diff origin/main...HEAD` on PR wixyvir/cvestream#20. The session had no subagent tool, so the three layers (Blind Hunter, Edge Case Hunter, Acceptance Auditor) ran one after the other in the same session, each with its own inputs; edge cases were probed with scratch scripts against the real adapter. Result: 2 decision-needed, 3 patch (applied), 4 defer, 7 dismissed. The story stays in `review` until the two decisions are taken. Both were taken on 2026-11-05 (option 2 each) and applied on the same PR.
 
-- [ ] [Review][Decision] A missing advisory JSON blocks the whole source for up to 14 days — a final `4xx` on one advisory JSON is a `SourceTransportError` (AC 7), so the fetch fails, the cursor does not move, and no later advisory is fetched until the cursor falls behind the 14-day floor or the item leaves the RSS. Options: keep; skip-and-hold-back on a final `4xx` only (recommended); skip on any advisory transport error. Inline comment: https://github.com/wixyvir/cvestream/pull/20#discussion_r4458527147 [src/cvestream/sources/cert_eu.py:425]
-- [ ] [Review][Decision] A commentary paragraph after the bullet list becomes a structured affected product — in 2026-018 the "Many commercial and open-source products use PHP ... NCSC-NL GitHub repository" entry gives a `github` endpoint a structured hit on the three PHP2Shell CVEs (checked with `affected_hits`). Options: keep (documented risk); drop a paragraph that is neither a lead-in nor in a list-free section (recommended); keep such text for display only. Inline comment: https://github.com/wixyvir/cvestream/pull/20#discussion_r4458527159 [src/cvestream/sources/cert_eu.py:328]
+- [x] [Review][Decision] A missing advisory JSON blocks the whole source for up to 14 days — a final `4xx` on one advisory JSON is a `SourceTransportError` (AC 7), so the fetch fails, the cursor does not move, and no later advisory is fetched until the cursor falls behind the 14-day floor or the item leaves the RSS. Options: keep; skip-and-hold-back on a final `4xx` only (recommended); skip on any advisory transport error. Inline comment: https://github.com/wixyvir/cvestream/pull/20#discussion_r4458527147 [src/cvestream/sources/cert_eu.py:425] — decided 2026-11-05: option 2 (a final `4xx` other than `429` is a per-advisory skip with hold-back; `SourceTransportError.status_code` carries the status)
+- [x] [Review][Decision] A commentary paragraph after the bullet list becomes a structured affected product — in 2026-018 the "Many commercial and open-source products use PHP ... NCSC-NL GitHub repository" entry gives a `github` endpoint a structured hit on the three PHP2Shell CVEs (checked with `affected_hits`). Options: keep (documented risk); drop a paragraph that is neither a lead-in nor in a list-free section (recommended); keep such text for display only. Inline comment: https://github.com/wixyvir/cvestream/pull/20#discussion_r4458527159 [src/cvestream/sources/cert_eu.py:328] — decided 2026-11-05: option 2 (2026-018 now has 5 entries; a `github` entry no longer matches PHP2Shell)
 - [x] [Review][Patch] The affected-products heading with emphasis or a trailing colon (`# **Affected Products**`, `# Affected Products:`) hid the whole section [src/cvestream/sources/cert_eu.py:232] — fixed in `3529419`, parametrized contract test, `docs/sources.md` updated
 - [x] [Review][Patch] `+` was not a bullet marker, so a `+` list collapsed into one paragraph [src/cvestream/sources/cert_eu.py:68] — fixed in `7d043b5`, contract test
 - [x] [Review][Patch] README status still said epic 1 was in progress while this branch marks it done [README.md:9] — fixed in `884ac13`
@@ -322,8 +322,8 @@ _ZONES = {"CEST": "+0200", "CET": "+0100"}
 - **`_parse_pub_date`:** strip; replace a trailing zone token from `_ZONES`; `email.utils.parsedate_to_datetime` in `try`/`except TypeError, ValueError:` (PEP 758 form, as in `http.py`); a naive result gives `None`; `astimezone(UTC)`.
 - **Advisory fetch, for each item due** (`pub > start`, RSS order):
   - `data = await get_json(http, NAME, JSON_URL.format(serial=s), max_bytes=MAX_ADVISORY_BYTES)`;
-  - catch **only `SourcePayloadError`** there (not JSON, too large). It is per advisory: skipped, counted, held back;
-  - `SourceTransportError` propagates and fails the fetch;
+  - catch `SourcePayloadError` there (not JSON, too large). It is per advisory: skipped, counted, held back;
+  - a `SourceTransportError` whose `status_code` is a `4xx` other than `429` is per advisory too (review decision); any other `SourceTransportError` (5xx or 429 after retries, timeout, network) propagates and fails the fetch;
   - then `_Advisory.model_validate(data)`. A `ValidationError`, a serial that does not fullmatch `_SERIAL`, or `advisory.serial_number.strip() != s` means skipped, counted, held back.
 - **Contract errors:** at least one item is due and every due advisory was skipped.
 - **Next cursor (hold-back):**
@@ -350,16 +350,16 @@ _ZONES = {"CEST": "+0200", "CET": "+0100"}
   - a line matching `^(\s*)[-*]\s+(.*)` is a bullet. A deeper indentation than the current top-level bullet makes it nested, appended to its parent as `"; <text>"`;
   - a paragraph whose next non-blank element is a bullet list is that list's **lead-in**, and the block becomes **one** entry: `"<lead-in>: <bullet>; <bullet>; …"`;
   - a list without a lead-in gives one entry per top-level bullet;
-  - a paragraph without a list is one entry;
+  - a paragraph without a list is one entry, only when the section has no list at all; in a section with a list, a paragraph that is not a lead-in is dropped (review decision);
   - `_clean_markdown` applies to each part before joining: remove `**` and backticks, remove `[New]` (any case, also inside `**[New]**`), remove reference markers `\s*\[\d+(?:\s*,\s*\d+)*\]`, collapse whitespace, and strip trailing ` :;,.`. Do **not** remove `_`, because `mod_php` and `php_admin_value` are real names;
   - the CVEs of an entry are the `_CVE` matches in its raw text, upper-cased;
   - empty entries are dropped.
 
   Expected entries:
-  - **2026-018:** 6 entries, none attributed:
+  - **2026-018:** 5 entries, none attributed:
     - `"PHP 8.5 versions prior to 8.5.12"`, `"PHP 8.4 versions prior to 8.4.27"`, `"PHP 8.3 versions prior to 8.3.36"`, `"PHP 8.2 versions prior to 8.2.35"`;
     - `"End-of-life branches (PHP 8.1 and older), which no longer receive updates from the PHP project"`;
-    - the "Many commercial and open-source products use PHP …" paragraph.
+    - the "Many commercial and open-source products use PHP …" paragraph after the list is commentary and is dropped (review decision).
   - **2026-019:** 1 entry attributed to CVE-2026-110264: `"The vulnerability CVE-2026-110264 affects the following versions of GitLab Community and Enterprise Editions: from 7.0 before 18.11.13; 19.0 before 19.0.10; …; 19.5 before 19.5.1"`.
   - **2025-029:** 1 entry: `"The vulnerability seems to be affecting Gen 7 SonicWall firewalls. The vendor is investigating, …"`.
   - **2025-008:** 3 entries, one per CVE, the FortiNDR / FortiOS… / FortiSIEM blocks. The CVE-2024-45324 record must not carry FortiSIEM.
@@ -411,7 +411,7 @@ Follow `tests/contract/cisa_kev/test_cisa_kev.py`: a `make_adapter` fixture with
    - `url == "https://cert.europa.eu/publications/security-advisories/2026-018/"`;
    - `published_at == datetime(2026, 10, 20, tzinfo=UTC)`, `updated_at == datetime(2026, 10, 23, 14, 36, 26, tzinfo=UTC)`;
    - `scores == ()`, `kev == ()`;
-   - the 6 affected entries above, each with `version_text is None` and `vendor is None`;
+   - the 5 affected entries above, each with `version_text is None` and `vendor is None`;
    - the description has no `<br>`;
    - the references contain `https://www.php.net/archive/2026.php#2026-10-20-1`.
 3. Through `normalize` + `merge_keys` (or a mini correlation on the `state` fixture), the three records give three distinct merge-key sets: `{CVE-…618}`, `{…619}`, `{…560}`.
@@ -452,7 +452,7 @@ Follow `tests/contract/cisa_kev/test_cisa_kev.py`: a `make_adapter` fixture with
     - every due advisory failing: `SourceContractError`.
 14. Transport:
     - RSS 500 (after retries) or 403: `SourceTransportError`;
-    - advisory JSON 404: `SourceTransportError`, nothing returned;
+    - advisory JSON 404, 410 or 403: skipped, counted and held back (review decision); 500, 503 or 429 after retries, or a network error: `SourceTransportError`;
     - RSS over `MAX_RSS_BYTES` (`Content-Length`): `SourcePayloadError`.
 15. `live` (`@pytest.mark.live`, `@pytest.mark.enable_socket`, `@pytest.mark.anyio`, `HttpClient()` + `SystemClock()`):
     - `fetch(None)` returns `skipped == 0` and a `next_cursor` that parses as aware UTC; every RSS item in the window gives at least one record;
@@ -628,3 +628,4 @@ claude-sonnet-5-5 (`bmad-dev-story`, autonomous run, 2026-11-03).
 
 - 2026-11-03: implemented story 2.1 (CERT-EU adapter, settings and registry, title rule, PHP2Shell replay, docs); status set to review.
 - 2026-11-03: code review: 3 patches applied (heading, `+` bullets, README status), 4 items deferred, 2 decisions open on wixyvir/cvestream#20; status stays `review`.
+- 2026-11-05: review decisions applied (both option 2): a final `4xx` on one advisory JSON is a per-advisory skip, and a non-lead-in paragraph in a section with a list is dropped; AC 3 and AC 7 amended.
