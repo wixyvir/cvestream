@@ -18,6 +18,7 @@ cvestream has two configuration layers:
   | `log.format` | `json` | `json` (one object per line) or `console` |
   | `http.public.host` | `0.0.0.0` | address the public listener (feeds) binds |
   | `http.public.port` | `8080` | port of the public listener, 1 to 65535 |
+  | `http.public.base_url` | none | where readers reach the feeds (`https://feeds.example.org`, a path prefix is allowed); only the operator CLI uses it, to print feed URLs. Without it the CLI prints `http://localhost:<http.public.port>` :factory: |
   | `http.private.host` | `0.0.0.0` | address the private listener (`/healthz`, `/readyz`, `/status`) binds |
   | `http.private.port` | `9090` | port of the private listener, 1 to 65535 |
   | `sources.<name>.enabled` | `true` | poll this source (`euvd`, `cisa_kev`, `cert_eu`) |

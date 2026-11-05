@@ -170,6 +170,35 @@ class ListenerSettings(BaseModel):
 
 class PublicListenerSettings(ListenerSettings):
     port: int = Field(default=8080, ge=1, le=65535)
+    # Where readers reach the feeds (reverse proxy, Ingress): only the operator
+    # CLI uses it, to print feed URLs. Not a secret.
+    base_url: str | None = None
+
+    @field_validator("base_url")
+    @classmethod
+    def _check_base_url(cls, value: str | None) -> str | None:
+        # Messages never repeat the value.
+        if value is None:
+            return None
+        try:
+            parts = urlsplit(value)
+            parts.port  # noqa: B018 - a bad port raises ValueError here
+        except ValueError:
+            msg = "http.public.base_url is not a valid URL"
+            raise ValueError(msg) from None
+        if parts.scheme not in {"http", "https"}:
+            msg = "http.public.base_url: scheme must be http:// or https://"
+            raise ValueError(msg)
+        if not parts.hostname:
+            msg = "http.public.base_url: a host is required"
+            raise ValueError(msg)
+        if parts.username is not None or parts.password is not None:
+            msg = "http.public.base_url must not contain user information"
+            raise ValueError(msg)
+        if parts.query or parts.fragment or "?" in value or "#" in value:
+            msg = "http.public.base_url: a query string or a fragment is not supported"
+            raise ValueError(msg)
+        return value.removesuffix("/")
 
 
 class PrivateListenerSettings(ListenerSettings):

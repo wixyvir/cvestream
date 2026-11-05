@@ -501,3 +501,59 @@ def test_http_port_bounds(port: str) -> None:
 def test_http_unknown_key_is_rejected() -> None:
     with pytest.raises(ValidationError):
         load_settings(_env(CVESTREAM_HTTP__PUBLIC__TLS="on"))
+
+
+# --- http.public.base_url --------------------------------------------------------
+
+
+def test_base_url_defaults_to_none() -> None:
+    assert load_settings({}).http.public.base_url is None
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("https://feeds.example.org", "https://feeds.example.org"),
+        ("https://feeds.example.org/", "https://feeds.example.org"),
+        ("http://localhost:8080", "http://localhost:8080"),
+        ("https://example.org/cvestream", "https://example.org/cvestream"),
+        ("https://example.org/cvestream/", "https://example.org/cvestream"),
+        ("http://[::1]:8080", "http://[::1]:8080"),
+    ],
+)
+def test_base_url_accepted(value: str, expected: str) -> None:
+    settings = load_settings(_env(CVESTREAM_HTTP__PUBLIC__BASE_URL=value))
+    assert settings.http.public.base_url == expected
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "feeds.example.org",
+        "ftp://feeds.example.org",
+        "https://",
+        "https://user@feeds.example.org",
+        "https://user:pw@feeds.example.org",
+        "https://feeds.example.org?x=1",
+        "https://feeds.example.org?",
+        "https://feeds.example.org/#top",
+        "https://feeds.example.org:99999",
+        "https://feeds.example.org:port",
+    ],
+)
+def test_base_url_rejected_and_not_echoed(value: str) -> None:
+    with pytest.raises(ValidationError) as excinfo:
+        load_settings(_env(CVESTREAM_HTTP__PUBLIC__BASE_URL=value))
+    # The CLI prints `errors(include_input=False)`: that is what must be clean.
+    errors = excinfo.value.errors(include_input=False, include_url=False)
+    text = " ".join(str(error["msg"]) for error in errors)
+    assert "http.public.base_url" in text
+    assert value not in text
+
+
+def test_base_url_from_yaml(tmp_path: Path) -> None:
+    path = _write_yaml(
+        tmp_path, "http:\n  public:\n    base_url: https://feeds.example.org/\n"
+    )
+    settings = load_settings(_env(CVESTREAM_SETTINGS_FILE=str(path)))
+    assert settings.http.public.base_url == "https://feeds.example.org"
