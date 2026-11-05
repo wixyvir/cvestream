@@ -1,0 +1,4 @@
+user default off resetpass resetkeys resetchannels -@all
+user cvestream-daemon on #46f4efafd071de07d56f12258421edcb70b39bad7e3199cb250fc693329567e3 resetchannels %R~cvestream:v1:* -@all +get +mget +smembers +exists +ping +select +client|setinfo
+user cvestream-admin on #5f558d6e4f84fae21673ad9ea14f3a312ef3f4304b59a51ceb0da3a9290da7a3 resetchannels ~cvestream:v1:* -@all +get +mget +smembers +exists +set +del +sadd +srem +incr +watch +unwatch +multi +exec +discard +ping +select +client|setinfo
+user connector-example on #174808d04c670f4b8e094fe329f5237bb3b149a8f41c1936349c38678c85b48f resetchannels %R~cvestream:v1:schema %R~cvestream:v1:endpoints %R~cvestream:v1:endpoint:* %W~cvestream:v1:endpoint:*:products %RW~cvestream:v1:revision -@all +get +mget +smembers +exists +set +incr +watch +unwatch +multi +exec +discard +ping +select +client|setinfo
