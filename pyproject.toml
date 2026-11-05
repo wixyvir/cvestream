@@ -55,6 +55,7 @@ select = ["E", "F", "W", "I", "UP", "B", "DTZ", "BLE", "S", "RUF"]
 "tests/unit/config/test_valkey_provider.py" = ["S105", "S106"]
 "tests/unit/cli/test_config.py" = ["S105", "S106"]
 "tests/unit/cli/test_endpoint.py" = ["S105", "S106"]
+"tests/unit/cli/test_product.py" = ["S105", "S106"]
 
 [tool.ty.environment]
 python-version = "3.14"

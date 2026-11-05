@@ -16,6 +16,7 @@ from cvestream.cli.context import CliState, settings_or_exit, user_error
 from cvestream.cli.db import db_app
 from cvestream.cli.endpoint import endpoint_app
 from cvestream.cli.healthcheck import healthcheck
+from cvestream.cli.product import product_app
 from cvestream.log import configure_logging
 from cvestream.settings import Settings
 from cvestream.state.db import StateError
@@ -35,6 +36,7 @@ app = typer.Typer(
 app.add_typer(config_app, name="config")
 app.add_typer(db_app, name="db")
 app.add_typer(endpoint_app, name="endpoint")
+app.add_typer(product_app, name="product")
 app.command("healthcheck")(healthcheck)
 
 
