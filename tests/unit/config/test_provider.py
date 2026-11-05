@@ -9,12 +9,15 @@ from cvestream.config.models import EndpointConfig
 from cvestream.config.provider import (
     ConfigAccessDeniedError,
     ConfigConflictError,
+    ConfigEditError,
     ConfigError,
     ConfigProvider,
+    ConfigStore,
     ConfigUnavailableError,
     ConfigValidationError,
     build_snapshot,
     open_provider,
+    validate_document,
 )
 from cvestream.config.valkey_provider import ValkeyConfigProvider
 from cvestream.config.yaml_provider import YamlConfigProvider
@@ -65,6 +68,7 @@ def test_exception_family() -> None:
         ConfigValidationError,
         ConfigAccessDeniedError,
         ConfigConflictError,
+        ConfigEditError,
     ):
         assert issubclass(cls, CvestreamError)
         assert cls.__name__.endswith("Error")
@@ -207,6 +211,18 @@ def test_protocol_is_structural() -> None:
     assert provider.revision() == "r"
 
 
+def test_validate_document_returns_the_document() -> None:
+    document = validate_document(_data(_endpoint()), source="x")
+    assert [e.id for e in document.endpoints] == ["team-php"]
+
+
+def test_validate_document_names_fields_and_not_the_input() -> None:
+    with pytest.raises(ConfigValidationError) as excinfo:
+        validate_document(_data(_endpoint(token=TOKEN_A + "/")), source="x")
+    assert str(excinfo.value).startswith("x: endpoints[0].token:")
+    assert TOKEN_A not in str(excinfo.value)
+
+
 # --- open_provider -----------------------------------------------------------
 
 
@@ -214,6 +230,9 @@ def test_open_provider_yaml(tmp_path: Path) -> None:
     settings = load_settings({"CVESTREAM_ENDPOINTS_FILE": str(tmp_path / "e.yaml")})
     provider, close = open_provider(settings)
     assert isinstance(provider, YamlConfigProvider)
+    store: ConfigStore = provider  # the CLI writes through it
+    assert callable(store.update)
+    assert callable(store.replace)
     close()  # a no-op, and safe to call twice
     close()
 
@@ -228,6 +247,8 @@ def test_open_provider_valkey_builds_a_lazy_client() -> None:
     provider, close = open_provider(settings)
     try:
         assert isinstance(provider, ValkeyConfigProvider)  # no connection yet
+        store: ConfigStore = provider
+        assert callable(store.replace)
     finally:
         close()
 

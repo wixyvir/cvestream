@@ -51,6 +51,10 @@ class ConfigConflictError(ConfigUnavailableError):
     """
 
 
+class ConfigEditError(ConfigError):
+    """A requested change cannot be applied (unknown id, duplicate, nothing to do)."""
+
+
 class ConfigValidationError(ConfigError):
     """The configuration was read but is invalid; `errors` names each field."""
 
@@ -90,6 +94,27 @@ class ConfigProvider(Protocol):
 
     def load(self) -> ConfigSnapshot:
         """Load and validate; raises `ConfigError`."""
+        ...
+
+
+class ConfigStore(ConfigProvider, Protocol):
+    """A provider the operator CLI can also write through."""
+
+    def document(self) -> ConfigDocument:
+        """The validated current content; raises `ConfigError`."""
+        ...
+
+    def update(self, change: Callable[[ConfigDocument], ConfigDocument]) -> str:
+        """Read, apply the pure `change`, validate, write; return the new revision.
+
+        `change` may run once per attempt. An invalid current content refuses the
+        edit; a lost race is retried, then `ConfigConflictError`.
+        """
+        ...
+
+    def replace(self, document: ConfigDocument) -> str:
+        """Write `document` as the whole configuration, ignoring the current
+        content (it may be invalid or missing); return the new revision."""
         ...
 
 
@@ -150,7 +175,7 @@ def build_snapshot(data: object, *, revision: str, source: str) -> ConfigSnapsho
     )
 
 
-def open_provider(settings: Settings) -> tuple[ConfigProvider, Callable[[], None]]:
+def open_provider(settings: Settings) -> tuple[ConfigStore, Callable[[], None]]:
     """The provider `settings` names, and the function that closes it.
 
     Each provider module is imported here, not at the top: YAML mode never
