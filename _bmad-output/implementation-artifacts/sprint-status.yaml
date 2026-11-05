@@ -1,5 +1,5 @@
 # generated: 2026-10-26
-# last_updated: 2026-11-03
+# last_updated: 2026-11-05
 # project: cvestream
 # project_key: NOKEY
 # tracking_system: file-system
@@ -74,7 +74,7 @@
 #     previous stories than the default "create next after done" flow.
 
 generated: 2026-10-26
-last_updated: 2026-11-03
+last_updated: 2026-11-05
 project: cvestream
 project_key: NOKEY
 tracking_system: file-system
@@ -93,7 +93,7 @@ development_status:
   epic-1-retrospective: optional
 
   epic-2: in-progress
-  2-1-cert-eu-adapter: review
+  2-1-cert-eu-adapter: done
   2-2-source-drift-detection: done
   epic-2-retrospective: optional
 
