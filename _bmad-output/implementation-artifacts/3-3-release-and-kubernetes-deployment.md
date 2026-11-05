@@ -4,7 +4,7 @@ baseline_commit: 6c02c2c
 
 # Story 3.3: Release and Kubernetes deployment
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -96,42 +96,42 @@ so that I can deploy a pinned release under Docker or Kubernetes with a hardened
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: `.github/workflows/release.yml`** (AC: 1, 2, 3, 4)
-  - [ ] 1.1 Write the workflow from the verified sketch in Dev Notes ("Release workflow sketch"): header comment, `on.push.tags: ["v*"]`, `permissions: {}`, `concurrency: {group: release-${{ github.ref }}, cancel-in-progress: false}`, `defaults.run.shell: bash`.
-  - [ ] 1.2 Job `check` (`contents: read`, `timeout-minutes: 5`): checkout, then the version script (tag through `env:`, regex `^v[0-9]+\.[0-9]+\.[0-9]+$`, `tomllib` from the runner's `python3 -I`, `::error::` messages).
-  - [ ] 1.3 Job `image` (`needs: check`, permissions exactly as AC 4, `timeout-minutes: 60`): checkout, lower-cased image name step, setup-qemu, setup-buildx, login to `ghcr.io` with `GITHUB_TOKEN`, metadata-action (`type=semver,pattern={{version}}`, `type=semver,pattern={{major}}.{{minor}}`, default `latest=auto`), build-push-action (`target: runtime`, both platforms, `push: true`, tags, labels, annotations, `sbom: true`, `provenance: mode=max`, **no** `cache-from`/`cache-to`), then `actions/attest` guarded by `if: ${{ !github.event.repository.private }}` with `subject-name` (no tag), `subject-digest: ${{ steps.build.outputs.digest }}`, `push-to-registry: true`, `create-storage-record: false`.
-  - [ ] 1.4 Job `release` (`needs: image`, `contents: write`, `timeout-minutes: 5`): `gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes` with `GH_TOKEN` and `TAG` in `env:`.
-  - [ ] 1.5 Pin SHAs: reuse `ci.yml`'s SHAs for checkout, setup-qemu, setup-buildx, login, metadata, build-push (check `ci.yml` at the time you write it: Dependabot may have bumped some). `actions/attest` v4.2.2 = `1e69f48acb82d1966a394da916b4c1698aa569d6` (resolved with `gh api repos/actions/attest/git/ref/tags/v4.2.2` on 2026-11-05, type `commit`); re-check it.
-  - [ ] 1.6 Lint: `SSL_CERT_FILE=$HOME/ca.pem uvx --from actionlint-py actionlint .github/workflows/release.yml` and `SSL_CERT_FILE=$HOME/ca.pem uvx zizmor --offline .github/workflows/`: no finding.
-  - [ ] 1.7 Dry-run the version check locally: copy the script to the scratchpad, run it from the worktree root with `TAG=v0.1.0` (passes), `TAG=v9.9.9`, `TAG=v0.1.0-rc.1`, `TAG=0.1.0` (each fails with its message). Do not commit the scratch script.
-- [ ] **Task 2: `deploy/k8s/base`** (AC: 5, 6)
-  - [ ] 2.1 `kustomization.yaml` (`apiVersion: kustomize.config.k8s.io/v1beta1`, `kind: Kustomization`, `resources:` in the order of the tree, `labels:` with `app.kubernetes.io/part-of: cvestream` and `includeSelectors: false`). No `namespace:` in the base.
-  - [ ] 2.2 `configmap-settings.yaml`: `cvestream-settings` with `CVESTREAM_CONFIG_PROVIDER: yaml`, `CVESTREAM_ENDPOINTS_FILE: /config/endpoints.yaml`, `CVESTREAM_LOG__FORMAT: json`, `CVESTREAM_LOG__LEVEL: info`; comment that `CVESTREAM_DATA_DIR=/data` comes from the image and that a ConfigMap change needs `kubectl rollout restart deploy/cvestream` (env vars are read at start).
-  - [ ] 2.3 `deployment.yaml`: start from the harness Deployment (Dev Notes, "Harness input"), change the image to `ghcr.io/wixyvir/cvestream:0.1.0`, drop `imagePullPolicy: Never` (default `IfNotPresent` for a tag), keep every hardening line and its comment, volume `endpoints` → Secret `cvestream-endpoints` (`defaultMode: 0440`, directory mount on `/config`).
-  - [ ] 2.4 `pvc.yaml` (`cvestream-data`, RWO, 1Gi, no `storageClassName`, block-storage comment), `service-public.yaml`, `service-private.yaml` (port names, `targetPort` by container port name).
-  - [ ] 2.5 `networkpolicy.yaml` as AC 6 (see Dev Notes, "NetworkPolicy design").
-  - [ ] 2.6 `kubectl kustomize deploy/k8s/base` builds; read the output.
-- [ ] **Task 3: `deploy/valkey/kustomization.yaml` and `deploy/k8s/overlays/example`** (AC: 7) — read "Dependency on story 3.1" first
-  - [ ] 3.1 `deploy/valkey/kustomization.yaml`: `configMapGenerator` `cvestream-valkey-config` from `valkey.conf`, `secretGenerator` `cvestream-valkey-acl` from `users.acl` (a Secret: it holds password hashes). A comment says it exists so overlays can mount these files despite the load restrictor.
-  - [ ] 3.2 `overlays/example/kustomization.yaml`: `namespace: cvestream`, `resources:` `../../base`, `../../../valkey`, `valkey-statefulset.yaml`, `ingress.yaml`, `secret.example.yaml` (and `networkpolicy-valkey.yaml` / `valkey-service.yaml` if you split them out); `patches:` for the ConfigMap (Valkey provider), the Deployment (volumes) and the cvestream NetworkPolicy (egress to Valkey, 8080 peer = the Ingress controller). Patch forms verified locally are in Dev Notes.
-  - [ ] 3.3 `valkey-statefulset.yaml`: headless `Service` `cvestream-valkey` (6379, `clusterIP: None`) + `StatefulSet` `cvestream-valkey` (see Dev Notes, "Valkey StatefulSet").
-  - [ ] 3.4 `ingress.yaml`: `Ingress` `cvestream`, `ingressClassName` (example value with a comment), host `cvestream.example.com`, TLS secret placeholder, one rule `path: /feeds/`, `pathType: Prefix` → `cvestream-public:8080`; comment on access logs (Traefik: an `IngressRoute` with `observability.accessLogs: false`, harness finding 3).
-  - [ ] 3.5 `secret.example.yaml`: Secret `cvestream-valkey` with `stringData.password: REPLACE-ME-...`; comment: replace it (or remove it from the kustomization and create the Secret out of band), never commit real values; the value must match the `cvestream-daemon` entry of the `users.acl` you deploy.
-  - [ ] 3.6 `kubectl kustomize deploy/k8s/overlays/example` builds; check the output against AC 7 (hashed ConfigMap/Secret names rewritten in the StatefulSet, no `CVESTREAM_ENDPOINTS_FILE`, no `endpoints` volume).
-- [ ] **Task 4: CI and pins** (AC: 8, 9)
-  - [ ] 4.1 `ci.yml`, `ci` job: after `uv run cvestream config validate endpoints.example.yaml` and before the Docker steps, add `run: kubectl version --client` (log only) and one step that builds both: `kubectl kustomize deploy/k8s/base >/dev/null` and `kubectl kustomize deploy/k8s/overlays/example >/dev/null`. No other change to `ci.yml` (3.1 edits it too).
-  - [ ] 4.2 `deploy/compose/compose.yml`: `image: ghcr.io/wixyvir/cvestream:0.1.0`; replace the "Pin a release tag ... (story 3.3)" comment with one that says the tag follows releases and `edge` follows `main`.
-  - [ ] 4.3 `tests/unit/test_deploy_manifests.py` (see Dev Notes, "Testing standards"): version pins of `deploy/k8s/base/deployment.yaml` and `deploy/compose/compose.yml` vs `pyproject.toml`; Deployment invariants of AC 5 on the raw YAML. stdlib `tomllib` + PyYAML (already a runtime dependency), no new dependency, no network, no `kubectl`.
-- [ ] **Task 5: documentation** (AC: 10)
-  - [ ] 5.1 `docs/operations.md`: new `## Kubernetes` section (after `## Run`/`## Startup and shutdown`, your call) and new `## Releases and image tags` section; TL;DR bullets; replace the `:edge` in the "Container" row of `## Run` with the release tag; extend `## Health` with the `127.0.0.1` probe note (deferred `--host` item). Content checklist in Dev Notes, "What the docs must say".
-  - [ ] 5.2 `README.md`: a short `## Kubernetes quick start` after the self-hosted one, one paragraph on releases and image tags, `kubectl kustomize deploy/k8s/overlays/example` in the "Quality gate" block. Do not rewrite the `**Status:**` paragraph (story 3.1 is likely to edit it).
-  - [ ] 5.3 `CLAUDE.md`: add `kubectl kustomize deploy/k8s/overlays/example` to "Gate commands" (before `docker build`).
-  - [ ] 5.4 `architecture.md`: tree (`deploy/valkey/kustomization.yaml`, the overlay's actual files, `tests/unit/test_deploy_manifests.py` if the tree lists tests), the Actions versions line (`actions/attest` v4.2.2 instead of `attest-build-provenance`, which is now a wrapper), the release row (tag must be exactly `vX.Y.Z`; GitHub attestation only on a public repository; SBOM/provenance are BuildKit attestations). Same for `project-context.md`'s "Release" bullet if wording changes.
-  - [ ] 5.5 `deferred-work.md`: mark "`cvestream healthcheck` always probes `127.0.0.1`" as documented by 3.3 (no `--host`: the Kubernetes manifests keep the default `0.0.0.0` bind), and "Editable install in the runtime image" as kept for later with the reason (see Decisions). Use the existing strike-through + "Resolved by" style for a closed item.
-- [ ] **Task 6: gates, rebase and bookkeeping** (AC: 11)
-  - [ ] 6.1 Every gate of `CLAUDE.md` in the worktree, plus both `kubectl kustomize` builds, plus actionlint/zizmor. `docker build --target runtime -t cvestream:story-3-3-release-and-kubernetes-deployment .` once: behind the proxy it fails pulling `ghcr.io` with x509; report it and rely on the PR's `ci` check.
-  - [ ] 6.2 Optional, if you can: `kubeconform -strict -summary` on both builds (not installed here; skip if unavailable, say so in the Completion Notes).
-  - [ ] 6.3 Fill the Dev Agent Record (decisions, what was not run: the release workflow itself, minikube), the File List, set the story to `review` here and in `sprint-status.yaml`.
+- [x] **Task 1: `.github/workflows/release.yml`** (AC: 1, 2, 3, 4)
+  - [x] 1.1 Write the workflow from the verified sketch in Dev Notes ("Release workflow sketch"): header comment, `on.push.tags: ["v*"]`, `permissions: {}`, `concurrency: {group: release-${{ github.ref }}, cancel-in-progress: false}`, `defaults.run.shell: bash`.
+  - [x] 1.2 Job `check` (`contents: read`, `timeout-minutes: 5`): checkout, then the version script (tag through `env:`, regex `^v[0-9]+\.[0-9]+\.[0-9]+$`, `tomllib` from the runner's `python3 -I`, `::error::` messages).
+  - [x] 1.3 Job `image` (`needs: check`, permissions exactly as AC 4, `timeout-minutes: 60`): checkout, lower-cased image name step, setup-qemu, setup-buildx, login to `ghcr.io` with `GITHUB_TOKEN`, metadata-action (`type=semver,pattern={{version}}`, `type=semver,pattern={{major}}.{{minor}}`, default `latest=auto`), build-push-action (`target: runtime`, both platforms, `push: true`, tags, labels, annotations, `sbom: true`, `provenance: mode=max`, **no** `cache-from`/`cache-to`), then `actions/attest` guarded by `if: ${{ !github.event.repository.private }}` with `subject-name` (no tag), `subject-digest: ${{ steps.build.outputs.digest }}`, `push-to-registry: true`, `create-storage-record: false`.
+  - [x] 1.4 Job `release` (`needs: image`, `contents: write`, `timeout-minutes: 5`): `gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes` with `GH_TOKEN` and `TAG` in `env:`.
+  - [x] 1.5 Pin SHAs: reuse `ci.yml`'s SHAs for checkout, setup-qemu, setup-buildx, login, metadata, build-push (check `ci.yml` at the time you write it: Dependabot may have bumped some). `actions/attest` v4.2.2 = `1e69f48acb82d1966a394da916b4c1698aa569d6` (resolved with `gh api repos/actions/attest/git/ref/tags/v4.2.2` on 2026-11-05, type `commit`); re-check it.
+  - [x] 1.6 Lint: `SSL_CERT_FILE=$HOME/ca.pem uvx --from actionlint-py actionlint .github/workflows/release.yml` and `SSL_CERT_FILE=$HOME/ca.pem uvx zizmor --offline .github/workflows/`: no finding.
+  - [x] 1.7 Dry-run the version check locally: copy the script to the scratchpad, run it from the worktree root with `TAG=v0.1.0` (passes), `TAG=v9.9.9`, `TAG=v0.1.0-rc.1`, `TAG=0.1.0` (each fails with its message). Do not commit the scratch script.
+- [x] **Task 2: `deploy/k8s/base`** (AC: 5, 6)
+  - [x] 2.1 `kustomization.yaml` (`apiVersion: kustomize.config.k8s.io/v1beta1`, `kind: Kustomization`, `resources:` in the order of the tree, `labels:` with `app.kubernetes.io/part-of: cvestream` and `includeSelectors: false`). No `namespace:` in the base.
+  - [x] 2.2 `configmap-settings.yaml`: `cvestream-settings` with `CVESTREAM_CONFIG_PROVIDER: yaml`, `CVESTREAM_ENDPOINTS_FILE: /config/endpoints.yaml`, `CVESTREAM_LOG__FORMAT: json`, `CVESTREAM_LOG__LEVEL: info`; comment that `CVESTREAM_DATA_DIR=/data` comes from the image and that a ConfigMap change needs `kubectl rollout restart deploy/cvestream` (env vars are read at start).
+  - [x] 2.3 `deployment.yaml`: start from the harness Deployment (Dev Notes, "Harness input"), change the image to `ghcr.io/wixyvir/cvestream:0.1.0`, drop `imagePullPolicy: Never` (default `IfNotPresent` for a tag), keep every hardening line and its comment, volume `endpoints` → Secret `cvestream-endpoints` (`defaultMode: 0440`, directory mount on `/config`).
+  - [x] 2.4 `pvc.yaml` (`cvestream-data`, RWO, 1Gi, no `storageClassName`, block-storage comment), `service-public.yaml`, `service-private.yaml` (port names, `targetPort` by container port name).
+  - [x] 2.5 `networkpolicy.yaml` as AC 6 (see Dev Notes, "NetworkPolicy design").
+  - [x] 2.6 `kubectl kustomize deploy/k8s/base` builds; read the output.
+- [x] **Task 3: `deploy/valkey/kustomization.yaml` and `deploy/k8s/overlays/example`** (AC: 7) — read "Dependency on story 3.1" first
+  - [x] 3.1 `deploy/valkey/kustomization.yaml`: `configMapGenerator` `cvestream-valkey-config` from `valkey.conf`, `secretGenerator` `cvestream-valkey-acl` from `users.acl` (a Secret: it holds password hashes). A comment says it exists so overlays can mount these files despite the load restrictor.
+  - [x] 3.2 `overlays/example/kustomization.yaml`: `namespace: cvestream`, `resources:` `../../base`, `../../../valkey`, `valkey-statefulset.yaml`, `ingress.yaml`, `secret.example.yaml` (and `networkpolicy-valkey.yaml` / `valkey-service.yaml` if you split them out); `patches:` for the ConfigMap (Valkey provider), the Deployment (volumes) and the cvestream NetworkPolicy (egress to Valkey, 8080 peer = the Ingress controller). Patch forms verified locally are in Dev Notes.
+  - [x] 3.3 `valkey-statefulset.yaml`: headless `Service` `cvestream-valkey` (6379, `clusterIP: None`) + `StatefulSet` `cvestream-valkey` (see Dev Notes, "Valkey StatefulSet").
+  - [x] 3.4 `ingress.yaml`: `Ingress` `cvestream`, `ingressClassName` (example value with a comment), host `cvestream.example.com`, TLS secret placeholder, one rule `path: /feeds/`, `pathType: Prefix` → `cvestream-public:8080`; comment on access logs (Traefik: an `IngressRoute` with `observability.accessLogs: false`, harness finding 3).
+  - [x] 3.5 `secret.example.yaml`: Secret `cvestream-valkey` with `stringData.password: REPLACE-ME-...`; comment: replace it (or remove it from the kustomization and create the Secret out of band), never commit real values; the value must match the `cvestream-daemon` entry of the `users.acl` you deploy.
+  - [x] 3.6 `kubectl kustomize deploy/k8s/overlays/example` builds; check the output against AC 7 (hashed ConfigMap/Secret names rewritten in the StatefulSet, no `CVESTREAM_ENDPOINTS_FILE`, no `endpoints` volume).
+- [x] **Task 4: CI and pins** (AC: 8, 9)
+  - [x] 4.1 `ci.yml`, `ci` job: after `uv run cvestream config validate endpoints.example.yaml` and before the Docker steps, add `run: kubectl version --client` (log only) and one step that builds both: `kubectl kustomize deploy/k8s/base >/dev/null` and `kubectl kustomize deploy/k8s/overlays/example >/dev/null`. No other change to `ci.yml` (3.1 edits it too).
+  - [x] 4.2 `deploy/compose/compose.yml`: `image: ghcr.io/wixyvir/cvestream:0.1.0`; replace the "Pin a release tag ... (story 3.3)" comment with one that says the tag follows releases and `edge` follows `main`.
+  - [x] 4.3 `tests/unit/test_deploy_manifests.py` (see Dev Notes, "Testing standards"): version pins of `deploy/k8s/base/deployment.yaml` and `deploy/compose/compose.yml` vs `pyproject.toml`; Deployment invariants of AC 5 on the raw YAML. stdlib `tomllib` + PyYAML (already a runtime dependency), no new dependency, no network, no `kubectl`.
+- [x] **Task 5: documentation** (AC: 10)
+  - [x] 5.1 `docs/operations.md`: new `## Kubernetes` section (after `## Run`/`## Startup and shutdown`, your call) and new `## Releases and image tags` section; TL;DR bullets; replace the `:edge` in the "Container" row of `## Run` with the release tag; extend `## Health` with the `127.0.0.1` probe note (deferred `--host` item). Content checklist in Dev Notes, "What the docs must say".
+  - [x] 5.2 `README.md`: a short `## Kubernetes quick start` after the self-hosted one, one paragraph on releases and image tags, `kubectl kustomize deploy/k8s/overlays/example` in the "Quality gate" block. Do not rewrite the `**Status:**` paragraph (story 3.1 is likely to edit it).
+  - [x] 5.3 `CLAUDE.md`: add `kubectl kustomize deploy/k8s/overlays/example` to "Gate commands" (before `docker build`).
+  - [x] 5.4 `architecture.md`: tree (`deploy/valkey/kustomization.yaml`, the overlay's actual files, `tests/unit/test_deploy_manifests.py` if the tree lists tests), the Actions versions line (`actions/attest` v4.2.2 instead of `attest-build-provenance`, which is now a wrapper), the release row (tag must be exactly `vX.Y.Z`; GitHub attestation only on a public repository; SBOM/provenance are BuildKit attestations). Same for `project-context.md`'s "Release" bullet if wording changes.
+  - [x] 5.5 `deferred-work.md`: mark "`cvestream healthcheck` always probes `127.0.0.1`" as documented by 3.3 (no `--host`: the Kubernetes manifests keep the default `0.0.0.0` bind), and "Editable install in the runtime image" as kept for later with the reason (see Decisions). Use the existing strike-through + "Resolved by" style for a closed item.
+- [x] **Task 6: gates, rebase and bookkeeping** (AC: 11)
+  - [x] 6.1 Every gate of `CLAUDE.md` in the worktree, plus both `kubectl kustomize` builds, plus actionlint/zizmor. `docker build --target runtime -t cvestream:story-3-3-release-and-kubernetes-deployment .` once: behind the proxy it fails pulling `ghcr.io` with x509; report it and rely on the PR's `ci` check.
+  - [x] 6.2 Optional, if you can: `kubeconform -strict -summary` on both builds (not installed here; skip if unavailable, say so in the Completion Notes).
+  - [x] 6.3 Fill the Dev Agent Record (decisions, what was not run: the release workflow itself, minikube), the File List, set the story to `review` here and in `sprint-status.yaml`.
 
 ## Dev Notes
 
@@ -508,10 +508,44 @@ The user's minikube harness (Calico, Traefik v3.6.15, `restricted` PSS on `apps`
 
 ### Agent Model Used
 
+claude-sonnet-5-5 (bmad-dev-story, autonomous run, 2026-11-05)
+
 ### Debug Log References
 
+- `uvx --from actionlint-py actionlint` on `release.yml` and `ci.yml`: clean. `uvx zizmor --offline .github/workflows/`: no findings.
+- Version check dry run (scratch script, not committed): `v0.1.0` passes; `v9.9.9` (mismatch), `v0.1.0-rc.1` and `0.1.0` (not `vX.Y.Z`) each fail with their message.
+- Red/green: `tests/unit/test_deploy_manifests.py` first failed on the compose `:edge` pin, passed once `compose.yml` moved to `0.1.0`.
+- `kubectl kustomize deploy/k8s/base` builds. The overlay builds only with `deploy/valkey/valkey.conf` and `deploy/valkey/users.acl` present: checked with untracked stand-ins (deleted afterwards, never committed). On this branch (no story 3.1 files yet) the overlay build, and therefore the PR's `ci` check, fail with `no such file or directory` for those two files until the rebase onto 3.1.
+- Overlay output read against AC 7: hashed ConfigMap and Secret names rewritten in the StatefulSet's projected volume, no `CVESTREAM_ENDPOINTS_FILE`, no `endpoints` volume, `/secrets/valkey` mount, 8080 peer replaced, Valkey egress rule appended.
+- `docker build --target runtime`: fails pulling `ghcr.io/astral-sh/uv` with `x509: certificate signed by unknown authority` (proxy CA not trusted by the daemon); not retried with verification off, rely on the PR's `ci` check.
+
 ### Completion Notes List
+
+- **Release workflow:** `.github/workflows/release.yml` from the verified sketch, unchanged (SHAs equal those of `ci.yml`, `actions/attest v4.2.2 re-resolved with `gh api`). Not run: pushing a tag is out of scope.
+- **Base and overlay:** as designed in Dev Notes. Two additions: `networkpolicy-valkey.yaml` is a separate file in the overlay (listed in its `kustomization.yaml`), and `deploy/valkey/kustomization.yaml` is the only file of `deploy/valkey/` owned by this story. The example Valkey uses `valkey/valkey:9.1.3`, `/usr/local/etc/valkey` and `dir /data`, as story 3.1's story file fixes them; re-check against the merged 3.1 files after the rebase (`aclfile`/`dir` paths, `users.acl` password format, setting names `CVESTREAM_VALKEY__URL` / `CVESTREAM_VALKEY__PASSWORD_FILE`).
+- **CI:** one `Kustomize builds` step in the `ci` job (`kubectl version --client`, both builds), before the Docker steps.
+- **Pins and test:** image `ghcr.io/wixyvir/cvestream:0.1.0` in the base and in `deploy/compose/compose.yml`; `tests/unit/test_deploy_manifests.py` (10 tests) keeps both equal to `pyproject.toml` and checks the AC 5 invariants on the raw files. `uv run pytest`: 1182 passed, 6 deselected.
+- **Docs:** `docs/operations.md` (TL;DR bullets, Run table, Health note, new `## Kubernetes` and `## Releases and image tags`), `README.md` (Kubernetes quick start, releases paragraph, gate lines), `CLAUDE.md` gate list, `architecture.md` (Actions line, release row, ci row, tree, Kubernetes bullet), `project-context.md` (Release bullet), `deferred-work.md` (healthcheck item closed as documented, editable install kept with the reason).
+- **Decisions:** the autonomous decisions of Dev Notes (1 to 11) were applied as written. No deviation. The `imagePullSecrets` is a commented example in the base Deployment.
+- **Not run:** the release workflow, minikube deployment of the overlay, `kubeconform` (not installed), the `valkey`-marked tests (none exist before story 3.1), the local `docker build` (x509 behind the proxy).
+- **Gates:** all green locally except the two noted above (overlay build needs 3.1's files; docker build x509).
+- Ultimate context engine analysis completed - comprehensive developer guide created (bmad-create-story, claude-opus-5-5, autonomous run, 2026-11-05).
 
 - Ultimate context engine analysis completed - comprehensive developer guide created (bmad-create-story, claude-opus-5-5, autonomous run, 2026-11-05).
 
 ### File List
+
+- `.github/workflows/release.yml` (new)
+- `.github/workflows/ci.yml` (Kustomize builds step)
+- `deploy/k8s/base/{kustomization,configmap-settings,deployment,pvc,service-public,service-private,networkpolicy}.yaml` (new)
+- `deploy/k8s/overlays/example/{kustomization,valkey-statefulset,networkpolicy-valkey,ingress,secret.example}.yaml` (new)
+- `deploy/valkey/kustomization.yaml` (new)
+- `deploy/compose/compose.yml` (image pin)
+- `tests/unit/test_deploy_manifests.py` (new)
+- `docs/operations.md`, `README.md`, `CLAUDE.md`
+- `_bmad-output/planning-artifacts/architecture.md`, `_bmad-output/project-context.md`, `_bmad-output/implementation-artifacts/deferred-work.md`
+- `_bmad-output/implementation-artifacts/3-3-release-and-kubernetes-deployment.md`, `_bmad-output/implementation-artifacts/sprint-status.yaml`
+
+### Change Log
+
+- 2026-11-05: story 3.3 implemented (release workflow, Kustomize base and example overlay, Kustomize CI step, release pins and test, docs); status set to review.
