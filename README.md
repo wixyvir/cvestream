@@ -15,6 +15,14 @@ decisions (each vulnerability is merged across sources and decided
 once per endpoint, surviving restarts), and the daemon that polls the sources
 and serves one token-protected RSS 2.0 feed per endpoint.
 
+The endpoint configuration can also live in a **Valkey** service
+(`CVESTREAM_CONFIG_PROVIDER=valkey`): a documented, versioned key layout with
+per-role access rules, so that other tools (BoM connectors, CD workers) can
+maintain product lists. The daemon waits for Valkey at startup, rides out an
+outage on its last valid configuration and reloads when the revision changes.
+Contract and access rules: [`docs/config-contract.md`](docs/config-contract.md);
+server files: [`deploy/valkey/`](deploy/valkey/).
+
 Design: [`_bmad-output/planning-artifacts/architecture.md`](_bmad-output/planning-artifacts/architecture.md).
 Sources and their assumptions: [`docs/sources.md`](docs/sources.md).
 Static settings: [`settings.example.yaml`](settings.example.yaml) (every key is
@@ -74,7 +82,18 @@ uv run cvestream config validate endpoints.example.yaml
 `pytest` blocks the network (pytest-socket). Tests marked `live` hit real
 services and are deselected by default;
 `.github/workflows/source-drift.yml` runs them nightly (see
-`docs/operations.md`); tests marked `valkey` need a Valkey server.
+`docs/operations.md`); tests marked `valkey` need a Valkey server: they skip
+without one, and fail on CI. To run them, start a disposable server with the
+repo's files and point `VALKEY_TEST_ADDRESS` at it:
+
+```sh
+docker run -d --rm --name cvs-valkey -p 127.0.0.1::6379 \
+  -v "$PWD/deploy/valkey:/usr/local/etc/valkey:ro" \
+  valkey/valkey:9.1.3 valkey-server /usr/local/etc/valkey/valkey.conf
+export VALKEY_TEST_ADDRESS=$(docker port cvs-valkey 6379 | head -1)   # 127.0.0.1:<port>
+uv run pytest -m valkey -v
+docker stop cvs-valkey
+```
 
 ### In a container
 

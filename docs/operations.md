@@ -7,7 +7,8 @@
 - Feed URL: `http://<host>:8080/feeds/<token>.xml`. The token is the access control: put an HTTPS reverse proxy in front and **turn off its path logging for `/feeds/`**.
 - Health: `cvestream healthcheck [--ready] [--port N]`, `/healthz`, `/readyz`, `/status`. The image already has a `HEALTHCHECK`.
 - Logs are JSON lines on stdout. `cycle.summary` says what each cycle did; `source.failed`, `source.stale`, `config.rejected` and `pipeline.failed` are the ones to alert on.
-- Edit `endpoints.yaml` and the daemon picks it up at the next cycle, no restart. Rotate a token by editing it.
+- Edit `endpoints.yaml` (or the Valkey store, `config_provider: valkey`) and the daemon picks it up at the next cycle, no restart. Rotate a token by editing it.
+- With the Valkey provider the daemon waits for Valkey at startup (`valkey.startup_timeout`), exits `3` when it stays unreachable or refuses the credentials, and rides out an outage on the last valid configuration (see [Valkey](#valkey)).
 - Back up the state with `cvestream db backup <file>`.
 - A nightly GitHub workflow (`source-drift`) runs the live contract tests against the real source APIs and opens or updates one `source-drift` issue when a source changed or was unreachable.
 
@@ -19,7 +20,7 @@
 | One cycle, then exit | `uv run cvestream poll --once` |
 | Container | `docker run -v data:/data -v ./config:/config:ro -e CVESTREAM_ENDPOINTS_FILE=/config/endpoints.yaml -p 8080:8080 ghcr.io/wixyvir/cvestream:edge` |
 | Self-hosted compose | `cd deploy/compose && mkdir config && cp ../../endpoints.example.yaml config/endpoints.yaml`, edit it, then `docker compose up -d` |
-| Dev stack | `docker compose watch` (serves the placeholder tokens of `endpoints.example.yaml`) |
+| Dev stack | `docker compose watch` (serves the placeholder tokens of `endpoints.example.yaml`; a `valkey` service starts with it, use it with `CVESTREAM_CONFIG_PROVIDER=valkey`) |
 
 `deploy/compose/compose.yml` runs `ghcr.io/wixyvir/cvestream`, with a read-only root filesystem (`/tmp` is a `tmpfs`), no capabilities, `no-new-privileges`, a named volume on `/data` and only port 8080 published. `config/` is gitignored: never commit it, it holds your tokens.
 
@@ -37,8 +38,8 @@ Exit codes:
 |---|---|
 | `0` | clean stop (SIGTERM or SIGINT), or a successful `poll --once` |
 | `1` | unexpected error, or a listener could not start or died (`app.failed`) |
-| `2` | user error: invalid settings, invalid state URL or database, invalid `endpoints.yaml` (`config.rejected`) |
-| `3` | `endpoints.yaml` missing or unreadable (`config.unavailable`) |
+| `2` | user error: invalid settings, invalid state URL or database, invalid `endpoints.yaml` or invalid (or not yet seeded) Valkey configuration (`config.rejected`) |
+| `3` | configuration unavailable (`config.unavailable`): `endpoints.yaml` missing or unreadable; with Valkey, the store stayed unreachable for `valkey.startup_timeout`, or it refused the credentials or the permission (at once, no retry) |
 
 A startup failure prints one line on stderr. The traceback of an unexpected error is shown only with `--debug` (`cvestream --debug run`).
 
@@ -108,9 +109,10 @@ One JSON object per line on stdout (`CVESTREAM_LOG__FORMAT=console` for humans).
 | `pipeline.completed` | info | a run committed | `count`, `records`, `changed`, `touched`, `duration_ms` |
 | `publish.decided` | info | an item was published to an endpoint | `endpoint_id`, `vuln_id`, `kind` |
 | `publish.skipped` | warning | a decision was dropped because its GUID is already stored for another vulnerability (two advisory-only vulnerabilities sharing a primary ID); the run goes on | `reason` (`guid_collision`), `endpoint_id`, `vuln_id`, `kind` |
-| `config.reloaded` | info | a changed `endpoints.yaml` was loaded | `count` |
-| `config.rejected` | warning (error at startup) | the new content is invalid; the last valid configuration stays | `errors` (field errors, never a token) |
-| `config.unavailable` | warning (error at startup) | the file cannot be read; the last valid configuration stays | `error_type` |
+| `config.loaded` | info | the configuration was loaded at startup (`run` and `poll --once`) | `count`, `revision` |
+| `config.reloaded` | info | a changed configuration was loaded | `count`, `revision` |
+| `config.rejected` | warning (error at startup) | the new content is invalid; the last valid configuration stays. With Valkey the errors name the key at fault (`cvestream:v1:endpoint:team-php:products: invalid JSON`) | `errors` (field errors, never a token or a value) |
+| `config.unavailable` | warning (error at startup) | the file or the Valkey store cannot be read; the last valid configuration stays. At startup with Valkey: a warning per failed attempt (`retry_in` seconds), an error on the last one. `error_type` `ConfigAccessDeniedError` is a refused login or permission (not retried), `ConfigConflictError` a revision that kept moving during a read | `error_type`, `retry_in` (startup retries) |
 | `feed.served` | info | a feed request for a known token | `endpoint_id`, `method`, `status`, `duration_ms` |
 | `feed.not_found` | info | any other `GET`/`HEAD` | `method` |
 
@@ -177,6 +179,20 @@ A `--ref` other than `main` runs that branch's copy of the workflow (useful to t
 2. Replace the endpoint's `token` in `endpoints.yaml`.
 3. At the next cycle the daemon logs `config.reloaded`; the new URL serves the feed and the old one returns `404`.
 4. Give the team the new URL: they must resubscribe their channel.
+
+With the Valkey provider, step 2 is, as `cvestream-admin` (until the operator CLI exists): `SET cvestream:v1:token:<id> <new token>` then `INCR cvestream:v1:revision`, inside one `MULTI` so a reader never sees one without the other (see [config-contract.md](config-contract.md)). :factory:
+
+## Valkey
+
+With `config_provider: valkey` the configuration lives in a Valkey service ([config-contract.md](config-contract.md) is the contract, [configuration.md](configuration.md#valkey-provider) the settings). :factory:
+
+- **Running it:** the dev stack has a `valkey` service (`compose.yml`, internal network, no host port, AOF on the `valkey-data` volume). In production run `valkey/valkey:9.1.3` (or newer 9.1) with [`deploy/valkey/valkey.conf`](../deploy/valkey/valkey.conf) and your own ACL file, on a private network that only the daemon, the operator and the connectors reach. Never publish the port.
+- **ACL users:** `cvestream-daemon` reads `cvestream:v1:*` and writes nothing; `cvestream-admin` reads and writes `cvestream:v1:*` and nothing else; `connector-<name>` users read the configuration and write only `endpoint:*:products` and `revision`, and can neither read nor write `token:*`. `default` is disabled. The `users.acl` in the repository carries SHA-256 hashes of public development passwords: **write your own** (`printf '%s' "$PASSWORD" | sha256sum`) and keep the file in a secret.
+- **Rotating a Valkey password:** compute the new hash, replace the `#<hash>` of the user in `users.acl`, reload the ACL (`ACL LOAD` as a user allowed to, or restart Valkey), then update the secret file the daemon reads (`CVESTREAM_VALKEY__PASSWORD_FILE`) and restart the daemon. A daemon with the wrong password logs `config.unavailable` (`ConfigAccessDeniedError`) at each cycle and keeps serving its last configuration; at startup it exits `3` at once.
+- **Persistence and backup:** AOF with `appendfsync everysec` (at most one second of writes lost on a crash), data in `/data`. Back it up by copying `/data` (the AOF directory, plus the RDB snapshot Valkey writes on its default save points) from a replica or after `BGSAVE`; or export the configuration with the operator CLI once it exists. The configuration is small: losing the store means re-seeding it.
+- **Outage while running:** each cycle logs a `config.unavailable` warning and uses the last valid configuration. Feeds and polling continue, `/readyz` stays 200, the daemon does not exit. A cycle is delayed at most by the 5 s socket timeouts. When Valkey is back the next cycle reads the revision and reloads if it changed.
+- **Outage at startup:** the daemon waits up to `valkey.startup_timeout` and exits `3`. Start Valkey first, or let the orchestrator restart the daemon.
+- **Unseeded store:** a Valkey without `cvestream:v1:schema` is rejected with `config.rejected` ("the store is not seeded") and exit `2`: seed it (see [config-contract.md](config-contract.md)).
 
 ## Security
 

@@ -16,12 +16,13 @@
 # number such as 1800 is rejected there). In this file you may write either
 # ISO 8601 (PT30M) or a number of seconds (1800).
 #
-# Secrets (state.url for now) are read from CVESTREAM_<NAME>_FILE variables pointing
+# Secrets (state.url, valkey.password) are read from CVESTREAM_<NAME>_FILE variables pointing
 # to a file, nested names included (CVESTREAM_<SECTION>__<NAME>_FILE); setting
 # both CVESTREAM_<NAME> and CVESTREAM_<NAME>_FILE is an error.
 
 # Where the endpoint configuration (teams, products, rules, feed tokens) comes
-# from. Only "yaml" exists for now.
+# from: "yaml" (the file named by endpoints_file) or "valkey" (a Valkey service,
+# see the valkey section below and docs/config-contract.md).
 # Env: CVESTREAM_CONFIG_PROVIDER
 config_provider: yaml
 
@@ -30,6 +31,25 @@ config_provider: yaml
 # a secret: CVESTREAM_ENDPOINTS_FILE holds the path itself.
 # Env: CVESTREAM_ENDPOINTS_FILE
 endpoints_file: endpoints.yaml
+
+# Valkey configuration store, used when config_provider is valkey. The daemon
+# only reads it (the cvestream-daemon user is read-only).
+# valkey:
+#   # valkey://<user>@<host>:<port>/<db>, or valkeys:// for TLS (the server
+#   # certificate is verified against the system trust store). The user name
+#   # goes in the URL, the password never does: a URL with a password, a query
+#   # string or another scheme is rejected. Without a user name the client
+#   # authenticates as `default`, which the shipped ACL file disables.
+#   # Env: CVESTREAM_VALKEY__URL
+#   url: valkey://cvestream-daemon@valkey:6379/0
+#   # Password of the user in the URL. A secret: prefer the file form, never
+#   # write it in this file. Setting both forms is an error.
+#   # Env: CVESTREAM_VALKEY__PASSWORD_FILE=/run/secrets/valkey-password
+#   #   (or CVESTREAM_VALKEY__PASSWORD)
+#   # How long to wait for Valkey at startup (retry with a capped backoff)
+#   # before exiting with code 3. Greater than 0, at most 1 hour.
+#   # Env: CVESTREAM_VALKEY__STARTUP_TIMEOUT (ISO 8601: PT60S)
+#   startup_timeout: PT60S
 
 # Directory for runtime data. The state database lives in it unless state.url
 # says otherwise: <data_dir>/cvestream.db (created by `cvestream db migrate`).
