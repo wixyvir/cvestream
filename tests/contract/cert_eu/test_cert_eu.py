@@ -164,8 +164,9 @@ async def test_field_mapping_of_the_multi_cve_advisory(
         "End-of-life branches (PHP 8.1 and older), which no longer receive updates "
         "from the PHP project",
     ]
-    assert products[5].product.startswith("Many commercial and open-source products")
-    assert len(products) == 6
+    # The commentary after the list ("Many commercial ... products use PHP") is
+    # not a product: it is dropped.
+    assert len(products) == 5
     assert all(p.vendor is None and p.version_text is None for p in products)
     assert all(a.source == "cert_eu" and a.observed_at == NOW for a in record.affected)
 
@@ -359,6 +360,39 @@ async def test_a_plus_sign_is_a_bullet_marker_too(
         "Foo 1.0; nested",
         "Bar 2.0",
     ]
+
+
+@pytest.mark.anyio
+async def test_a_paragraph_after_the_list_is_commentary_and_dropped(
+    respx_mock: respx.MockRouter, make_adapter: MakeAdapter
+) -> None:
+    payload = _advisory("2026_019_single_cve")
+    payload["content_markdown"] = (
+        "# Affected Products\n\nCVE-2026-110264.\n\nFoo is affected:\n\n- 1.0\n\n"
+        "Bar 2.0\n\n- Baz 3.0\n\nCheck the GitHub list of products using Foo.\n"
+    )
+    _serve(respx_mock, {"2026-019": payload}, rss=_rss(["2026-019"]))
+    record = (await _fetch(make_adapter, None)).records[0]
+    # Only lead-ins survive in a section with a list: the opening CVE sentence and
+    # the closing note are dropped.
+    assert [a.value.product for a in record.affected] == [
+        "Foo is affected: 1.0",
+        "Bar 2.0: Baz 3.0",
+    ]
+
+
+@pytest.mark.anyio
+async def test_the_php2shell_commentary_does_not_match_a_github_endpoint(
+    respx_mock: respx.MockRouter, make_adapter: MakeAdapter
+) -> None:
+    _serve(respx_mock, {"2026-018": _advisory("2026_018_multi_cve_revised")})
+    result = await _fetch(make_adapter, BEFORE_018)
+    github = Endpoint(id="team-gh", name="GitHub", products=(ProductEntry("github"),))
+    php = Endpoint(id="team-php", name="PHP", products=(ProductEntry("php"),))
+    for record in result.records:
+        vulnerability = build_vulnerability([_normalized(record)])
+        assert match(vulnerability, github) is None
+        assert match(vulnerability, php) is not None
 
 
 # --- 1: CVE extraction ------------------------------------------------------------

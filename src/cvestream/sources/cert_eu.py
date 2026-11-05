@@ -14,8 +14,8 @@ Assumptions, all checked against the live site on 2026-11-03 and documented in
 - the RSS is parsed with the standard library and a DOCTYPE is refused, so no
   entity is ever declared or expanded (XXE, "billion laughs");
 - "Affected Products" is prose or bullets without a product name, so the
-  section is kept as text blocks (a lead-in with its list); versions stay
-  unknown (`version_text=None`);
+  section is kept as text blocks (a lead-in with its list); a paragraph after a
+  list is commentary and dropped; versions stay unknown (`version_text=None`);
 - a final 4xx on one advisory JSON (withdrawn, not exported yet) skips that
   advisory; a 5xx, a 429 or a network error fails the whole fetch;
 - CERT-EU has no score field: `scores` is empty, never `0`.
@@ -317,8 +317,14 @@ def _joined(bullet: list[str]) -> str:
 
 
 def _affected_entries(markdown: str) -> list[tuple[str, frozenset[str]]]:
-    """Affected-product texts of the section and the CVE IDs each one names."""
+    """Affected-product texts of the section and the CVE IDs each one names.
+
+    In a section with a list, a paragraph that is not a lead-in is commentary
+    ("Many products use PHP"), not a product: it is dropped, because an entry is
+    a structured hit for the matcher.
+    """
     blocks = _blocks(_section(markdown, _AFFECTED_HEADINGS))
+    has_list = any(kind == "ul" for kind, _ in blocks)
     texts: list[str] = []
     index = 0
     while index < len(blocks):
@@ -330,7 +336,8 @@ def _affected_entries(markdown: str) -> list[tuple[str, frozenset[str]]]:
             texts.append(f"{lead}: {listed}" if lead and listed else lead or listed)
             index += 2
         elif kind == "p":
-            texts.append(_clean_markdown(items[0][0]))
+            if not has_list:
+                texts.append(_clean_markdown(items[0][0]))
             index += 1
         else:
             texts.extend(map(_joined, items))

@@ -246,7 +246,11 @@ field); the feed items link to the advisory page and credit the source as
     `"<paragraph>: <bullet>; <bullet>"`;
   - a bullet list without a lead-in gives one entry per top-level bullet, nested
     bullets inline;
-  - a paragraph without a list is one entry; fenced code blocks are dropped;
+  - a paragraph without a list is one entry, only in a section without any
+    list: in a section with a list, a paragraph that is not a lead-in is
+    commentary ("Many commercial and open-source products use PHP ...") and is
+    dropped, because every entry is a structured hit for the matcher;
+  - fenced code blocks are dropped;
   - emphasis, `[New]` and `[n]` markers are removed and whitespace is collapsed.
 
   An entry that names CVE IDs goes only to those CVEs' records (2025-008 lists one
@@ -300,8 +304,10 @@ field); the feed items link to the advisory page and credit the source as
     matches.
   - An advisory published without CVE IDs publishes once as `CERT-EU-SA<serial>`,
     and again per CVE when a revision adds them.
-  - The affected-product text is prose: a broad sentence ("Many commercial
-    products use PHP") can match an endpoint (recall over precision).
+  - The affected-product text is prose: a broad lead-in or a list-free section
+    can still match an endpoint on a word that is not the product (recall over
+    precision). Commentary after a list is dropped, which removes the most
+    common case.
 - **Disabling.** `sources.cert_eu.enabled: false` (or
   `CVESTREAM_SOURCES__CERT_EU__ENABLED=false`) turns the source off; the interval
   (default 15 minutes, at most 60) is `sources.cert_eu.interval`.
