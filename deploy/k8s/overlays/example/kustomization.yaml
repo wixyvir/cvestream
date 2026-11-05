@@ -17,6 +17,12 @@ resources:
   - networkpolicy-valkey.yaml
   - ingress.yaml
   - secret.example.yaml
+# The base labels only its own resources: label the Valkey ones too, so that
+# `-l app.kubernetes.io/part-of=cvestream` selects the whole deployment.
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: cvestream
+    includeSelectors: false
 patches:
   # Valkey provider instead of the YAML one; no endpoints.yaml file.
   - patch: |-
