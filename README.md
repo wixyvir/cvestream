@@ -49,6 +49,34 @@ poll (within 15 minutes). Put an HTTPS reverse proxy in front of port 8080; only
 that port is published. Running, logs, health, token rotation and backups are in
 [`docs/operations.md`](docs/operations.md).
 
+## Kubernetes quick start
+
+`deploy/k8s/base` is cvestream alone (YAML provider); `deploy/k8s/overlays/example`
+adds the Valkey provider, an example Valkey and an Ingress for `/feeds/`. Make
+your own overlay rather than editing the example.
+
+```sh
+kubectl create namespace cvestream
+kubectl label namespace cvestream pod-security.kubernetes.io/enforce=restricted
+# the example overlay reads its configuration from Valkey: set the placeholder
+# password in deploy/k8s/overlays/example/secret.example.yaml first (never commit it)
+kubectl apply -k deploy/k8s/overlays/example
+```
+
+One replica with `Recreate`, a `ReadWriteOnce` block-storage volume for the
+state, restricted Pod Security, `NetworkPolicy`. The image is a private GHCR
+package: add an `imagePullSecrets` or make it public. Details, Secrets and
+Ingress access logs: [`docs/operations.md`](docs/operations.md#kubernetes).
+
+## Releases and image tags
+
+Pushing a tag `vX.Y.Z` (equal to the `pyproject.toml` version) runs
+`.github/workflows/release.yml`: a multi-arch image (`linux/amd64`,
+`linux/arm64`) with an SBOM and a provenance attestation is pushed to
+`ghcr.io/wixyvir/cvestream` as `X.Y.Z`, `X.Y` and `latest`, and a GitHub
+Release is created. `edge` and `sha-<short>` follow `main`. Pin `X.Y.Z`. The
+release process is in [`docs/operations.md`](docs/operations.md#releases-and-image-tags).
+
 ## Development quick start
 
 Requirements: [uv](https://docs.astral.sh/uv/) 0.13 (Python 3.14 is installed
@@ -77,6 +105,8 @@ uv run lint-imports
 uv run pytest
 uv run cvestream config schema --check
 uv run cvestream config validate endpoints.example.yaml
+kubectl kustomize deploy/k8s/base              # both must build
+kubectl kustomize deploy/k8s/overlays/example
 ```
 
 `pytest` blocks the network (pytest-socket). Tests marked `live` hit real

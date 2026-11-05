@@ -4,6 +4,8 @@
 
 - `cvestream run` is the daemon: it polls the sources, decides what each team gets and serves one RSS feed per endpoint on `:8080` (public). Health and status are on `:9090` (private, never publish it).
 - Self-hosted: `deploy/compose/compose.yml` with your `config/endpoints.yaml`. One replica only.
+- Kubernetes: `deploy/k8s/base` (YAML provider) or `deploy/k8s/overlays/example` (Valkey provider, example Valkey, Ingress for `/feeds/` only), applied with `kubectl apply -k`. One replica, `Recreate`, block storage for `/data`. See [Kubernetes](#kubernetes).
+- Releases: tag `vX.Y.Z` on `main` publishes the multi-arch image `X.Y.Z`, `X.Y`, `latest` to GHCR and a GitHub Release; pin `X.Y.Z`. See [Releases and image tags](#releases-and-image-tags).
 - Feed URL: `http://<host>:8080/feeds/<token>.xml`. The token is the access control: put an HTTPS reverse proxy in front and **turn off its path logging for `/feeds/`**.
 - Health: `cvestream healthcheck [--ready] [--port N]`, `/healthz`, `/readyz`, `/status`. The image already has a `HEALTHCHECK`.
 - Logs are JSON lines on stdout. `cycle.summary` says what each cycle did; `source.failed`, `source.stale`, `config.rejected` and `pipeline.failed` are the ones to alert on.
@@ -18,8 +20,9 @@
 |---|---|
 | Locally | `uv run cvestream run` (needs `endpoints.yaml`, writes `./data/cvestream.db`) |
 | One cycle, then exit | `uv run cvestream poll --once` |
-| Container | `docker run -v data:/data -v ./config:/config:ro -e CVESTREAM_ENDPOINTS_FILE=/config/endpoints.yaml -p 8080:8080 ghcr.io/wixyvir/cvestream:edge` |
+| Container | `docker run -v data:/data -v ./config:/config:ro -e CVESTREAM_ENDPOINTS_FILE=/config/endpoints.yaml -p 8080:8080 ghcr.io/wixyvir/cvestream:0.1.0` |
 | Self-hosted compose | `cd deploy/compose && mkdir config && cp ../../endpoints.example.yaml config/endpoints.yaml`, edit it, then `docker compose up -d` |
+| Kubernetes | `kubectl apply -k deploy/k8s/overlays/example` (see [Kubernetes](#kubernetes)) |
 | Dev stack | `docker compose watch` (serves the placeholder tokens of `endpoints.example.yaml`; a `valkey` service starts with it, use it with `CVESTREAM_CONFIG_PROVIDER=valkey`) |
 
 `deploy/compose/compose.yml` runs `ghcr.io/wixyvir/cvestream`, with a read-only root filesystem (`/tmp` is a `tmpfs`), no capabilities, `no-new-privileges`, a named volume on `/data` and only port 8080 published. `config/` is gitignored: never commit it, it holds your tokens.
@@ -55,7 +58,7 @@ All on the private listener (`http.private`, default `:9090`):
 | `/readyz` | `200 {"status": "ready"}` once the configuration, the state and the feed cache are loaded; `503 {"error": {"code": "not_ready", ...}}` before that and during shutdown. It does not depend on the sources: a source outage never makes the daemon unready |
 | `/status` | per source and per endpoint, see below |
 
-`cvestream healthcheck` asks `/healthz` on `127.0.0.1:9090` with the standard library only, prints nothing and exits `0` on HTTP 200, `1` otherwise (2 s timeout, no proxy). `--ready` asks `/readyz`; `--port` changes the port when you changed `http.private.port`. The runtime image runs `cvestream healthcheck` as its `HEALTHCHECK`; the image has no `curl`, so orchestrator probes use the same command (`docker compose exec cvestream cvestream healthcheck --ready`).
+`cvestream healthcheck` asks `/healthz` on `127.0.0.1:9090` with the standard library only, prints nothing and exits `0` on HTTP 200, `1` otherwise (2 s timeout, no proxy). `--ready` asks `/readyz`; `--port` changes the port when you changed `http.private.port`. The runtime image runs `cvestream healthcheck` as its `HEALTHCHECK`; the image has no `curl`, so orchestrator probes use the same command (`docker compose exec cvestream cvestream healthcheck --ready`). The command always asks `127.0.0.1`: keep `http.private.host` at `0.0.0.0` (the default) or `127.0.0.1`, because binding the private listener to one specific non-loopback address makes the probes fail.
 
 ## `/status`
 
@@ -201,6 +204,87 @@ With `config_provider: valkey` the configuration lives in a Valkey service ([con
 - **Reverse-proxy and Ingress access logs contain the token** (it is in the request path). Disable or mask path logging for `/feeds/`, and restrict who can read those logs.
 - Rate limiting belongs to the reverse proxy.
 - The container runs as UID 999 with a read-only root filesystem and no capabilities.
+
+## Kubernetes
+
+What ships, under `deploy/`:
+
+| Path | What it is |
+|---|---|
+| `k8s/base` | cvestream alone, with the YAML provider: `Deployment`, `PersistentVolumeClaim`, the `cvestream-public` (8080) and `cvestream-private` (9090) Services, a `NetworkPolicy` |
+| `k8s/overlays/example` | the base switched to the Valkey provider, in the namespace `cvestream`, plus an example single-instance Valkey (`StatefulSet`, headless Service, `NetworkPolicy`), an `Ingress` for `/feeds/` only and a Secret example |
+| `valkey/kustomization.yaml` | generates the `valkey.conf` ConfigMap and the `users.acl` Secret that the example Valkey mounts |
+
+Build with `kubectl kustomize deploy/k8s/overlays/example`, apply with `kubectl apply -k`. Make your own overlay instead of editing the example: namespace, image tag, Ingress host, class and TLS Secret, NetworkPolicy peers, storage class, Secrets. Kustomize refuses files outside an overlay's directory in a generator, so reference the directories with `resources:` (as the example does for `../../../valkey`).
+
+Prerequisites:
+
+- A namespace with the `restricted` Pod Security Standard: `kubectl create namespace cvestream && kubectl label namespace cvestream pod-security.kubernetes.io/enforce=restricted`. The manifests are admitted under it.
+- A CNI that enforces `NetworkPolicy`.
+- Direct HTTPS egress to the sources (cvestream ignores proxy variables).
+- A block-storage `StorageClass` for the SQLite volume (`cvestream-data`, `ReadWriteOnce`). Never NFS, SMB or CIFS.
+
+Secrets (never commit real values):
+
+- YAML provider (the base): `kubectl -n <ns> create secret generic cvestream-endpoints --from-file=endpoints.yaml=<file>`. It is mounted as the `/config` directory, never with `subPath`, so a Secret update reaches the pod and the daemon reloads at its next cycle.
+- Valkey provider (the example overlay): the Secret `cvestream-valkey` (key `password`, the password of `cvestream-daemon`) and the ACL Secret generated from `deploy/valkey/users.acl`. The committed `users.acl` holds the hashes of public development passwords: for production, ship your own `users.acl` (for example a `secretGenerator` with `behavior: replace` in your overlay) and a matching `cvestream-valkey` Secret. `secret.example.yaml` contains placeholders only.
+
+Private image: `wixyvir/cvestream` is a private repository, so its GHCR package is private too. Create a pull Secret with a token that has `read:packages` (`kubectl create secret docker-registry ghcr-pull --docker-server=ghcr.io --docker-username=<user> --docker-password=<token>`) and uncomment `imagePullSecrets` in your overlay, or make the package public.
+
+Invariants, and why (a test guards the ones in the first group):
+
+- One replica and `strategy: Recreate`: SQLite has one writer, and the old pod must be gone before the new one opens the database. A `ReadWriteOnce` volume also keeps a second writer away.
+- `terminationGracePeriodSeconds: 60`: the pipeline run in progress finishes on SIGTERM.
+- `enableServiceLinks: false`: Services named `cvestream-*` would otherwise inject `CVESTREAM_PUBLIC_PORT` and similar variables into the `CVESTREAM_` namespace that the settings read.
+- `automountServiceAccountToken: false`, read-only root filesystem with writable `/data` and `/tmp`, UID 999, all capabilities dropped, `RuntimeDefault` seccomp.
+- Exec probes: `startupProbe` and `readinessProbe` run `cvestream healthcheck --ready`, `livenessProbe` runs `cvestream healthcheck`, with 5 s timeouts (each starts Python). The startup budget is 120 s.
+- The settings ConfigMap is read at start: after a change run `kubectl -n <ns> rollout restart deploy/cvestream`.
+
+Health probes and the private listener: `cvestream healthcheck` always asks `127.0.0.1`. Keep `http.private.host` at `0.0.0.0` (the default) or `127.0.0.1`: binding it to one specific pod address makes the probes fail. If you change `http.private.port`, pass `--port` to the probes.
+
+Exposure: route only `cvestream-public`, only `/feeds/`, through an Ingress or a Gateway (`overlays/example/ingress.yaml`). The controller's access log contains the token: turn path logging off for that route (Traefik: an `IngressRoute` with `observability.accessLogs: false`). `cvestream-private` is never exposed: use `kubectl port-forward svc/cvestream-private 9090` (it enters the pod directly, `NetworkPolicy` does not filter it) or a pod with the right label.
+
+`NetworkPolicy` labels:
+
+| Label | Opens |
+|---|---|
+| `cvestream.io/public-access: "true"` | 8080 of cvestream, from that pod in any namespace (the example overlay replaces this peer by the Ingress controller's namespace and labels: adapt it) |
+| `cvestream.io/private-access: "true"` | 9090 of cvestream, from that pod in the same namespace |
+| `cvestream.io/valkey-access: "true"` | 6379 of the example Valkey, from that pod in the same namespace (connectors, an operator CLI pod) |
+
+cvestream may only reach DNS (`kube-dns` in `kube-system`), TCP 443 and, in the example overlay, Valkey. The example Valkey has no egress.
+
+Valkey (example overlay): a single instance with its AOF on a `volumeClaimTemplates` volume and no TLS inside the cluster; use your own Valkey for anything more (`CVESTREAM_VALKEY__URL`, `valkeys://` across hosts). A change to `valkey.conf` or `users.acl` rolls the pod (Kustomize hashes the generated names). Admin access without a pod of your own: `kubectl -n <ns> exec -it cvestream-valkey-0 -- valkey-cli --user cvestream-admin --pass <password>` (inside the pod, so `NetworkPolicy` does not apply). When Valkey is down at start, the daemon retries for `valkey.startup_timeout` (60 s), then exits with code 3 (`CrashLoopBackOff`); while running it keeps the last configuration.
+
+Backup: `kubectl -n <ns> exec deploy/cvestream -- cvestream db backup /data/backup-<date>.db`, then `kubectl -n <ns> cp <pod>:/data/backup-<date>.db .`.
+
+## Releases and image tags
+
+| Tag | Moves when |
+|---|---|
+| `X.Y.Z`, `X.Y`, `latest` | a release `vX.Y.Z` is published |
+| `edge` | every push to `main` |
+| `sha-<short>` | every push to `main` |
+
+Pin `X.Y.Z` in production. Releases are multi-arch (`linux/amd64`, `linux/arm64`).
+
+Release process:
+
+1. In a pull request, bump `[project].version` in `pyproject.toml`, run `uv lock` (the lock records the project version) and bump the image tag in `deploy/k8s/base/deployment.yaml` and `deploy/compose/compose.yml`. A test fails when a pin differs from `pyproject.toml`.
+2. Merge it, then tag `main`: `git tag vX.Y.Z origin/main && git push origin vX.Y.Z`.
+3. `release.yml` runs: it refuses a tag that is not exactly `v` + the `pyproject.toml` version (and any pre-release tag such as `v0.2.0-rc.1`), before building anything; then it builds amd64 and arm64, pushes the tags above with OCI labels, an SBOM and a max-mode provenance attestation, and creates the GitHub Release with generated notes.
+
+A wrong tag fails before anything is pushed: delete it (`git push origin :refs/tags/vX.Y.Z`) and tag again.
+
+Verify a release:
+
+```sh
+docker buildx imagetools inspect ghcr.io/wixyvir/cvestream:X.Y.Z
+docker buildx imagetools inspect ghcr.io/wixyvir/cvestream:X.Y.Z --format '{{ json .Provenance }}'
+docker buildx imagetools inspect ghcr.io/wixyvir/cvestream:X.Y.Z --format '{{ json .SBOM }}'
+```
+
+The SBOM and the provenance are BuildKit attestations stored with the image. GitHub artifact attestations need a public repository (or GitHub Enterprise Cloud), so that step runs only on a public repository; then `gh attestation verify oci://ghcr.io/wixyvir/cvestream:X.Y.Z --repo wixyvir/cvestream` works too.
 
 ## Backup
 
