@@ -4,7 +4,7 @@ baseline_commit: 0c1903dd54c6e23c5e0a7612f6f5ee4a8a7de0a6
 
 # Story 2.1: CERT-EU adapter
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
