@@ -3,9 +3,10 @@
 import re
 
 import pytest
+from pydantic import TypeAdapter, ValidationError
 
 from cvestream.config import keys
-from cvestream.config.models import SCHEMA_VERSION
+from cvestream.config.models import SCHEMA_VERSION, EndpointId
 
 _SLUG = re.compile(r"^[a-z0-9-]{1,40}$")
 
@@ -52,3 +53,17 @@ def test_every_key_is_under_the_prefix() -> None:
         keys.token("a"),
     ):
         assert key.startswith(keys.PREFIX)
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["a", "team-php", "0", "-", "a" * 40, "a" * 41, "", "A", "a_b", "a:b", "a*"],
+)
+def test_endpoint_id_pattern_agrees_with_the_model(value: str) -> None:
+    accepted = TypeAdapter(EndpointId).validate_python  # strict like the models
+    try:
+        accepted(value)
+        model_accepts = True
+    except ValidationError:
+        model_accepts = False
+    assert (keys.ENDPOINT_ID.fullmatch(value) is not None) is model_accepts

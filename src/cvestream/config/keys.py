@@ -10,6 +10,7 @@ No I/O and no `valkey` import. Builders assume a valid endpoint slug
 no `:` or glob character, so no id can make a key leave its own namespace.
 """
 
+import re
 from typing import Final
 
 from cvestream.config.models import SCHEMA_VERSION
@@ -22,6 +23,11 @@ SCHEMA: Final = f"{PREFIX}schema"
 REVISION: Final = f"{PREFIX}revision"
 # SET of endpoint ids.
 ENDPOINTS: Final = f"{PREFIX}endpoints"
+
+# An endpoint id, as in `config.models.EndpointId`: lowercase letters, digits and
+# hyphens. Ids read from the `endpoints` set are checked against it before any
+# key is built from them.
+ENDPOINT_ID: Final = re.compile(r"[a-z0-9-]{1,40}")
 
 # What `SCHEMA` holds.
 SCHEMA_VALUE: Final = SCHEMA_VERSION
