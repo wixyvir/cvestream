@@ -273,7 +273,24 @@ cvestream may only reach DNS (`kube-dns` in `kube-system`), TCP 443 and, in the 
 
 Valkey (example overlay): a single instance with its AOF on a `volumeClaimTemplates` volume and no TLS inside the cluster; use your own Valkey for anything more (`CVESTREAM_VALKEY__URL`, `valkeys://` across hosts). A change to `valkey.conf` or `users.acl` rolls the pod (Kustomize hashes the generated names). Admin access without a pod of your own: `kubectl -n <ns> exec -it cvestream-valkey-0 -- valkey-cli --user cvestream-admin --pass <password>` (inside the pod, so `NetworkPolicy` does not apply). When Valkey is down at start, the daemon retries for `valkey.startup_timeout` (60 s), then exits with code 3 (`CrashLoopBackOff`); while running it keeps the last configuration.
 
-The example Valkey starts empty: until it is seeded the daemon rejects the store and exits with code 2 (`CrashLoopBackOff`). Seed it as `cvestream-admin` with the transaction of [config-contract.md](config-contract.md#valkey-cli-example-admin), sent through `kubectl -n <ns> exec -i cvestream-valkey-0 -- valkey-cli --no-auth-warning --user cvestream-admin --pass <password>` instead of `docker compose exec`; the pod restarts by itself and becomes ready.
+The example Valkey starts empty: until it is seeded the daemon rejects the store and exits with code 2 (`CrashLoopBackOff`). Seed it with `cvestream config import <file>` (or a first `cvestream endpoint create`) run as `cvestream-admin`, see below, or by hand with the transaction of [config-contract.md](config-contract.md#valkey-cli-example-admin), sent through `kubectl -n <ns> exec -i cvestream-valkey-0 -- valkey-cli --no-auth-warning --user cvestream-admin --pass <password>` instead of `docker compose exec`; the pod restarts by itself and becomes ready.
+
+Operator CLI on Kubernetes: :factory:
+
+- **Valkey provider (example overlay):** forward the Valkey port to your machine (`kubectl -n <ns> port-forward pod/cvestream-valkey-0 6379:6379`; a port-forward enters the pod directly, so `NetworkPolicy` does not filter it) and run the CLI there as `cvestream-admin`:
+
+  ```sh
+  export CVESTREAM_CONFIG_PROVIDER=valkey
+  export CVESTREAM_VALKEY__URL=valkey://cvestream-admin@127.0.0.1:6379/0
+  export CVESTREAM_VALKEY__PASSWORD_FILE=<file holding the admin password>
+  export CVESTREAM_HTTP__PUBLIC__BASE_URL=https://<your feed host>
+  cvestream config import endpoints.yaml    # seeds an empty store
+  cvestream token rotate team-php
+  ```
+
+  A pod of your own works too: give it the `cvestream.io/valkey-access: "true"` label, the admin password from a Secret, and a `securityContext` the `restricted` namespace admits (copy the Deployment's). The cvestream pod itself holds only the `cvestream-daemon` password: `kubectl -n <ns> exec deploy/cvestream -- cvestream endpoint show <id>` reads, every write exits `2`.
+- **YAML provider (the base):** the file comes from a read-only Secret, so the CLI cannot write it in the pod. Run the CLI on a local copy (`CVESTREAM_ENDPOINTS_FILE=./endpoints.yaml cvestream endpoint create ...`), then update the Secret: `kubectl -n <ns> create secret generic cvestream-endpoints --from-file=endpoints.yaml=./endpoints.yaml --dry-run=client -o yaml | kubectl apply -f -`. The daemon reloads it at its next cycle.
+- **Feed URLs:** set `CVESTREAM_HTTP__PUBLIC__BASE_URL` (commented in `base/configmap-settings.yaml`) to your Ingress host, so the URLs the CLI prints in the pod are the public ones.
 
 Backup: `kubectl -n <ns> exec deploy/cvestream -- cvestream db backup /data/backup-<date>.db`, then `kubectl -n <ns> cp <pod>:/data/backup-<date>.db .`.
 
