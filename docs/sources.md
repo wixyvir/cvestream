@@ -18,10 +18,13 @@ and the `live` contract tests check them against the real APIs.
   sends one; a `Retry-After` above 60 s means give up and let the next cycle
   retry. Every other failure (connection or TLS error, other 4xx) is not retried.
 - **Error taxonomy** (`sources/base.py`): `SourceTransportError` (no usable
-  response), `SourcePayloadError` (not JSON, bad encoding, too large) and
+  response), `SourcePayloadError` (not JSON, not XML, a DOCTYPE in XML, bad encoding, too large) and
   `SourceContractError` (valid JSON in an unexpected shape: the API drifted).
   A fetch is all-or-nothing: on any of them there is no result, so the cursor
-  does not advance.
+  does not advance. `SourceTransportError.status_code` carries the final HTTP
+  status (`None` without a response), so an adapter that fetches one document
+  per record (CERT-EU) can treat a final 4xx on that document as a record-level
+  skip.
 - **Record-level failures are skipped and counted** (`FetchResult.skipped`), not
   fatal: an item that fails validation, has an unusable ID or an unparseable
   `dateUpdated`.
@@ -180,3 +183,131 @@ Public record page: `https://euvd.enisa.europa.eu/vulnerability/{EUVD-ID}`.
   informational (for status) and never used to skip a load.
 - **Disabling.** Turning `cisa_kev` off in the settings removes the CISA flags; the
   EUVD dump is not used for them.
+
+## CERT-EU (`cert_eu`)
+
+CERT-EU security advisories, written by hand and published a couple of times a
+month. They are often the first public word on an urgent vulnerability: for
+PHP2Shell, advisory 2026-018 came about 7.5 hours before EUVD had the records.
+Both endpoints are GET only, without authentication, and were checked on
+2026-11-03. Texts and links belong to CERT-EU (licence in the JSON `licence`
+field); the feed items link to the advisory page and credit the source as
+`cert_eu`. :factory:
+
+- **Endpoints.**
+  - RSS: `GET https://cert.europa.eu/publications/security-advisories-rss`, the
+    latest 10 advisories (about 10 KB, `ttl` 1440), no XML declaration.
+  - JSON: `GET https://cert.europa.eu/publications/security-advisories/<serial>/json`
+    (4 to 19 KB; an unknown serial answers `404 text/html`).
+  - Display page, used as the record URL: `https://cert.europa.eu/publications/security-advisories/<serial>/`.
+- **The RSS lists, the JSON carries the data.** The adapter reads the RSS, then
+  fetches the JSON of each item whose `pubDate` is newer than the cursor, one by
+  one, in RSS order. The serial (`2026-018`) comes from the stripped `<link>`
+  path (title prefix as fallback). The `<guid>` is an internal counter and is
+  never used. The `Accept` header does not change the RSS body.
+- **Dates.**
+  - RSS `pubDate` is Paris time written with the zone abbreviations `CEST` and
+    `CET`, which `email.utils` does not understand (it returns a naive datetime,
+    a silent 2-hour error). The adapter maps them to `+0200` and `+0100`;
+    `GMT`, `UT` and numeric offsets are kept; any other zone is unusable and the
+    item is skipped and counted. `Fri, 23 Oct 2026 16:36:26 CEST` is
+    `2026-10-23T14:36:26Z`.
+  - JSON `publish_date` (`23-10-2026 14:36:26`, `DD-MM-YYYY HH:MM:SS`) is UTC. It
+    is the time of the last revision, and `updated_at`. When it cannot be read,
+    the RSS `pubDate` is used.
+  - `published_at` is the `original_date` of the YAML front matter of
+    `content_markdown` (a calendar date, midnight UTC, display only), unknown when
+    missing. The front matter's `date` is not used.
+- **One record per CVE.** Every CVE ID found in `content_markdown` (any case,
+  upper-cased, de-duplicated, in order of first appearance) gives one record:
+  `record_id` `<serial>:<CVE>` (`2026-018:CVE-2026-109618`), aliases
+  `(<CVE>, CERT-EU-SA<serial>)`. A multi-CVE advisory therefore never merges its
+  vulnerabilities (advisory IDs are not merge keys): 2026-018 gives three
+  vulnerabilities, and each merges with the EUVD vulnerability of its CVE.
+- **The advisory-only record.** An advisory without any CVE ID (a pre-announcement
+  such as 2025-029) gives one record whose `record_id` and only alias is
+  `CERT-EU-SA<serial>`. It is never merged. The prefix keeps the bare serial from
+  becoming the display ID (`2025-029` sorts before `CERT-EU-SA2025-029`). When a
+  revision adds CVE IDs, they become new records and the advisory is published
+  again, once per CVE: at most one extra item per advisory. Recall over volume.
+- **Scores and KEV.** CERT-EU has no score field, so `scores` is empty (unknown,
+  never `0`); a CVSS number written in the prose is ignored. No KEV data.
+- **Description, title, references.** The description is the JSON `description`
+  (plain text whose only markup is `<br>`, turned into line breaks). The title is
+  the JSON `title`. References are the `<https://...>` links of the `# References`
+  section.
+- **Affected products are text, not versions.** The `# Affected Products` section
+  (`# Products Affected` too, any case, emphasis or a trailing colon allowed, up
+  to the next level-1 heading) is
+  free-form: bullets, prose, or a lead-in paragraph naming the product with
+  bullets that do not (`- 19.4 before 19.4.3`). The adapter keeps the whole
+  section as blocks:
+  - a paragraph followed by a bullet list is one entry,
+    `"<paragraph>: <bullet>; <bullet>"`;
+  - a bullet list without a lead-in gives one entry per top-level bullet, nested
+    bullets inline;
+  - a paragraph without a list is one entry, only in a section without any
+    list: in a section with a list, a paragraph that is not a lead-in is
+    commentary ("Many commercial and open-source products use PHP ...") and is
+    dropped, because every entry is a structured hit for the matcher;
+  - fenced code blocks are dropped;
+  - emphasis, `[New]` and `[n]` markers are removed and whitespace is collapsed.
+
+  An entry that names CVE IDs goes only to those CVEs' records (2025-008 lists one
+  product block per CVE); an entry that names none goes to every record of the
+  advisory. Versions are unknown (`version_text=None`), so a `min_version` entry
+  matches with "versions unknown" until EUVD adds versions; an advisory without
+  the section has no affected product.
+- **Matching.** The entries are structured affected products, so they decide: a
+  `gitlab` entry matches a GitLab advisory (2026-016, 2026-019) whose bullets omit
+  the product name, and `match_description: false` does not hide a CERT-EU-only
+  item. Because the text is prose, it never names the title of an item: the title
+  uses the entry name until EUVD data names the product. The item body still lists
+  the CERT-EU text.
+- **Cursor and revisions.**
+  - The cursor is the newest RSS `pubDate` seen, as ISO 8601 UTC
+    (`2026-10-23T14:36:26Z`), capped at the fetch time.
+  - Only items with a `pubDate` strictly newer than the cursor have their JSON
+    fetched: a revised advisory has a new `pubDate` and is fetched again, an
+    unchanged one costs no request. Existing records keep their `record_id`, so a
+    revision alone never re-publishes (FR-19); a CVE added by a revision is a new
+    record (2026-018 v1.2 added CVE-2026-115560).
+  - With no cursor the start is now minus 14 days; an invalid or future cursor
+    falls back to it (`source.cursor_invalid`) and a cursor older than it is clamped
+    to it (`source.cursor_clamped`), like EUVD.
+  - Assumption: fewer than 10 publications or revisions between two polls (the RSS
+    has 10 items). CERT-EU publishes about two a month.
+- **Failures.** All-or-nothing on source-level problems, per-advisory skips
+  otherwise:
+  - an RSS transport error, or an advisory JSON answering a 5xx or a 429 after
+    retries, a timeout or a network error, is a `SourceTransportError` (no
+    result, cursor unchanged);
+  - an RSS that is not XML, has a DOCTYPE, or exceeds 1 MiB is a
+    `SourcePayloadError`; an RSS without `channel` or `item`, or whose items are
+    all unusable, is a `SourceContractError`;
+  - an advisory whose JSON answers a final 4xx other than 429 (withdrawn,
+    renamed, or not exported yet), is not JSON, is too large (2 MiB), has an
+    unexpected shape or another `serial_number` than the RSS is **skipped and
+    counted**, so one missing advisory never silences the source; the
+    others are still emitted, and the cursor stays strictly below the failed
+    advisory's `pubDate` so the next fetch retries it. When every advisory fetched
+    is unusable, the fetch is a `SourceContractError`.
+- **XML safety.** The RSS is parsed with the standard library
+  (`xml.etree.ElementTree`) and no entity resolution: a document with a DOCTYPE is
+  refused before anything is declared or expanded, so neither an external entity
+  (XXE) nor an entity bomb ("billion laughs") runs. No `feedparser` (its date table
+  has no `CET`/`CEST` either) and no `defusedxml`.
+- **Assumed risks.**
+  - Every CVE ID of the advisory text counts, including the References section and
+    older CVEs named for context. Such a CVE gets a record and can make an old
+    vulnerability active again for 14 days, publishing it as `new` on an endpoint it
+    matches.
+  - An advisory published without CVE IDs publishes once as `CERT-EU-SA<serial>`,
+    and again per CVE when a revision adds them.
+  - The affected-product text is prose: a broad lead-in or a list-free section
+    can still match an endpoint on a word that is not the product (recall over
+    precision). Commentary after a list is dropped, which removes the most
+    common case.
+- **Disabling.** `sources.cert_eu.enabled: false` (or
+  `CVESTREAM_SOURCES__CERT_EU__ENABLED=false`) turns the source off; the interval
+  (default 15 minutes, at most 60) is `sources.cert_eu.interval`.

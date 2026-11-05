@@ -19,6 +19,7 @@ from cvestream.http import (
     HttpClient,
     HttpError,
     HttpResponseTooLargeError,
+    HttpStatusError,
 )
 
 # Opaque, owned by the adapter; the state layer stores it as text.
@@ -58,6 +59,13 @@ class SourceError(CvestreamError):
 class SourceTransportError(SourceError):
     """No usable response: network, TLS, timeout or HTTP error status."""
 
+    def __init__(
+        self, source: str, message: str, *, status_code: int | None = None
+    ) -> None:
+        super().__init__(source, message)
+        # The final HTTP status; `None` when no response arrived.
+        self.status_code = status_code
+
 
 class SourcePayloadError(SourceError):
     """A response that is not data: not JSON, bad encoding, too large."""
@@ -65,6 +73,30 @@ class SourcePayloadError(SourceError):
 
 class SourceContractError(SourceError):
     """Valid JSON in an unexpected shape: the upstream API drifted."""
+
+
+async def get_bytes(
+    http: HttpClient,
+    source: str,
+    url: str,
+    *,
+    params: Mapping[str, str | int] | None = None,
+    max_bytes: int = DEFAULT_MAX_BYTES,
+) -> bytes:
+    """GET `url` and return the body.
+
+    The single place where HTTP failures become `SourceError`s.
+    """
+    try:
+        return await http.get(url, params=params, max_bytes=max_bytes)
+    except HttpResponseTooLargeError as exc:
+        raise SourcePayloadError(source, str(exc)) from exc
+    except HttpStatusError as exc:
+        raise SourceTransportError(
+            source, str(exc), status_code=exc.status_code
+        ) from exc
+    except HttpError as exc:
+        raise SourceTransportError(source, str(exc)) from exc
 
 
 async def get_json(
@@ -77,14 +109,9 @@ async def get_json(
 ) -> object:
     """GET `url` and decode the JSON body.
 
-    The single place where HTTP and decoding failures become `SourceError`s.
+    The single place where decoding failures become `SourceError`s.
     """
-    try:
-        body = await http.get(url, params=params, max_bytes=max_bytes)
-    except HttpResponseTooLargeError as exc:
-        raise SourcePayloadError(source, str(exc)) from exc
-    except HttpError as exc:
-        raise SourceTransportError(source, str(exc)) from exc
+    body = await get_bytes(http, source, url, params=params, max_bytes=max_bytes)
     try:
         return json.loads(body)
     # ValueError covers JSONDecodeError and UnicodeDecodeError; RecursionError is

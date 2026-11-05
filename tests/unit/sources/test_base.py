@@ -14,6 +14,7 @@ from cvestream.sources.base import (
     SourcePayloadError,
     SourceTransportError,
     clean_text,
+    get_bytes,
     get_json,
     parse_calendar_date,
 )
@@ -89,6 +90,7 @@ async def test_status_error_becomes_transport_error(
         with pytest.raises(SourceTransportError) as excinfo:
             await get_json(http, "cisa_kev", URL)
     assert excinfo.value.source == "cisa_kev"
+    assert excinfo.value.status_code == status
 
 
 @pytest.mark.anyio
@@ -97,8 +99,9 @@ async def test_network_error_becomes_transport_error(
 ) -> None:
     respx_mock.get(URL).mock(side_effect=httpx.ConnectError("refused"))
     async with _client() as http:
-        with pytest.raises(SourceTransportError):
+        with pytest.raises(SourceTransportError) as excinfo:
             await get_json(http, "euvd", URL)
+    assert excinfo.value.status_code is None
 
 
 @pytest.mark.anyio
@@ -156,3 +159,41 @@ def test_parse_calendar_date_is_midnight_utc() -> None:
 )
 def test_parse_calendar_date_rejects_everything_else(value: object) -> None:
     assert parse_calendar_date(value) is None
+
+
+@pytest.mark.anyio
+async def test_get_bytes_returns_the_raw_body(respx_mock: respx.MockRouter) -> None:
+    respx_mock.get(URL).respond(200, content=b"<rss/>")
+    async with _client() as http:
+        assert await get_bytes(http, "cert_eu", URL) == b"<rss/>"
+
+
+@pytest.mark.anyio
+async def test_get_bytes_passes_params(respx_mock: respx.MockRouter) -> None:
+    route = respx_mock.get(URL).respond(200, content=b"x")
+    async with _client() as http:
+        await get_bytes(http, "cert_eu", URL, params={"page": 3})
+    assert route.calls.last.request.url.params["page"] == "3"
+
+
+@pytest.mark.anyio
+async def test_get_bytes_too_large_is_a_payload_error(
+    respx_mock: respx.MockRouter,
+) -> None:
+    respx_mock.get(URL).respond(200, content=b"x" * 100)
+    async with _client() as http:
+        with pytest.raises(SourcePayloadError) as excinfo:
+            await get_bytes(http, "cert_eu", URL, max_bytes=50)
+    assert excinfo.value.source == "cert_eu"
+    assert excinfo.value.__cause__ is not None
+
+
+@pytest.mark.anyio
+async def test_get_bytes_http_error_is_a_transport_error(
+    respx_mock: respx.MockRouter,
+) -> None:
+    respx_mock.get(URL).respond(404)
+    async with _client() as http:
+        with pytest.raises(SourceTransportError) as excinfo:
+            await get_bytes(http, "cert_eu", URL)
+    assert excinfo.value.source == "cert_eu"
