@@ -58,6 +58,7 @@ select = ["E", "F", "W", "I", "UP", "B", "DTZ", "BLE", "S", "RUF"]
 "tests/unit/cli/test_product.py" = ["S105", "S106"]
 "tests/unit/cli/test_token.py" = ["S105", "S106"]
 "tests/unit/cli/test_config_io.py" = ["S105", "S106"]
+"tests/integration/test_cli_valkey.py" = ["S105", "S106"]
 "tests/integration/test_token_rotation.py" = ["S105", "S106"]
 
 [tool.ty.environment]
