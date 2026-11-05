@@ -92,7 +92,7 @@ development_status:
   1-8-branch-wildcard-and-compound-version-ranges: done
   epic-1-retrospective: optional
 
-  epic-2: in-progress
+  epic-2: done
   2-1-cert-eu-adapter: done
   2-2-source-drift-detection: done
   epic-2-retrospective: optional
