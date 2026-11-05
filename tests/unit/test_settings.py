@@ -4,7 +4,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import pytest
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
+from pydantic import SecretStr, ValidationError
 
 from cvestream.errors import CvestreamError
 from cvestream.settings import (
@@ -20,18 +20,6 @@ class _SettingsWithSecret(Settings):
     """Test-only subclass: no `SecretStr` field exists in the real settings yet."""
 
     api_key: SecretStr | None = None
-
-
-class _NestedSecret(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    password: SecretStr | None = None
-
-
-class _SettingsWithNestedSecret(Settings):
-    """Test-only subclass shaped like the future `valkey.password` (story 3.1)."""
-
-    valkey: _NestedSecret = Field(default_factory=_NestedSecret)
 
 
 @pytest.fixture(autouse=True)
@@ -239,27 +227,26 @@ def test_file_secret_is_read_and_trailing_newline_stripped(tmp_path: Path) -> No
     assert "s3cret" not in repr(settings)
 
 
-def test_nested_file_secret_is_read(tmp_path: Path) -> None:
+def test_valkey_password_file_is_read_and_newline_stripped(tmp_path: Path) -> None:
     secret = tmp_path / "password"
     secret.write_text("pw\n", encoding="utf-8")
-    settings = _load(
-        _SettingsWithNestedSecret, _env(CVESTREAM_VALKEY__PASSWORD_FILE=str(secret))
-    )
-    assert isinstance(settings, _SettingsWithNestedSecret)
+    settings = load_settings(_env(CVESTREAM_VALKEY__PASSWORD_FILE=str(secret)))
     assert settings.valkey.password is not None
     assert settings.valkey.password.get_secret_value() == "pw"
+    assert "pw" not in repr(settings)
 
 
-def test_nested_secret_and_secret_file_together_is_an_error(tmp_path: Path) -> None:
+def test_valkey_password_and_password_file_together_is_an_error(
+    tmp_path: Path,
+) -> None:
     secret = tmp_path / "password"
     secret.write_text("pw", encoding="utf-8")
     with pytest.raises(SettingsError, match="CVESTREAM_VALKEY__PASSWORD"):
-        _load(
-            _SettingsWithNestedSecret,
+        load_settings(
             _env(
                 CVESTREAM_VALKEY__PASSWORD="plain",  # noqa: S106
                 CVESTREAM_VALKEY__PASSWORD_FILE=str(secret),
-            ),
+            )
         )
 
 
@@ -321,9 +308,99 @@ def test_config_provider_from_environment() -> None:
     assert settings.config_provider == "yaml"
 
 
-def test_valkey_config_provider_is_rejected_until_it_exists() -> None:
-    with pytest.raises(ValidationError):
+_VALKEY_URL = "valkey://cvestream-daemon@valkey:6379/0"
+
+
+def test_valkey_provider_from_environment() -> None:
+    settings = load_settings(
+        _env(CVESTREAM_CONFIG_PROVIDER="valkey", CVESTREAM_VALKEY__URL=_VALKEY_URL)
+    )
+    assert settings.config_provider == "valkey"
+    assert settings.valkey.url == _VALKEY_URL
+    assert settings.valkey.password is None
+
+
+def test_valkey_defaults() -> None:
+    settings = load_settings({})
+    assert settings.valkey.url is None
+    assert settings.valkey.password is None
+    assert settings.valkey.startup_timeout == timedelta(seconds=60)
+
+
+def test_valkey_provider_requires_a_url() -> None:
+    with pytest.raises(ValidationError, match=r"valkey\.url"):
         load_settings(_env(CVESTREAM_CONFIG_PROVIDER="valkey"))
+
+
+def test_valkey_url_is_not_required_with_the_yaml_provider() -> None:
+    assert load_settings(_env(CVESTREAM_VALKEY__URL=_VALKEY_URL)).valkey.url
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "valkey://u@valkey",
+        "valkey://u@valkey:6379",
+        "valkey://u@valkey:6379/",
+        "valkey://u@valkey:6379/3",
+        "valkeys://u@valkey.example:6380/0",
+        "valkey://valkey:6379/0",
+        "valkey://u@[::1]:6379/0",
+    ],
+)
+def test_valkey_url_accepted(url: str) -> None:
+    assert load_settings(_env(CVESTREAM_VALKEY__URL=url)).valkey.url == url
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "redis://u@valkey:6379/0",
+        "unix:///tmp/valkey.sock",
+        "valkey://u@:6379/0",
+        "valkey://u@valkey:notaport/0",
+        "valkey://u@valkey:0/0",
+        "valkey://u@valkey:6379/0?ssl_cert_reqs=none",
+        "valkey://u@valkey:6379/0#frag",
+        "valkey://u@valkey:6379/db0",
+        "valkey://u@valkey:6379/0/1",
+        "valkey://u@valkey:6379/\u00b2",
+        "valkey",
+        "",
+    ],
+)
+def test_valkey_url_rejected(url: str) -> None:
+    with pytest.raises(ValidationError, match=r"valkey\.url"):
+        load_settings(_env(CVESTREAM_VALKEY__URL=url))
+
+
+def test_valkey_url_with_a_password_is_rejected_and_not_echoed() -> None:
+    url = "valkey://cvestream-daemon:hunter2-very-secret@valkey:6379/0"
+    with pytest.raises(ValidationError) as excinfo:
+        load_settings(_env(CVESTREAM_VALKEY__URL=url))
+    # The CLI prints `errors(include_input=False)`: that is what must be clean.
+    # (`str(ValidationError)` embeds the input, which is why it is never printed.)
+    errors = excinfo.value.errors(include_input=False, include_url=False)
+    text = " ".join(str(error["msg"]) for error in errors)
+    assert "must not contain a password" in text
+    assert "hunter2" not in text
+    assert "valkey:6379" not in text
+
+
+def test_valkey_startup_timeout_from_environment() -> None:
+    settings = load_settings(_env(CVESTREAM_VALKEY__STARTUP_TIMEOUT="PT10S"))
+    assert settings.valkey.startup_timeout == timedelta(seconds=10)
+
+
+@pytest.mark.parametrize("value", ["PT0S", "PT1H1S", "-PT1S"])
+def test_valkey_startup_timeout_out_of_bounds_is_rejected(value: str) -> None:
+    with pytest.raises(ValidationError):
+        load_settings(_env(CVESTREAM_VALKEY__STARTUP_TIMEOUT=value))
+
+
+def test_valkey_unknown_key_is_rejected() -> None:
+    with pytest.raises(ValidationError):
+        load_settings(_env(CVESTREAM_VALKEY__HOST="x"))
 
 
 def test_state_defaults() -> None:
