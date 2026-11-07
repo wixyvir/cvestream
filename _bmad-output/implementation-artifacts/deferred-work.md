@@ -98,3 +98,7 @@ See `planning-artifacts/sprint-change-proposal-2026-11-01-epic-2-scope.md`.
 ## Deferred from: code review of 3-2-operator-cli-for-endpoints-products-and-tokens.md (2026-11-05)
 
 - **`config import` cannot repair a non-integer revision key** (`src/cvestream/config/valkey_provider.py`, `_attempt`): Valkey does not roll a `MULTI` back on a runtime error, so with a `cvestream:v1:revision` that is not an integer (or of another type) the `SET`/`DEL`s of the transaction are applied and the final `INCR` fails; the CLI reports "unexpected reply" while the keys changed and the revision did not. The daemon already rejects such a store (`revision: not an integer`). Same root as "Connectors can `SET` the revision" above: fix both in the hardening pass (for example `replace` checks the revision type inside `WATCH` and resets it with `SET` before writing, or the ACL stops connectors from writing it).
+
+## Deferred from: code review of 3-4-valkey-administration-ui.md (2026-11-07)
+
+- **Placeholder Secret in the `valkey-ui` component can be applied as-is** (`deploy/k8s/components/valkey-ui/secret.example.yaml`): the only guard is a raw-file unit test, not the built output. Deferred as a pre-existing pattern (same as `overlays/example/secret.example.yaml`); it fails closed because the `REPLACE-ME` password cannot authenticate against a real `users.acl` hash.

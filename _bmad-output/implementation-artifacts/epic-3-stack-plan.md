@@ -8,7 +8,7 @@
 - The stack is not in story-number order on purpose: **3.3 (release, Kubernetes) sits below 3.2 (operator CLI)** because it only needs 3.1's `deploy/valkey/` files, so you can test it earlier; 3.2 needs 3.1's Valkey provider and nothing from 3.3.
 - Schedule: 3.1 and 3.3 are created and developed **concurrently** (wave 9). 3.1 is reviewed first; 3.3 is then rebased onto the reviewed 3.1 and reviewed. 3.2 (wave 10) starts from the reviewed 3.1 branch and is developed while 3.3 is rebased and reviewed; it is then rebased onto the reviewed 3.3, its PR retargeted to the 3.3 branch, and reviewed.
 - Each PR goes through three automated steps: `bmad-create-story` (story file + draft PR), `bmad-dev-story` (implementation pushed on the PR), `bmad-code-review` (patches applied, open decisions posted as inline review comments, PR marked ready).
-- You test the PRs one at a time, bottom-up (3.1, then 3.3, then 3.2): `git switch <branch>`, run the gates, then the manual checks listed per story below. 3.1 needs Docker (a disposable Valkey); 3.3 reuses the minikube harness from `origin/test-early-k8s`.
+- You test the PRs one at a time, bottom-up (3.1, then 3.3, then 3.2, then 3.4): `git switch <branch>`, run the gates, then the manual checks listed per story below. 3.1 needs Docker (a disposable Valkey); 3.3 reuses the minikube harness from `origin/test-early-k8s`.
 - Look at the inline review comments marked "decision needed" on each PR: they are the choices the agent did not make for you.
 - Merge bottom-up only, with a regular merge (not squash): 3.1, then 3.3, then 3.2, then 3.4. Nothing pushes a `v*` tag or creates a GitHub Release: the first release is yours, after the merges.
 
@@ -45,11 +45,11 @@ main
 | Story | PR | State |
 |---|---|---|
 | 3.1 | wixyvir/cvestream#22 | reviewed, 0 open decisions |
-| 3.3 | wixyvir/cvestream#21 | pending review |
-| 3.2 | wixyvir/cvestream#23 | pending review |
+| 3.3 | wixyvir/cvestream#21 | review |
+| 3.2 | wixyvir/cvestream#23 | done |
 | 3.4 | <3.4 PR> | story created (ready-for-dev) |
 
-### Why this order: `main <- 3.1 <- 3.3 <- 3.2`
+### Why this order: `main <- 3.1 <- 3.3 <- 3.2 <- 3.4`
 
 `sprint-status.yaml` puts 3.1 and 3.3 in wave 9 and 3.2 in wave 10:
 
@@ -118,7 +118,7 @@ Commits are never squashed. Nothing is merged, nothing is pushed to `main`, no `
 
 ## 3. How to test, story by story
 
-Run the stories in stack order (3.1, 3.3, 3.2). Each branch already contains everything below it.
+Run the stories in stack order (3.1, 3.3, 3.2, 3.4). Each branch already contains everything below it.
 
 ### Common gates (every story)
 
@@ -362,7 +362,7 @@ Branch: `story-3-4-valkey-administration-ui` (base: the 3.2 branch). :factory:
 4. Safety nets, with the daemon on the Valkey provider (`CVESTREAM_CONFIG_PROVIDER=valkey docker compose watch`, short source intervals):
    - edit an endpoint's `min_cvss` in the UI without `INCR`: no `config.reloaded` at the next cycle, then one at the 12th run (or right after `INCR cvestream:v1:revision` from the UI's CLI tab);
    - write invalid JSON in an endpoint key and `INCR`: `config.rejected` at the next cycle, feeds still served; fix it from the UI or with `cvestream config import`.
-5. Kubernetes, on minikube (cluster and image as in PR 2 of 4, step 3): a throwaway overlay with `resources: [<worktree>/tests/k8s/example-with-valkey-ui]` (it already lists the component), with the namespace labelled `pod-security.kubernetes.io/enforce=restricted`. Fill both Secrets (the `cvestream-ui` password is `dev-only-cvestream-ui` with the committed `users.acl`).
+5. Kubernetes, on minikube (cluster and image as in PR 2 of 4, step 3): a throwaway overlay with `resources: [<worktree>/tests/k8s/example-with-valkey-ui]` (it already lists the component), with the namespace labelled `pod-security.kubernetes.io/enforce=restricted`. Fill the two Secrets by name: the app's `secret.example.yaml`, and the component's `cvestream-valkey-ui` Secret (`databases.json`, password `dev-only-cvestream-ui`, whose SHA-256 hash must match the committed `users.acl`).
    - `k apply --dry-run=server -k ...` passes (restricted admission), and the UI pod becomes ready with a read-only root;
    - `k -n <ns> port-forward svc/cvestream-valkey-ui 5540:5540`, then `http://127.0.0.1:5540` browses the store;
    - NetworkPolicy: from a throwaway pod, the UI on 5540 is unreachable; from the UI pod (`k exec`, if it has a shell), only Valkey 6379 and DNS answer;

@@ -501,7 +501,7 @@ So that I can inspect and fix the configuration without typing `valkey-cli` comm
 
 **Given** `deploy/k8s/components/valkey-ui`
 **When** an overlay lists it under `components:`
-**Then** `kubectl kustomize` produces a `Deployment` admitted under the `restricted` Pod Security Standard, a ClusterIP `Service`, no `Ingress`, a `NetworkPolicy` (UI egress to Valkey and DNS only) and a patch admitting the UI pod in the Valkey `NetworkPolicy`, with the password from a placeholder Secret
+**Then** `kubectl kustomize` produces a `Deployment` admitted under the `restricted` Pod Security Standard, a ClusterIP `Service`, no `Ingress`, a `NetworkPolicy` (UI egress to Valkey and DNS only) and admission of the UI pod in the Valkey `NetworkPolicy` through the existing opt-in label `cvestream.io/valkey-access: "true"` (story 3.4 decision 4 — no patch to `networkpolicy-valkey.yaml` needed), with the password from a placeholder Secret
 **And** the example overlay does not enable it, CI builds an overlay that does, and `tests/unit/test_deploy_manifests.py` guards these properties
 
 **Given** a write from the UI
