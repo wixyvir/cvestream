@@ -24,7 +24,7 @@ _Versions verified online on 2026-10-26 (architecture.md). Before adding any dep
 - **uv 0.13.5** manages the project. This project uses uv, **not poetry** (this overrides any global poetry preference). Use `uv add`, `uv sync --locked` and `uv run`. Never `pip install`, never edit `uv.lock` by hand. Build backend `uv_build`, `src/cvestream/` layout, console script `cvestream`.
 - **Runtime:** pydantic 2.14 · pydantic-settings 2.16 · SQLAlchemy 2.1.6 (**Core only, no ORM**, sync engine) · Alembic 1.20.1 (configured in code, no `alembic.ini`) · valkey-py 6.2.0 (server `valkey/valkey:9.1`) · Starlette 1.10.0 · uvicorn 0.54.0 · httpx 0.28.1 (pinned `>=0.28,<1`) · Typer 0.27.3 · structlog 26.1 · packaging (version comparison, the only third-party import allowed in `domain`) · XML in: stdlib `xml.etree.ElementTree`, DOCTYPE refused (story 2.1)
 - **Dev:** ruff 0.17.2 · ty 0.0.92 (beta; fallback mypy 2.4.0 in the same CI step) · import-linter 2.15 · pytest 9.1.1 + anyio plugin · respx 0.23.1 · pytest-socket 0.8.1 · watchfiles 1.3.0
-- **Images:** builder `ghcr.io/astral-sh/uv:<pinned>-python3.14-trixie-slim`, runtime `python:3.14-slim-trixie`. Always pin exact tags, never `latest`. Third-party GitHub Actions are pinned by commit SHA, with the version in a comment.
+- **Images:** builder `ghcr.io/astral-sh/uv:<pinned>-python3.14-trixie-slim`, runtime `python:3.14-slim-trixie`, Valkey `valkey/valkey:9.1.3`, Valkey administration UI `redis/redisinsight:3.8.0` (SSPL-1.0 / Redis EULA, used unmodified, never redistributed; dev compose and the opt-in `deploy/k8s/components/valkey-ui` component; a test keeps the compose and component pins equal). Always pin exact tags, never `latest`. Third-party GitHub Actions are pinned by commit SHA, with the version in a comment.
 - **Rejected, do not introduce:** FastAPI, Granian, APScheduler, aiohttp (fallback only if httpx breaks), `redis`, `valkey-glide`, SQLAlchemy ORM, the Valkey JSON module, Litestream, Helm, NVD as a source.
 - **PostgreSQL later:** it will be an optional `psycopg` extra plus a URL change. Never write code that works only on SQLite.
 
@@ -146,7 +146,7 @@ _Versions verified online on 2026-10-26 (architecture.md). Before adding any dep
 - Never log a feed token or a full feed path; access logs carry `endpoint_id`. Unknown or revoked token → `404`, never `401`/`403`.
 - XML in: stdlib `xml.etree.ElementTree` with a DOCTYPE refused (no entity is declared or expanded), never feedparser or defusedxml (story 2.1). XML out: built with a serializer, source text escaped as plain text, no Slack-specific markup.
 - Never disable TLS verification, never honour proxy environment variables.
-- Valkey: the `default` user stays disabled, the daemon user is read-only, and ACLs are never widened to cover `cvestream:v1:token:*`.
+- Valkey: the `default` user stays disabled, the daemon user is read-only, and connector ACLs never cover `cvestream:v1:token:*` (only `cvestream-daemon`, `cvestream-admin` and `cvestream-ui` read tokens). `KEYS`, `FLUSHALL`/`FLUSHDB`, `CONFIG`, `ACL` and scripting are granted to no user; `SCAN` only to `cvestream-ui` (the administration UI of story 3.4, never exposed: loopback-only in compose, no Ingress on Kubernetes).
 
 **Failure isolation (FR-6):** a failing source never stops the others and never blanks a feed. Its cursor isn't advanced, and the last good feed is served from `feed_cache` (persisted, survives restarts). Log `source.stale` when `now - last_success_at > 3 × interval`.
 

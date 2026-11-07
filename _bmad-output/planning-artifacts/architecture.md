@@ -215,8 +215,8 @@ Rules (story 1.6): every enabled endpoint is rendered at every run, inside the r
 ### Authentication & Security
 
 - **Feed access (FR-20):** URL `/feeds/{token}.xml`. The token alone resolves the endpoint. Token = `secrets.token_urlsafe(32)` (256 bits), stored in plaintext under `cvestream:v1:token:{id}` (user decision: the operator must be able to retrieve the URL with `cvestream endpoint show`). Rotation takes effect at the next config reload. Unknown or revoked token → `404`. Rate limiting is left to the reverse proxy.
-- **Interfaces:** public listener `:8080` serves only `GET`/`HEAD /feeds/{token}.xml`. Private listener `:9090` serves `/healthz`, `/readyz`, `/status`. Valkey is on a private network only. The CLI has no network endpoint.
-- **Valkey ACL users:** `default` disabled. `cvestream-daemon`: read-only on `cvestream:v1:*`. `cvestream-admin` (CLI): read/write on `cvestream:v1:*`. `connector-<name>`: read on `cvestream:v1:schema`, `cvestream:v1:revision`, `cvestream:v1:endpoint*`, write on `cvestream:v1:endpoint:*:products` and `cvestream:v1:revision`. The ACL lines are in `deploy/valkey/users.acl` and explained in `docs/config-contract.md`, and tested against a real server (`tests/integration/test_valkey_provider.py`). Rules: explicit command lists, never `+@read`/`+@write` (they include `KEYS`, `SCAN`, `FLUSHALL`); `INCR` needs read and write access (`%RW~` on `revision`; valkey-py sends `INCRBY`, so both commands are listed); the `default` line is required (without it Valkey recreates an open `default`); **an ACL file takes no comment line** (Valkey 9.1 accepts only `user` lines), so the explanations live in the docs; the file holds SHA-256 hashes (`#<hash>`), never a plaintext password. Credentials from env or a mounted secret file. TLS (`valkeys://`, certificate verified against the system trust store) optional, recommended across hosts. The password is never in `valkey.url` (it carries the user name only): `valkey.password` / `CVESTREAM_VALKEY__PASSWORD_FILE`.
+- **Interfaces:** public listener `:8080` serves only `GET`/`HEAD /feeds/{token}.xml`. Private listener `:9090` serves `/healthz`, `/readyz`, `/status`. Valkey is on a private network only. The CLI has no network endpoint. The optional Valkey administration UI (story 3.4) is never exposed: loopback-only in the dev compose stack, ClusterIP plus `kubectl port-forward` on Kubernetes, no Ingress.
+- **Valkey ACL users:** `default` disabled. `cvestream-daemon`: read-only on `cvestream:v1:*`. `cvestream-admin` (CLI): read/write on `cvestream:v1:*`. `cvestream-ui` (administration UI, story 3.4): read/write on `cvestream:v1:*`, tokens included, plus the browse commands the UI needs (`SCAN`, `TYPE`, `TTL`, ...); it is the only user allowed `SCAN`. `connector-<name>`: read on `cvestream:v1:schema`, `cvestream:v1:revision`, `cvestream:v1:endpoint*`, write on `cvestream:v1:endpoint:*:products` and `cvestream:v1:revision`. The ACL lines are in `deploy/valkey/users.acl` and explained in `docs/config-contract.md`, and tested against a real server (`tests/integration/test_valkey_provider.py`, `tests/integration/test_valkey_ui.py`). Rules: explicit command lists, never `+@read`/`+@write` (they include `KEYS`, `SCAN`, `FLUSHALL`); `KEYS`, `FLUSHALL`/`FLUSHDB`, `CONFIG`, `ACL`, `DEBUG`, `MODULE` and scripting are granted to no user; UI writes skip validation and the revision bump: the forced reload every 12 runs and `config.rejected` (FR-23) are the safety net; `INCR` needs read and write access (`%RW~` on `revision`; valkey-py sends `INCRBY`, so both commands are listed); the `default` line is required (without it Valkey recreates an open `default`); **an ACL file takes no comment line** (Valkey 9.1 accepts only `user` lines), so the explanations live in the docs; the file holds SHA-256 hashes (`#<hash>`), never a plaintext password. Credentials from env or a mounted secret file. TLS (`valkeys://`, certificate verified against the system trust store) optional, recommended across hosts. The password is never in `valkey.url` (it carries the user name only): `valkey.password` / `CVESTREAM_VALKEY__PASSWORD_FILE`.
 - **Outbound:** direct connections only, no proxy support (`trust_env=False`, so proxy variables in the environment are ignored). TLS verification always on, against the image's system trust store (`ssl.create_default_context()`, Debian `ca-certificates`). Timeouts, response size limits, per-source backoff.
 - **Untrusted input:** source payloads validated by Pydantic. XML parsed with the standard library (`xml.etree.ElementTree`), a DOCTYPE is refused so no entity is resolved (story 2.1). RSS output built with an XML serializer, source text escaped as plain text.
 - **Container:** UID 999, read-only root filesystem (writable `/data`, `/tmp`), all capabilities dropped, no privilege escalation.
@@ -280,9 +280,9 @@ Not applicable: no UI. RSS is the only output contract.
 
   All third-party Actions pinned by commit SHA (version in a comment). Least-privilege `permissions:` per job. Dependabot for `uv`, `github-actions`, `docker`, weekly.
 - **Deployment targets:**
-  - Dev: `compose.yml` (`app` target `dev` with `develop.watch`, `valkey` with `deploy/valkey/users.acl`, private network) + `.devcontainer/` pointing to it.
+  - Dev: `compose.yml` (`app` target `dev` with `develop.watch`, `valkey` with `deploy/valkey/users.acl`, private network, `valkey-ui` web UI connected as `cvestream-ui` and published on `127.0.0.1` only) + `.devcontainer/` pointing to it.
   - Docker self-hosted: `deploy/compose/compose.yml` (GHCR image, named volumes, `restart: unless-stopped`, only 8080 published; reverse proxy and HTTPS provided by the operator).
-  - Kubernetes: `deploy/k8s/` Kustomize base + example overlay: `Deployment` (replicas 1, `strategy: Recreate`, hardened `securityContext`, `terminationGracePeriodSeconds: 60` so the current pipeline run can finish), RWO `PersistentVolumeClaim` on `/data` (block storage, not NFS/SMB), `Service` `cvestream-public` (8080) and `cvestream-private` (9090), example `Ingress` for the public Service only, `NetworkPolicy`, `exec` probes using `cvestream healthcheck` (`startupProbe` and `readinessProbe` with `--ready`, `livenessProbe` without), minimal example Valkey `StatefulSet` (or an existing Valkey). The base uses the YAML provider (Secret `cvestream-endpoints` mounted as a directory); `overlays/example` switches to the Valkey provider. The Valkey files of `deploy/valkey/` reach the overlay through `deploy/valkey/kustomization.yaml` listed under `resources:` (a generator cannot read outside its directory). The image tag in the base and in `deploy/compose/compose.yml` equals the `pyproject.toml` version (`tests/unit/test_deploy_manifests.py`), so a version bump PR bumps the pins too; `enableServiceLinks: false` keeps `cvestream-*` Services from injecting variables into the `CVESTREAM_` namespace.
+  - Kubernetes: `deploy/k8s/` Kustomize base + example overlay: `Deployment` (replicas 1, `strategy: Recreate`, hardened `securityContext`, `terminationGracePeriodSeconds: 60` so the current pipeline run can finish), RWO `PersistentVolumeClaim` on `/data` (block storage, not NFS/SMB), `Service` `cvestream-public` (8080) and `cvestream-private` (9090), example `Ingress` for the public Service only, `NetworkPolicy`, `exec` probes using `cvestream healthcheck` (`startupProbe` and `readinessProbe` with `--ready`, `livenessProbe` without), minimal example Valkey `StatefulSet` (or an existing Valkey). The base uses the YAML provider (Secret `cvestream-endpoints` mounted as a directory); `overlays/example` switches to the Valkey provider. The Valkey files of `deploy/valkey/` reach the overlay through `deploy/valkey/kustomization.yaml` listed under `resources:` (a generator cannot read outside its directory). The image tag in the base and in `deploy/compose/compose.yml` equals the `pyproject.toml` version (`tests/unit/test_deploy_manifests.py`), so a version bump PR bumps the pins too; `enableServiceLinks: false` keeps `cvestream-*` Services from injecting variables into the `CVESTREAM_` namespace. `deploy/k8s/components/valkey-ui` is an opt-in Kustomize component (Valkey administration UI: hardened `Deployment`, ClusterIP `Service`, `NetworkPolicy`, no Ingress); the example overlay does not enable it, and CI builds it through a test overlay (`tests/k8s/example-with-valkey-ui`).
   - Local: `uv run cvestream run` with the YAML provider and `./data`.
 - **Backups:** Valkey RDB snapshot + `cvestream config export` (YAML, can live in git). SQLite: `cvestream db backup <file>` (SQLite online backup API; SQLite only, PostgreSQL would use `pg_dump`).
 - **Scaling:** single replica by design (documented). RWO volume prevents two writers.
@@ -526,8 +526,8 @@ cvestream/
 ├── deploy/
 │   ├── valkey/
 │   │   ├── valkey.conf               # appendonly yes, appendfsync everysec, aclfile
-│   │   ├── users.acl                 # default off; cvestream-daemon, cvestream-admin, connector-example (SHA-256 hashes, no comment line)
-│   │   ├── dev-secrets/              # public dev-only passwords of the three users (compose, tests)
+│   │   ├── users.acl                 # default off; cvestream-daemon, cvestream-admin, cvestream-ui, connector-example (SHA-256 hashes, no comment line)
+│   │   ├── dev-secrets/              # public dev-only passwords of the four users, plus the Redis Insight pre-setup file of cvestream-ui (compose, tests)
 │   │   └── kustomization.yaml        # generates the valkey.conf ConfigMap and the users.acl Secret for the overlay (Kustomize load restrictor)
 │   ├── compose/
 │   │   └── compose.yml               # self-hosted: GHCR image, named volumes, only 8080 published
@@ -540,6 +540,12 @@ cvestream/
 │       │   ├── service-public.yaml   # 8080
 │       │   ├── service-private.yaml  # 9090
 │       │   └── networkpolicy.yaml
+│       ├── components/valkey-ui/   # opt-in Kustomize component: administration UI (story 3.4)
+│       │   ├── kustomization.yaml
+│       │   ├── deployment.yaml
+│       │   ├── service.yaml
+│       │   ├── networkpolicy.yaml
+│       │   └── secret.example.yaml
 │       └── overlays/example/
 │           ├── kustomization.yaml
 │           ├── ingress.yaml          # public Service only, /feeds/
@@ -643,7 +649,9 @@ cvestream/
     │   ├── test_startup_requires_valkey.py  # closed port: exit code 3 after startup_timeout (no server); access cases marked valkey
     │   ├── test_token_rotation.py    # CLI rotate, reload, old URL 404 / new URL 200 (no server)
     │   ├── test_cli_valkey.py        # the CLI against a real Valkey, marker valkey
-    │   └── test_valkey_provider.py   # marker valkey
+    │   ├── test_valkey_provider.py   # marker valkey
+    │   └── test_valkey_ui.py         # the cvestream-ui user: grants and refusals, marker valkey
+    ├── k8s/example-with-valkey-ui/   # test-only overlay for CI: the example with the valkey-ui component
     └── fixtures/
         ├── euvd/
         ├── cisa_kev/
@@ -743,7 +751,7 @@ sources/* ──fetch──▶ SourceRecord ─▶ normalize ─▶ correlate �
 - **Configuration files:** `pyproject.toml` holds every tool's configuration (no `ruff.toml`, `pytest.ini` or `.importlinter` files). Runtime examples sit at the root (`settings.example.yaml`, `endpoints.example.yaml`). Deployment configuration lives under `deploy/`.
 - **Source organization:** grouped by layer, then by capability. One module per source adapter. No `utils.py`: a helper goes in the layer that owns it.
 - **Test organization:** `unit/` mirrors `src/cvestream/`. `contract/` is organized by source. `integration/` covers flows across components. `fixtures/` holds recorded payloads.
-- **Assets:** none (no UI). The generated `schemas/config-v1.json` is the only artefact that is committed.
+- **Assets:** none (no UI of ours; the optional Valkey administration UI of story 3.4 is a third-party image, `redis/redisinsight:3.8.0`, run unmodified). The generated `schemas/config-v1.json` is the only artefact that is committed.
 
 ### Development Workflow Integration
 
