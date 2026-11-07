@@ -11,6 +11,7 @@
 - Logs are JSON lines on stdout. `cycle.summary` says what each cycle did; `source.failed`, `source.stale`, `config.rejected` and `pipeline.failed` are the ones to alert on.
 - Manage endpoints, products and tokens with the operator CLI (`cvestream endpoint`, `product`, `token`, see [configuration.md](configuration.md#cli)): it writes through the active provider (the YAML file or Valkey) and the daemon picks the change up at the next cycle, no restart. Hand-editing `endpoints.yaml` still works. Rotate a leaked token with `cvestream token rotate <id>`. :factory:
 - With the Valkey provider the daemon waits for Valkey at startup (`valkey.startup_timeout`), exits `3` when it stays unreachable or refuses the credentials, and rides out an outage on the last valid configuration (see [Valkey](#valkey)).
+- The dev stack also starts a Valkey administration UI on `http://127.0.0.1:5540`, already connected as `cvestream-ui` (see [Valkey administration UI](#valkey-administration-ui)). :factory:
 - Back up the state with `cvestream db backup <file>` and the configuration with `cvestream config export -o <file>` (it holds the tokens: keep it private).
 - A nightly GitHub workflow (`source-drift`) runs the live contract tests against the real source APIs and opens or updates one `source-drift` issue when a source changed or was unreachable.
 
@@ -214,6 +215,19 @@ With `config_provider: valkey` the configuration lives in a Valkey service ([con
 
   As `cvestream-daemon` the read commands (`endpoint list|show`, `product list`, `config export`) work and every write exits `2` with one line naming the user. In the dev stack run it in a one-off container on the compose network: `docker compose run --rm -e CVESTREAM_VALKEY__URL=valkey://cvestream-admin@valkey:6379/0 -e CVESTREAM_VALKEY__PASSWORD=<admin password> app cvestream endpoint list` (the development passwords are in `deploy/valkey/dev-secrets/`; never commit a real one). The daemon keeps running as `cvestream-daemon`.
 
+## Valkey administration UI
+
+The dev stack starts a Valkey administration UI (Redis Insight, story 3.4) next to the store, pre-connected as the `cvestream-ui` ACL user. :factory:
+
+- **Dev:** `docker compose up` (or `watch`) starts it with the stack; open `http://127.0.0.1:5540`. The `cvestream` database is already listed and connected, with no click (the connection comes from the `valkey-ui-databases` compose secret, `deploy/valkey/dev-secrets/cvestream-ui.redisinsight.json`). If `127.0.0.1:5540` is already bound, `docker compose up` fails to start `valkey-ui`. A missing or malformed pre-setup file leaves the UI with zero databases and a locked connection list: fix the secret and restart the service.
+- **Kubernetes (opt-in):** add `../../components/valkey-ui` to your overlay's `components:`, create the `cvestream-valkey-ui` Secret (key `databases.json`, see `deploy/k8s/components/valkey-ui/secret.example.yaml`: its `password` must be the one whose SHA-256 is on the `cvestream-ui` line of the `users.acl` you deploy), and add that `cvestream-ui` line with your own hash to your `users.acl`. Then `kubectl -n <ns> port-forward svc/cvestream-valkey-ui 5540:5540` and open `http://127.0.0.1:5540`. The example overlay does not enable the component; CI builds it through the test-only overlay `tests/k8s/example-with-valkey-ui`.
+- **Never expose it.** The UI has no authentication of its own: whoever reaches it controls the store and sees every token. In dev it is published on `127.0.0.1` only, but any container on the compose `default` network (for example `app`) can reach it. On Kubernetes it has no Ingress and a deny-all ingress `NetworkPolicy`; `kubectl port-forward` enters the pod directly, so the NetworkPolicy does not filter it.
+- **Writing:** prefer the CLI, which validates and bumps the revision. After a UI edit, run `INCR cvestream:v1:revision` in the UI's CLI tab for an immediate reload. Otherwise the daemon applies the edit at its next forced reload (every 12th pipeline cycle). An invalid edit is rejected (`config.rejected`) and the last valid configuration stays in use; fix it from the UI or with `cvestream config import`.
+- **What it cannot do, on purpose:** set TTLs, rename or move keys, flush, run scripts, read the server configuration (`CONFIG`, `ACL`, `CLIENT LIST`, `MODULE` are refused; the UI degrades gracefully, checked empirically with `ACL LOG` on 2026-11-07). `SCAN` is keyspace-wide and lists every key name of the database; the database holds only `cvestream:v1:*`.
+- **Broken revision:** a UI `SET` of a non-integer `cvestream:v1:revision` makes every daemon write fail (`INCR` on a non-integer) until repaired with `SET cvestream:v1:revision <integer>` or `cvestream config import`. Deleting a structural key (`schema`, `revision`, `endpoints`) is granted too: a missing `schema` rejects the store ("not seeded", `config.rejected`, last valid kept).
+- **Licence:** Redis Insight is SSPL-1.0 (or the Redis EULA). It is used as the unmodified upstream image `redis/redisinsight:3.8.0`, for internal administration only; never vendor, modify or offer it as a service.
+- **Network:** in dev the UI container fetches feature flags from GitHub once a day as direct egress (analytics are off once the terms are accepted; there is no variable to turn the fetch itself off). On Kubernetes the egress `NetworkPolicy` blocks it; the UI still works and only logs a warning. The DNS egress rule assumes kube-dns in `kube-system`: adapt it with NodeLocal DNSCache or another DNS deployment.
+
 ## Security
 
 - Publish only port 8080. `/healthz`, `/readyz` and `/status` are private; the compose file does not publish 9090.
@@ -231,6 +245,7 @@ What ships, under `deploy/`:
 | `k8s/base` | cvestream alone, with the YAML provider: `Deployment`, `PersistentVolumeClaim`, the `cvestream-public` (8080) and `cvestream-private` (9090) Services, a `NetworkPolicy` |
 | `k8s/overlays/example` | the base switched to the Valkey provider, in the namespace `cvestream`, plus an example single-instance Valkey (`StatefulSet`, headless Service, `NetworkPolicy`), an `Ingress` for `/feeds/` only and a Secret example |
 | `valkey/kustomization.yaml` | generates the `valkey.conf` ConfigMap and the `users.acl` Secret that the example Valkey mounts |
+| `k8s/components/valkey-ui` | opt-in `Component` (story 3.4): the Valkey administration UI — hardened `Deployment`, ClusterIP `Service`, `NetworkPolicy`, placeholder `Secret`, no Ingress; not enabled by the example overlay (CI builds `tests/k8s/example-with-valkey-ui`) |
 
 Build with `kubectl kustomize deploy/k8s/overlays/example`, apply with `kubectl apply -k`. Make your own overlay instead of editing the example: namespace, image tag, Ingress host, class and TLS Secret, NetworkPolicy peers, storage class, Secrets. Kustomize refuses files outside an overlay's directory in a generator, so reference the directories with `resources:` (as the example does for `../../../valkey`).
 
@@ -267,7 +282,7 @@ Exposure: route only `cvestream-public`, only `/feeds/`, through an Ingress or a
 |---|---|
 | `cvestream.io/public-access: "true"` | 8080 of cvestream, from that pod in any namespace (the example overlay replaces this peer by the Ingress controller's namespace and labels: adapt it) |
 | `cvestream.io/private-access: "true"` | 9090 of cvestream, from that pod in the same namespace |
-| `cvestream.io/valkey-access: "true"` | 6379 of the example Valkey, from that pod in the same namespace (connectors, an operator CLI pod) |
+| `cvestream.io/valkey-access: "true"` | 6379 of the example Valkey, from that pod in the same namespace (connectors, an operator CLI pod, the opt-in Valkey administration UI pod) |
 
 cvestream may only reach DNS (`kube-dns` in `kube-system`), TCP 443 and, in the example overlay, Valkey. The example Valkey has no egress.
 

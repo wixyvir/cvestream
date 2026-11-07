@@ -24,6 +24,7 @@ uv run cvestream config schema --check
 uv run cvestream config validate endpoints.example.yaml
 kubectl kustomize deploy/k8s/base
 kubectl kustomize deploy/k8s/overlays/example
+kubectl kustomize tests/k8s/example-with-valkey-ui
 docker build --target runtime -t cvestream:local .
 ```
 
@@ -46,6 +47,7 @@ The `valkey`-marked tests need a Valkey server: they skip without `VALKEY_TEST_A
 - Never log a feed token or a feed path (`log.py` redacts them as a safety net).
 - Operator CLI (`cli/endpoint.py`, `product.py`, `token.py`, `config.py`): it writes configuration only through the `ConfigStore` of the active provider (`update`, `replace`), never around it, with pure edits from `config/edit.py`. A feed token comes only from the injectable `CliState.new_token` (default `secrets.token_urlsafe(32)`), never from an option; tests inject a fixed one with `CliRunner.invoke(..., obj=CliState(new_token=...))`. Its commands log nothing and never call `configure_logging()` (stdout carries the output, `--json` must stay parseable); a `ConfigError` is one stderr line and exit 2; a token appears on stdout only inside the feed URL of `endpoint create|show` and `token rotate` and in `config export`.
 - Never commit `settings.yaml`, `endpoints.yaml`, `data/`, CA bundles or proxy settings.
+- In `deploy/valkey/users.acl`, `SCAN` is granted only to `cvestream-ui`; never widen another ACL user, and never expose the `valkey-ui` UI (loopback-only in compose, no Ingress on Kubernetes).
 - Documentation follows behaviour in the same PR: README, this file, `settings.example.yaml`, and `docs/` when it exists.
 
 ## Delivery
