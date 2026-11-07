@@ -4,7 +4,7 @@ baseline_commit: f7bf4fc
 
 # Story 3.4: Valkey administration UI
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -92,39 +92,39 @@ so that I can inspect and fix the configuration without typing `valkey-cli` comm
 
 ## Tasks / Subtasks
 
-- [ ] **T1. ACL user and dev secrets** (AC 1)
-  - [ ] Add `deploy/valkey/dev-secrets/cvestream-ui.password` containing `dev-only-cvestream-ui`, with no trailing newline (`printf '%s'`).
-  - [ ] Add the `cvestream-ui` line to `users.acl`, after `cvestream-admin` and before `connector-example`, with no comment line. Start from the candidate list in Dev Notes and settle it with the `ACL LOG` procedure. Hash: `printf '%s' dev-only-cvestream-ui | sha256sum`.
-  - [ ] Add `deploy/valkey/dev-secrets/cvestream-ui.redisinsight.json`, the Redis Insight pre-setup file for compose. It is a JSON array with one object `{"id": "cvestream", "name": "cvestream", "host": "valkey", "port": 6379, "username": "cvestream-ui", "password": "dev-only-cvestream-ui"}`. Check the field names against the 3.8.0 `populateDefaultValues` (`api/src/modules/database-discovery/utils/pre-setup.discovery.util.ts`).
-- [ ] **T2. Unit tests on the raw ACL files** (AC 1), in `tests/unit/test_deploy_valkey.py`
-  - [ ] Add `cvestream-ui` to `USERS`. The existing hash and "no blanket access" tests then cover it.
-  - [ ] New test: `cvestream-ui` has exactly `[("RW", "cvestream:v1:*")]`, `-@all`, no `+@` category, and none of the forbidden commands (both `+cmd` and `+cmd|sub` forms; see the list in Dev Notes).
-  - [ ] New test: `+scan` appears only on the `cvestream-ui` line.
-  - [ ] New test: the pre-setup JSON matches the dev secret and the ACL user (`password == cvestream-ui.password`, `username == "cvestream-ui"`, `host == "valkey"`, `port == 6379`, exactly one entry).
-- [ ] **T3. Integration tests** (AC 1, AC 4): new module `tests/integration/test_valkey_ui.py`, with `pytestmark` as in `test_valkey_provider.py`
-  - [ ] In `valkey_support.py`, add `UI = "cvestream-ui"`. In the new module, add a `ui` fixture (a client of `support.client(support.UI)`, closed after the test). Reuse the `admin` fixture of `tests/integration/conftest.py` for the cleanup.
-  - [ ] **Grants:**
+- [x] **T1. ACL user and dev secrets** (AC 1)
+  - [x] Add `deploy/valkey/dev-secrets/cvestream-ui.password` containing `dev-only-cvestream-ui`, with no trailing newline (`printf '%s'`).
+  - [x] Add the `cvestream-ui` line to `users.acl`, after `cvestream-admin` and before `connector-example`, with no comment line. Start from the candidate list in Dev Notes and settle it with the `ACL LOG` procedure. Hash: `printf '%s' dev-only-cvestream-ui | sha256sum`.
+  - [x] Add `deploy/valkey/dev-secrets/cvestream-ui.redisinsight.json`, the Redis Insight pre-setup file for compose. It is a JSON array with one object `{"id": "cvestream", "name": "cvestream", "host": "valkey", "port": 6379, "username": "cvestream-ui", "password": "dev-only-cvestream-ui"}`. Check the field names against the 3.8.0 `populateDefaultValues` (`api/src/modules/database-discovery/utils/pre-setup.discovery.util.ts`).
+- [x] **T2. Unit tests on the raw ACL files** (AC 1), in `tests/unit/test_deploy_valkey.py`
+  - [x] Add `cvestream-ui` to `USERS`. The existing hash and "no blanket access" tests then cover it.
+  - [x] New test: `cvestream-ui` has exactly `[("RW", "cvestream:v1:*")]`, `-@all`, no `+@` category, and none of the forbidden commands (both `+cmd` and `+cmd|sub` forms; see the list in Dev Notes).
+  - [x] New test: `+scan` appears only on the `cvestream-ui` line.
+  - [x] New test: the pre-setup JSON matches the dev secret and the ACL user (`password == cvestream-ui.password`, `username == "cvestream-ui"`, `host == "valkey"`, `port == 6379`, exactly one entry).
+- [x] **T3. Integration tests** (AC 1, AC 4): new module `tests/integration/test_valkey_ui.py`, with `pytestmark` as in `test_valkey_provider.py`
+  - [x] In `valkey_support.py`, add `UI = "cvestream-ui"`. In the new module, add a `ui` fixture (a client of `support.client(support.UI)`, closed after the test). Reuse the `admin` fixture of `tests/integration/conftest.py` for the cleanup.
+  - [x] **Grants:**
     - `GET`/`SET`/`DEL` of `schema` and of `token:team-php`;
     - `SADD`/`SREM`/`SMEMBERS` of `endpoints`;
     - `INCR revision`;
     - `SCAN 0 MATCH cvestream:v1:*` returns the seeded keys;
     - `TYPE`, `TTL`, `PTTL`, `STRLEN`, `SCARD` on namespace keys;
     - every other browse command kept in the final line (`DBSIZE`, `INFO`, `MEMORY USAGE`, `CLIENT SETNAME`, ...).
-  - [ ] **Refusals:**
+  - [x] **Refusals:**
     - parametrized over the commands of AC 1, plus every forbidden command of Dev Notes;
     - for `CONFIG`, `ACL`, `CLIENT` and `MODULE`, the forbidden subcommands named in Dev Notes (for example `CONFIG GET *`, `ACL LIST`, `CLIENT LIST`, `MODULE LIST`);
     - `GET`/`SET`/`TYPE`/`TTL` of a key outside the namespace (`other`, `cvestream:v2:schema`) are refused too.
 
     Use `execute_command` for commands valkey-py has no method for, and the existing `_refused` helper pattern (`NoPermissionError`).
-  - [ ] **The full write protocol works as `cvestream-ui`:** `WATCH revision`, `MULTI`, `SET`, `INCR`, `EXEC`.
-  - [ ] **Safety net, forgotten bump.** Seed with the admin provider (`support.provider(support.ADMIN).update(...)`, as `_seed` does in `test_valkey_provider.py`), then load a daemon snapshot. As `cvestream-ui`, change an endpoint JSON without `INCR`. Then `reload_config(daemon, snapshot)` is the same snapshot, while `reload_config(daemon, snapshot, force=True)` returns the edit. Mirror `test_a_forgotten_revision_is_picked_up_by_the_forced_reload`.
-  - [ ] **Safety net, invalid edit.** As `cvestream-ui`, write invalid JSON (or `min_cvss: 11`) and `INCR`. Then `reload_config` keeps the last valid snapshot and `capture_logs()` holds one `config.rejected`. Mirror `test_a_connector_edit_is_loaded_and_an_invalid_one_is_rejected`.
-  - [ ] Write only under `support.KNOWN_IDS` so that `support.wipe` cleans up. The admin still has no `SCAN`; do not change `wipe`.
-  - [ ] The `ui` fixture runs a `SCAN cvestream:v1:*` + `DEL` cleanup in setup and teardown, so residue outside `KNOWN_IDS` from a crashed test cannot break the `SCAN` grant assertion.
-  - [ ] `DEL` of a structural key (`cvestream:v1:revision`, `cvestream:v1:schema`, `cvestream:v1:endpoints`) as `cvestream-ui` is granted; assert the daemon behavior afterwards (snapshot read, `config.rejected`, last valid kept) and document it in `docs/operations.md`.
-  - [ ] A UI `SET` of a non-integer `cvestream:v1:revision` makes every daemon write fail until repaired: assert `reload_config` keeps the last valid snapshot, and that `SET cvestream:v1:revision <integer>` (or `cvestream config import`) recovers.
-- [ ] **T4. Compose service** (AC 2), in `compose.yml`
-  - [ ] Add a `valkey-ui` service with:
+  - [x] **The full write protocol works as `cvestream-ui`:** `WATCH revision`, `MULTI`, `SET`, `INCR`, `EXEC`.
+  - [x] **Safety net, forgotten bump.** Seed with the admin provider (`support.provider(support.ADMIN).update(...)`, as `_seed` does in `test_valkey_provider.py`), then load a daemon snapshot. As `cvestream-ui`, change an endpoint JSON without `INCR`. Then `reload_config(daemon, snapshot)` is the same snapshot, while `reload_config(daemon, snapshot, force=True)` returns the edit. Mirror `test_a_forgotten_revision_is_picked_up_by_the_forced_reload`.
+  - [x] **Safety net, invalid edit.** As `cvestream-ui`, write invalid JSON (or `min_cvss: 11`) and `INCR`. Then `reload_config` keeps the last valid snapshot and `capture_logs()` holds one `config.rejected`. Mirror `test_a_connector_edit_is_loaded_and_an_invalid_one_is_rejected`.
+  - [x] Write only under `support.KNOWN_IDS` so that `support.wipe` cleans up. The admin still has no `SCAN`; do not change `wipe`.
+  - [x] The `ui` fixture runs a `SCAN cvestream:v1:*` + `DEL` cleanup in setup and teardown, so residue outside `KNOWN_IDS` from a crashed test cannot break the `SCAN` grant assertion.
+  - [x] `DEL` of a structural key (`cvestream:v1:revision`, `cvestream:v1:schema`, `cvestream:v1:endpoints`) as `cvestream-ui` is granted; assert the daemon behavior afterwards (snapshot read, `config.rejected`, last valid kept) and document it in `docs/operations.md`.
+  - [x] A UI `SET` of a non-integer `cvestream:v1:revision` makes every daemon write fail until repaired: assert `reload_config` keeps the last valid snapshot, and that `SET cvestream:v1:revision <integer>` (or `cvestream config import`) recovers.
+- [x] **T4. Compose service** (AC 2), in `compose.yml`
+  - [x] Add a `valkey-ui` service with:
     - `image: redis/redisinsight:3.8.0`;
     - `networks: [default, config]` and `depends_on: [valkey]`;
     - `ports: ["127.0.0.1:5540:5540"]`;
@@ -132,46 +132,46 @@ so that I can inspect and fix the configuration without typing `valkey-cli` comm
     - environment: `RI_ACCEPT_TERMS_AND_CONDITIONS: "true"`, `RI_DATABASE_MANAGEMENT: "false"`, `RI_STATICS_AUTO_UPDATE: "false"`, `RI_FILES_LOGGER: "false"` and `RI_PRE_SETUP_DATABASES_PATH: /run/secrets/valkey-ui-databases`.
 
     Quote every value: `"true"`, because the code tests `=== 'true'`.
-  - [ ] Add the top-level secret `valkey-ui-databases: {file: ./deploy/valkey/dev-secrets/cvestream-ui.redisinsight.json}`.
-  - [ ] Apply the hardening — it is not optional: `cap_drop: [ALL]`, `security_opt: [no-new-privileges:true]`, `read_only: true` with tmpfs `/data` and `/tmp` owned by UID 1000. If tmpfs ownership blocks, record the blocker in the Completion Notes and propose the alternative in the PR; never ship the dev stack without `read_only` silently (Kubernetes covers it with `fsGroup`).
-  - [ ] Update the header comment: the UI URL and the fact that it uses the public dev password. Also say that its writes skip validation and the revision bump (prefer the CLI; `INCR cvestream:v1:revision` after an edit).
-  - [ ] Check: `docker compose config` parses; `docker compose up -d valkey valkey-ui`; open `http://127.0.0.1:5540`. The `cvestream` database is listed and connected with no click, and the browser lists `cvestream:v1:*` once seeded. Also check `docker compose port valkey 6379` (it must publish nothing).
-- [ ] **T5. Settle the ACL line empirically** (AC 1): the procedure is in Dev Notes, "ACL LOG procedure". Keep the smallest list with which these UI features work: the key browser (list, type, TTL, size), viewing and editing a string, viewing and editing a set, deleting a key, and the CLI tab running `INCR cvestream:v1:revision`. Write the final list and the commands left refused (with what the UI shows) in the Completion Notes and in `docs/config-contract.md`.
-- [ ] **T6. Kubernetes component** (AC 3), under `deploy/k8s/components/valkey-ui/`
-  - [ ] `kustomization.yaml`: `apiVersion: kustomize.config.k8s.io/v1alpha1`, `kind: Component`, `resources: [deployment.yaml, service.yaml, networkpolicy.yaml, secret.example.yaml]`. Add a header comment on how to enable it and why it is never exposed.
-  - [ ] `deployment.yaml`: `cvestream-valkey-ui`, 1 replica. The full shape is in Dev Notes, "Component manifests".
-  - [ ] `service.yaml`: ClusterIP `cvestream-valkey-ui`, port 5540, named `http`.
-  - [ ] `networkpolicy.yaml`: `cvestream-valkey-ui` (Dev Notes).
-  - [ ] `secret.example.yaml`: `cvestream-valkey-ui`, key `databases.json`, placeholder password `REPLACE-ME-valkey-password-of-cvestream-ui`, host `cvestream-valkey`.
-  - [ ] Test overlay `tests/k8s/example-with-valkey-ui/kustomization.yaml`: `resources: [../../../deploy/k8s/overlays/example]`, `components: [../../../deploy/k8s/components/valkey-ui]`. Add a comment saying it exists for CI only.
-  - [ ] `.github/workflows/ci.yml`: in the "Kustomize builds" step, add `kubectl kustomize tests/k8s/example-with-valkey-ui >/dev/null`.
-  - [ ] Read the full output of the test overlay. Check:
+  - [x] Add the top-level secret `valkey-ui-databases: {file: ./deploy/valkey/dev-secrets/cvestream-ui.redisinsight.json}`.
+  - [x] Apply the hardening — it is not optional: `cap_drop: [ALL]`, `security_opt: [no-new-privileges:true]`, `read_only: true` with tmpfs `/data` and `/tmp` owned by UID 1000. If tmpfs ownership blocks, record the blocker in the Completion Notes and propose the alternative in the PR; never ship the dev stack without `read_only` silently (Kubernetes covers it with `fsGroup`).
+  - [x] Update the header comment: the UI URL and the fact that it uses the public dev password. Also say that its writes skip validation and the revision bump (prefer the CLI; `INCR cvestream:v1:revision` after an edit).
+  - [x] Check: `docker compose config` parses; `docker compose up -d valkey valkey-ui`; open `http://127.0.0.1:5540`. The `cvestream` database is listed and connected with no click, and the browser lists `cvestream:v1:*` once seeded. Also check `docker compose port valkey 6379` (it must publish nothing).
+- [x] **T5. Settle the ACL line empirically** (AC 1): the procedure is in Dev Notes, "ACL LOG procedure". Keep the smallest list with which these UI features work: the key browser (list, type, TTL, size), viewing and editing a string, viewing and editing a set, deleting a key, and the CLI tab running `INCR cvestream:v1:revision`. Write the final list and the commands left refused (with what the UI shows) in the Completion Notes and in `docs/config-contract.md`.
+- [x] **T6. Kubernetes component** (AC 3), under `deploy/k8s/components/valkey-ui/`
+  - [x] `kustomization.yaml`: `apiVersion: kustomize.config.k8s.io/v1alpha1`, `kind: Component`, `resources: [deployment.yaml, service.yaml, networkpolicy.yaml, secret.example.yaml]`. Add a header comment on how to enable it and why it is never exposed.
+  - [x] `deployment.yaml`: `cvestream-valkey-ui`, 1 replica. The full shape is in Dev Notes, "Component manifests".
+  - [x] `service.yaml`: ClusterIP `cvestream-valkey-ui`, port 5540, named `http`.
+  - [x] `networkpolicy.yaml`: `cvestream-valkey-ui` (Dev Notes).
+  - [x] `secret.example.yaml`: `cvestream-valkey-ui`, key `databases.json`, placeholder password `REPLACE-ME-valkey-password-of-cvestream-ui`, host `cvestream-valkey`.
+  - [x] Test overlay `tests/k8s/example-with-valkey-ui/kustomization.yaml`: `resources: [../../../deploy/k8s/overlays/example]`, `components: [../../../deploy/k8s/components/valkey-ui]`. Add a comment saying it exists for CI only.
+  - [x] `.github/workflows/ci.yml`: in the "Kustomize builds" step, add `kubectl kustomize tests/k8s/example-with-valkey-ui >/dev/null`.
+  - [x] Read the full output of the test overlay. Check:
     - the component's resources are in namespace `cvestream`;
     - they carry the overlay label `app.kubernetes.io/part-of: cvestream`;
     - the Secret is referenced by its plain name. A plain resource is not hashed: only generator output is.
-- [ ] **T7. Manifest unit tests** (AC 2, AC 3), in `tests/unit/test_deploy_manifests.py`. Raw files, no kubectl. Check:
-  - [ ] the component file is `kind: Component` and lists the four files;
-  - [ ] the UI pod and container `securityContext` satisfy `restricted`:
+- [x] **T7. Manifest unit tests** (AC 2, AC 3), in `tests/unit/test_deploy_manifests.py`. Raw files, no kubectl. Check:
+  - [x] the component file is `kind: Component` and lists the four files;
+  - [x] the UI pod and container `securityContext` satisfy `restricted`:
     - `runAsNonRoot`, numeric non-zero `runAsUser`, `seccompProfile.type: RuntimeDefault`;
     - `allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]`, `readOnlyRootFilesystem: true`;
     - `automountServiceAccountToken: false`, `enableServiceLinks: false`;
     - no `hostPath`/`hostNetwork`/`hostPort`, and no `privileged`;
-  - [ ] the image is an exact tag (not `latest`, a digit in the tag) and **equals the compose `valkey-ui` image**;
-  - [ ] the Service is ClusterIP (type absent or `ClusterIP`) and no document of the component is an `Ingress`;
-  - [ ] the NetworkPolicy has `policyTypes: [Ingress, Egress]`, no ingress rule, and exactly two egress rules: DNS 53 UDP/TCP to kube-dns, and 6379 TCP to `app.kubernetes.io/name: valkey`;
-  - [ ] the pod labels include `cvestream.io/valkey-access: "true"`, and the example Valkey NetworkPolicy still admits that label;
-  - [ ] the example overlay has no `components` entry naming `valkey-ui`, and the test overlay has one;
-  - [ ] in compose, every `valkey-ui` port starts with `127.0.0.1:`, `valkey` has no `ports`, and `valkey-ui` does not set `RI_REDIS_PASSWORD`;
-  - [ ] the component's Secret holds only a `REPLACE-ME` placeholder.
-- [ ] **T8. Docs** (AC 5): the outline is in Dev Notes, "What the docs must say". Files: `docs/operations.md`, `docs/config-contract.md`, `README.md`, the `compose.yml` header, and the `CLAUDE.md` gate list.
-- [ ] **T9. Pattern amendments and tracking** (AC 6)
-  - [ ] `architecture.md`: apply the OLD to NEW blocks of the change proposal (section 4, "Architecture"). Mind the 3.2 branch's actual text; the proposal quotes it.
-  - [ ] Tree: `users.acl` comment (`cvestream-ui` added), `dev-secrets/` ("four users", plus the Redis Insight pre-setup file), `deploy/k8s/components/valkey-ui/`, `tests/k8s/`.
-  - [ ] "Assets: none (no UI)": add "the optional Valkey administration UI is a third-party image".
-  - [ ] `project-context.md`: replace the Valkey security bullet with the proposal's NEW text. Add `redis/redisinsight:3.8.0` (SSPL, unmodified; dev compose and opt-in component) to the Images line.
-  - [ ] `deferred-work.md`: extend the "Valkey image pins are not bumped by Dependabot" item with the UI pin (compose and component; the test keeps them equal), and add the note "revisit Valkey Admin 1.3.0 when it supports a pre-configured browser connection (it would remove the SSPL dependency)".
-  - [ ] `epic-3-stack-plan.md`: the 3.4 rows already land with this story file (create-story). Check them against what was built.
-- [ ] **T10. Gates and status**: run every gate of `CLAUDE.md`, plus `kubectl kustomize tests/k8s/example-with-valkey-ui`, plus the `valkey` tests against a disposable server (README, "Running the tests"). Docker build: x509 behind the proxy, so rely on CI. Then set the story to `review` in the story file and in `sprint-status.yaml`.
+  - [x] the image is an exact tag (not `latest`, a digit in the tag) and **equals the compose `valkey-ui` image**;
+  - [x] the Service is ClusterIP (type absent or `ClusterIP`) and no document of the component is an `Ingress`;
+  - [x] the NetworkPolicy has `policyTypes: [Ingress, Egress]`, no ingress rule, and exactly two egress rules: DNS 53 UDP/TCP to kube-dns, and 6379 TCP to `app.kubernetes.io/name: valkey`;
+  - [x] the pod labels include `cvestream.io/valkey-access: "true"`, and the example Valkey NetworkPolicy still admits that label;
+  - [x] the example overlay has no `components` entry naming `valkey-ui`, and the test overlay has one;
+  - [x] in compose, every `valkey-ui` port starts with `127.0.0.1:`, `valkey` has no `ports`, and `valkey-ui` does not set `RI_REDIS_PASSWORD`;
+  - [x] the component's Secret holds only a `REPLACE-ME` placeholder.
+- [x] **T8. Docs** (AC 5): the outline is in Dev Notes, "What the docs must say". Files: `docs/operations.md`, `docs/config-contract.md`, `README.md`, the `compose.yml` header, and the `CLAUDE.md` gate list.
+- [x] **T9. Pattern amendments and tracking** (AC 6)
+  - [x] `architecture.md`: apply the OLD to NEW blocks of the change proposal (section 4, "Architecture"). Mind the 3.2 branch's actual text; the proposal quotes it.
+  - [x] Tree: `users.acl` comment (`cvestream-ui` added), `dev-secrets/` ("four users", plus the Redis Insight pre-setup file), `deploy/k8s/components/valkey-ui/`, `tests/k8s/`.
+  - [x] "Assets: none (no UI)": add "the optional Valkey administration UI is a third-party image".
+  - [x] `project-context.md`: replace the Valkey security bullet with the proposal's NEW text. Add `redis/redisinsight:3.8.0` (SSPL, unmodified; dev compose and opt-in component) to the Images line.
+  - [x] `deferred-work.md`: extend the "Valkey image pins are not bumped by Dependabot" item with the UI pin (compose and component; the test keeps them equal), and add the note "revisit Valkey Admin 1.3.0 when it supports a pre-configured browser connection (it would remove the SSPL dependency)".
+  - [x] `epic-3-stack-plan.md`: the 3.4 rows already land with this story file (create-story). Check them against what was built.
+- [x] **T10. Gates and status**: run every gate of `CLAUDE.md`, plus `kubectl kustomize tests/k8s/example-with-valkey-ui`, plus the `valkey` tests against a disposable server (README, "Running the tests"). Docker build: x509 behind the proxy, so rely on CI. Then set the story to `review` in the story file and in `sprint-status.yaml`.
 
 ### Review Findings
 
@@ -529,14 +529,52 @@ docker stop cvs-valkey
 
 ### Agent Model Used
 
+- Mistral Vibe (bmad-dev-story), 2026-11-07.
+
 ### Debug Log References
+
+- T5 empirical ACL pass: scratch copy of `deploy/valkey/` + a `debug` user (never committed), `valkey/valkey:9.1.3` and `redis/redisinsight:3.8.0` on a throwaway docker network; UI features driven through its HTTP API (`/api/databases/cvestream/keys`, `string`, `set`, `cli`), `ACL LOG` read after each pass. Containers and scratch removed afterwards.
+- Compose runtime check: `docker compose up -d valkey valkey-ui`, seeded as `cvestream-admin`, browsed `cvestream:v1:*` through `http://127.0.0.1:5540/api/databases/cvestream/keys`; `docker compose port valkey 6379` publishes nothing. Stack torn down afterwards.
 
 ### Completion Notes List
 
 - Ultimate context engine analysis completed - comprehensive developer guide created (bmad-create-story, claude-opus-5-5, 2026-11-07).
+- T1: `cvestream-ui` line added after `cvestream-admin`, before `connector-example`; hash `f2725541f2eda15018b82945db0ba9411b0cfd0748c5ac8b0cbc9743f4c69f08` = `printf '%s' dev-only-cvestream-ui | sha256sum`. `cvestream-ui.password` (21 bytes, no trailing newline) and `cvestream-ui.redisinsight.json` added under `deploy/valkey/dev-secrets/`, both mode 0644 (the JSON was initially 0600, which made the UID-1000 container refuse to read the compose secret: "Permission denied", zero databases listed; chmod 644 fixed it — the unit test checks content, not mode).
+- T5, settled empirically: the candidate line is final, unchanged. With it, the key browser (list, type, TTL, size), string view/edit, set view, key delete and the CLI tab (`INCR cvestream:v1:revision` returned 2) all work against `valkey/valkey:9.1.3` + `redis/redisinsight:3.8.0`. `ACL LOG` shows exactly three refused commands, all in the never-grant list and all degraded gracefully: `config|get` (falls back to `INFO`), `cluster|nodes` ("not a cluster"), `acl|cat`. No `hello` refusal observed, so `+hello` is not granted.
+- T4 hardening verified at runtime: `read_only: true` + tmpfs `/data` and `/tmp` (uid/gid 1000), `cap_drop: [ALL]`, `no-new-privileges` — the container starts and serves with all of them; nothing had to be dropped. The pre-setup database `cvestream` is listed and connects with no click; `RI_DATABASE_MANAGEMENT=false` locks the list; no EULA screen with `RI_ACCEPT_TERMS_AND_CONDITIONS=true`.
+- T6: the component builds via `tests/k8s/example-with-valkey-ui`. Note: the overlay that lists a component must itself set `namespace:` and `labels:` — the example overlay's transformations do not reach component resources (checked with kubectl 1.28.2 / kustomize v5.0.4); the test overlay therefore repeats `namespace: cvestream` and the `part-of` label. Built output: all four component resources in namespace `cvestream` with `app.kubernetes.io/part-of: cvestream`, the pod additionally labelled `cvestream.io/valkey-access: "true"`, the Secret kept under its plain name `cvestream-valkey-ui` (not hashed). `kubectl kustomize deploy/k8s/overlays/example` contains no `valkey-ui` resource.
+- Tests: 16 unit tests in `test_deploy_valkey.py` (hash, namespace-only patterns, no `+@` category, the never-grant list in both `+cmd` and `+cmd|sub` forms, `+scan` only on `cvestream-ui`, pre-setup JSON == dev secret), 13 in `test_deploy_manifests.py` (component shape, restricted PSS contexts, pin equality compose vs component, ClusterIP/no Ingress, NetworkPolicy egress rules, opt-in label, overlay wiring, loopback-only ports, no `RI_REDIS_PASSWORD`, REPLACE-ME-only Secret), and `tests/integration/test_valkey_ui.py` (grants, 37 parametrized refusals, MULTI abort, outside-namespace keys, full write protocol, both safety nets, DEL of a structural key, non-integer revision and its repair). `DEBUG SLEEP 0` is refused by `enable-debug-command` before the ACL is consulted, so it is asserted as `ResponseError` separately; the ACL-side refusal is unit-tested.
+- Gates 2026-11-07: `uv sync --locked`, `ruff check`, `ruff format --check`, `ty check`, `lint-imports`, `pytest` (1661 passed, 6 deselected, with `VALKEY_TEST_ADDRESS` against a disposable `valkey/valkey:9.1.3` running the repo's `deploy/valkey/`), `cvestream config schema --check`, `cvestream config validate endpoints.example.yaml`, `kubectl kustomize` of base, example and `tests/k8s/example-with-valkey-ui` — all green. `docker build` not run locally (x509 behind the proxy); CI builds it.
+- Not done here (manual, stack plan "PR 4 of 4"): browser click-through, minikube admission of the component under the restricted PSS.
 
 ### File List
+
+- `deploy/valkey/users.acl` (modified: the `cvestream-ui` line)
+- `deploy/valkey/dev-secrets/cvestream-ui.password` (new)
+- `deploy/valkey/dev-secrets/cvestream-ui.redisinsight.json` (new)
+- `compose.yml` (modified: `valkey-ui` service, `valkey-ui-databases` secret, header)
+- `deploy/k8s/components/valkey-ui/kustomization.yaml` (new)
+- `deploy/k8s/components/valkey-ui/deployment.yaml` (new)
+- `deploy/k8s/components/valkey-ui/service.yaml` (new)
+- `deploy/k8s/components/valkey-ui/networkpolicy.yaml` (new)
+- `deploy/k8s/components/valkey-ui/secret.example.yaml` (new)
+- `tests/k8s/example-with-valkey-ui/kustomization.yaml` (new)
+- `.github/workflows/ci.yml` (modified: kustomize build of the test overlay)
+- `tests/unit/test_deploy_valkey.py` (modified)
+- `tests/unit/test_deploy_manifests.py` (modified)
+- `tests/integration/valkey_support.py` (modified: `UI`)
+- `tests/integration/test_valkey_ui.py` (new)
+- `docs/operations.md` (modified: "Valkey administration UI", What-ships row, labels table)
+- `docs/config-contract.md` (modified: UI row, five users, new line, rule bullets, production note)
+- `README.md` (modified: dev stack UI, gate list, Kubernetes quick start)
+- `CLAUDE.md` (modified: gate list, SCAN/valkey-ui rule)
+- `_bmad-output/planning-artifacts/architecture.md` (modified: Interfaces, ACL users, Dev/Kubernetes targets, tree, Assets)
+- `_bmad-output/project-context.md` (modified: Security Valkey bullet, Images line)
+- `_bmad-output/implementation-artifacts/deferred-work.md` (modified: UI pin + Valkey Admin note)
+- `_bmad-output/implementation-artifacts/epic-3-stack-plan.md` (modified: 3.4 status row)
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` (modified: 3-4 → review)
 
 ### Change Log
 
 - 2026-11-07: story created (bmad-create-story).
+- 2026-11-07: implemented (bmad-dev-story): ACL user and dev secrets, unit and integration tests, compose service, Kustomize component and test overlay, CI build, docs, pattern amendments; gates green; status review.
