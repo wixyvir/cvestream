@@ -127,7 +127,7 @@ Feeds also carry CERT-EU advisories, merged per CVE into the same vulnerabilitie
 
 ### Epic 3: Shared configuration store, operator CLI and release
 
-Configuration moves to Valkey so other tools (BoM connectors, CD workers) can edit product lists; the operator manages endpoints, products and tokens from the CLI with either provider; versioned images and Kubernetes manifests are published.
+Configuration moves to Valkey so other tools (BoM connectors, CD workers) can edit product lists; the operator manages endpoints, products and tokens from the CLI with either provider, and can inspect the store in an optional administration UI; versioned images and Kubernetes manifests are published.
 **FRs covered:** FR-20 (rotation), FR-21 (Valkey), FR-22, FR-23 (Valkey). NFR-2 (release, Kubernetes).
 
 ## Epic 1: Filtered vulnerability feed from EUVD and KEV
@@ -419,7 +419,7 @@ So that a silent upstream change never empties our feeds.
 
 ## Epic 3: Shared configuration store, operator CLI and release
 
-Configuration moves to Valkey so other tools can edit product lists; the operator manages endpoints, products and tokens from the CLI with either provider; versioned images and Kubernetes manifests are published.
+Configuration moves to Valkey so other tools can edit product lists; the operator manages endpoints, products and tokens from the CLI with either provider, and can inspect the store in an optional administration UI; versioned images and Kubernetes manifests are published.
 
 ### Story 3.1: Valkey configuration provider
 
@@ -479,3 +479,33 @@ So that I can deploy a pinned release under Docker or Kubernetes with a hardened
 **Then** they produce a `Deployment` (1 replica, `Recreate`, UID 999, read-only root filesystem, capabilities dropped, `terminationGracePeriodSeconds: 60`, exec probes via `cvestream healthcheck` with `--ready` for startup/readiness), an RWO PVC on `/data`, `cvestream-public` (8080) and `cvestream-private` (9090) Services, a `NetworkPolicy`, an example `Ingress` on the public Service only, an example Valkey `StatefulSet` and a secret example (NFR-2, NFR-6)
 **And** CI validates the Kustomize build
 **And** `docs/operations.md` and `README.md` cover Kubernetes deployment, the block-storage requirement for the SQLite volume, and the single-replica constraint
+
+### Story 3.4: Valkey administration UI
+
+As the operator,
+I want a web UI to browse and edit the Valkey configuration store, ready to use in the dev stack and available on Kubernetes when I enable it,
+So that I can inspect and fix the configuration without typing `valkey-cli` commands with a user and password each time.
+
+**Acceptance Criteria:**
+
+**Given** `deploy/valkey/users.acl`
+**When** Valkey starts with it
+**Then** a `cvestream-ui` user (SHA-256 hash, dev password in `deploy/valkey/dev-secrets/cvestream-ui.password`) can read and write every `cvestream:v1:*` key, tokens included, and run the browse commands the chosen UI needs (`SCAN`, `TYPE`, `TTL`, ...)
+**And** it cannot touch keys outside `cvestream:v1:*` or run `KEYS`, `FLUSHALL`, `FLUSHDB`, `CONFIG`, `ACL`, `DEBUG`, `MODULE` or scripting; a `valkey`-marked integration test proves each grant and each refusal
+**And** the existing users are unchanged
+
+**Given** the dev stack
+**When** the operator runs `docker compose up` (no profile, no extra variable)
+**Then** a `valkey-ui` service starts with a pinned web UI image (exact version, licence recorded in the story), already connected to `valkey` as `cvestream-ui` with the password read from a compose secret, and published on `127.0.0.1` only; telemetry is disabled when the image offers it
+**And** Valkey itself still publishes no host port
+
+**Given** `deploy/k8s/components/valkey-ui`
+**When** an overlay lists it under `components:`
+**Then** `kubectl kustomize` produces a `Deployment` admitted under the `restricted` Pod Security Standard, a ClusterIP `Service`, no `Ingress`, a `NetworkPolicy` (UI egress to Valkey and DNS only) and a patch admitting the UI pod in the Valkey `NetworkPolicy`, with the password from a placeholder Secret
+**And** the example overlay does not enable it, CI builds an overlay that does, and `tests/unit/test_deploy_manifests.py` guards these properties
+
+**Given** a write from the UI
+**When** it skips the revision bump or writes an invalid value
+**Then** the daemon applies it at the latest on its next forced reload, or rejects it with `config.rejected` and keeps the last valid configuration (FR-23), as already implemented; no daemon change
+**And** `docs/operations.md` ("Valkey administration UI") explains access (`http://127.0.0.1:<port>`, `kubectl port-forward`), recommends the CLI for writes and `INCR cvestream:v1:revision` after a UI edit, and how to add `cvestream-ui` to a production `users.acl` with its own hash; `docs/config-contract.md` lists the user; `compose.yml`'s header and `README.md` mention the UI
+**And** `architecture.md` and `project-context.md` are amended in the same PR (ACL users and rules, dev compose, Kubernetes component, project tree)
