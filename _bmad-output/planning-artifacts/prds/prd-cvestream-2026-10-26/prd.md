@@ -102,7 +102,7 @@ Trial: one month, one endpoint using the combined stack of all teams (PHP, Node,
 ## Out of Scope (v1)
 
 - A Slack app or bot, threaded updates, and any filter management from Slack.
-- A graphical configuration interface.
+- A graphical configuration interface built into cvestream. An off-the-shelf Valkey administration UI may run next to the store (Story 3.4); it writes outside the CLI's validation, and FR-23 (keep the last valid configuration) covers its mistakes.
 - A daily-digest mode (candidate for v2).
 - Authentication with headers or user accounts on feeds. The URL token is the only access control.
 - NVD as a source. EUVD comes first.
