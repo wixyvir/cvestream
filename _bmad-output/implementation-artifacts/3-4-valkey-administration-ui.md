@@ -367,7 +367,7 @@ spec:
 
 ### Decisions taken autonomously (flag them in the PR)
 
-1. **Redis Insight 3.8.0, SSPL**: the only candidate that meets "already connected" with a password file. Fallback: Redis Commander 0.9.1 (MIT, stale).
+1. **Redis Insight 3.8.0, SSPL**: the only candidate that meets "already connected" with a password file. Fallback: Redis Commander 0.9.1 (MIT, stale). **The operator accepted the SSPL licence on 2026-11-07** (a tool run unmodified next to the store, not shipped as part of cvestream): not an open decision for the PR.
 2. **Password through the pre-setup JSON file**: a compose secret, and a Secret on Kubernetes. Not `RI_REDIS_PASSWORD` (inline in compose) and not an entrypoint wrapper (couples to image internals). The JSON duplicates the dev password; a unit test keeps it equal to `cvestream-ui.password`.
 3. **No authentication in front of the UI.** It is never reachable from outside: loopback in dev, `ingress: []` plus port-forward on Kubernetes. An auth proxy would be a new component for little gain.
 4. **Admission through the existing label `cvestream.io/valkey-access: "true"` instead of a patch on `cvestream-valkey`.** The epic text says "a patch admitting the UI pod". The label rule already exists for exactly this ("pods that opt in"), adds no second source of truth, and keeps the component buildable with an overlay that names its Valkey NetworkPolicy differently. If the reviewer prefers the literal patch, it is a JSON 6902 `add` on `/spec/ingress/0/from/-` with `podSelector: {matchLabels: {app.kubernetes.io/name: valkey-ui}}`.
