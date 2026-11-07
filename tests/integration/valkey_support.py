@@ -20,6 +20,7 @@ ADDRESS_ENV = "VALKEY_TEST_ADDRESS"
 SECRETS = Path(__file__).resolve().parents[2] / "deploy" / "valkey" / "dev-secrets"
 DAEMON = "cvestream-daemon"
 ADMIN = "cvestream-admin"
+UI = "cvestream-ui"
 CONNECTOR = "connector-example"
 # Ids the tests write: the admin cleanup has no SCAN, so it deletes these too.
 KNOWN_IDS = ("team-php", "team-go", "other", "x")
