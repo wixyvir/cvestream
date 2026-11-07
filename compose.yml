@@ -14,6 +14,14 @@
 #     --pass "$(cat deploy/valkey/dev-secrets/cvestream-admin.password)"
 # The passwords in deploy/valkey/dev-secrets/ are public, for development only.
 # Valkey is on an internal network: no host port, no access from outside.
+#
+# The `valkey-ui` service (story 3.4) is a Valkey administration UI (Redis
+# Insight, SSPL-licensed, used unmodified): http://127.0.0.1:5540, already
+# connected to `valkey` as `cvestream-ui` with the public dev password from a
+# compose secret. It has no authentication of its own: loopback only, never
+# expose it. Its writes skip validation and the revision bump: prefer the CLI,
+# and run `INCR cvestream:v1:revision` in the UI's CLI tab after a UI edit.
+# If 127.0.0.1:5540 is already bound, `docker compose up` fails to start it.
 services:
   app:
     build:
@@ -53,6 +61,32 @@ services:
       - valkey-data:/data
     # Internal network: no host port, no way out.
     networks: [config]
+  # Valkey administration UI (story 3.4): http://127.0.0.1:5540, already
+  # connected as cvestream-ui. No authentication of its own: loopback only.
+  # Redis Insight is SSPL-licensed: used unmodified, never redistributed.
+  valkey-ui:
+    image: redis/redisinsight:3.8.0
+    depends_on: [valkey]
+    environment:
+      # Every value is quoted: the code tests === 'true' / !== 'false'.
+      RI_ACCEPT_TERMS_AND_CONDITIONS: "true"   # skips the EULA screen, analytics off
+      RI_DATABASE_MANAGEMENT: "false"          # the connection list is fixed
+      RI_STATICS_AUTO_UPDATE: "false"
+      RI_FILES_LOGGER: "false"                 # logs on stdout only
+      # host, user and password of the cvestream connection, from a secret file
+      RI_PRE_SETUP_DATABASES_PATH: /run/secrets/valkey-ui-databases
+    secrets: [valkey-ui-databases]
+    # `config` reaches Valkey; it is internal and cannot publish a port, hence `default`.
+    networks: [default, config]
+    ports:
+      - "127.0.0.1:5540:5540"
+    # Hardening is not optional: read-only root, tmpfs for the writable paths.
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /data:uid=1000,gid=1000
+      - /tmp:uid=1000,gid=1000
 
 networks:
   config:
@@ -61,6 +95,8 @@ networks:
 secrets:
   valkey-daemon-password:
     file: ./deploy/valkey/dev-secrets/cvestream-daemon.password
+  valkey-ui-databases:
+    file: ./deploy/valkey/dev-secrets/cvestream-ui.redisinsight.json
 
 volumes:
   valkey-data:
