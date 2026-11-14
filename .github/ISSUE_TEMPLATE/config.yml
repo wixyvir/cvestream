@@ -1,0 +1,5 @@
+# Route questions to Discussions instead of issues
+contact_links:
+  - name: Question or discussion
+    url: https://github.com/wixyvir/cvestream/discussions
+    about: Ask questions and start discussions in the Discussions tab
