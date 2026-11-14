@@ -1,7 +1,10 @@
 # Nothing in the cluster reaches the UI: no ingress rule. `kubectl
 # port-forward` enters the pod directly, so NetworkPolicy does not filter it.
-# Egress is Valkey 6379 and DNS only; the daily GitHub feature-flag fetch of
-# Redis Insight is blocked on purpose (the UI still works, it logs a warning).
+# Egress is Valkey 6379 and DNS only, for a Valkey in this namespace on pods
+# labelled app.kubernetes.io/name=valkey: adapt the peer for another Valkey.
+# Redis Insight's GitHub fetches (command lists at start, feature flags daily)
+# are blocked on purpose: without network the UI still starts and serves, and
+# logs `ERROR [CommandsJsonProvider:...]` lines (checked on 3.8.0, 2026-11-07).
 # The DNS rule assumes kube-dns in kube-system (k8s-app: kube-dns); with
 # NodeLocal DNSCache or another DNS deployment, adjust the peer.
 apiVersion: networking.k8s.io/v1

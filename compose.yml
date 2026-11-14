@@ -72,7 +72,10 @@ services:
       RI_ACCEPT_TERMS_AND_CONDITIONS: "true"   # skips the EULA screen, analytics off
       RI_DATABASE_MANAGEMENT: "false"          # the connection list is fixed
       RI_STATICS_AUTO_UPDATE: "false"
-      RI_FILES_LOGGER: "false"                 # logs on stdout only
+      # Logs on stdout only: the stdout transport is off by default, so turning
+      # the files off without it would leave no log transport at all.
+      RI_STDOUT_LOGGER: "true"
+      RI_FILES_LOGGER: "false"
       # host, user and password of the cvestream connection, from a secret file
       RI_PRE_SETUP_DATABASES_PATH: /run/secrets/valkey-ui-databases
     secrets: [valkey-ui-databases]

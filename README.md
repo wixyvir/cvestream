@@ -91,8 +91,9 @@ seeding and Ingress access logs:
 
 The optional Valkey administration UI ships as the opt-in Kustomize component
 `deploy/k8s/components/valkey-ui` (not enabled by the example overlay): list it
-under `components:` in your own overlay and reach it with
-`kubectl port-forward svc/cvestream-valkey-ui 5540:5540`. Never expose it —
+under `components:` in your own overlay, create its Secret from
+`secret.example.yaml`, and reach it with
+`kubectl -n <ns> port-forward svc/cvestream-valkey-ui 5540:5540`. Never expose it —
 it has no authentication of its own
 ([docs/operations.md](docs/operations.md#valkey-administration-ui)). :factory:
 

@@ -35,8 +35,12 @@ spec:
               value: "false"  # the connection list is fixed
             - name: RI_STATICS_AUTO_UPDATE
               value: "false"
+            # Logs on stdout only: the stdout transport is off by default, so
+            # turning the files off without it would leave no log transport.
+            - name: RI_STDOUT_LOGGER
+              value: "true"
             - name: RI_FILES_LOGGER
-              value: "false"  # logs on stdout only
+              value: "false"
             # host, user and password of the cvestream connection, from the Secret
             - name: RI_PRE_SETUP_DATABASES_PATH
               value: /secrets/valkey-ui/databases.json
@@ -74,7 +78,7 @@ spec:
             failureThreshold: 3
           volumeMounts:
             - name: data
-              mountPath: /data      # SQLite, content; rebuilt at start
+              mountPath: /data      # SQLite, content; kept across container restarts, emptied when the pod is recreated
             - name: tmp
               mountPath: /tmp
             - name: databases

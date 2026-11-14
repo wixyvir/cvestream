@@ -4,7 +4,7 @@ baseline_commit: f7bf4fc
 
 # Story 3.4: Valkey administration UI
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -205,6 +205,36 @@ Code review 2026-11-07, baseline `f7bf4fc` (diff: this story file + `epic-3-stac
 - [x] [Review][Patch] T4's hardening is non-deterministic: `read_only`/tmpfs "optional, if it works", with a fallback that drops `read_only`; no test pins the outcome. Decide now and record it. [3-4-valkey-administration-ui.md T4]
 
 - [x] [Review][Defer] Placeholder Secret can be applied as-is; the only guard is a raw-file unit test — deferred, pre-existing pattern (same as `overlays/example/secret.example.yaml`); the placeholder password fails closed against a real `users.acl` hash. [3-4-valkey-administration-ui.md T6]
+
+### Review Findings (code review of the implementation, 2026-11-07)
+
+:factory: Blind Hunter, Edge Case Hunter and Acceptance Auditor on `f7bf4fc..4d0eae3` (planning documents excluded); key claims re-checked against `redis/redisinsight:3.8.0` and `src/cvestream/config/valkey_provider.py`.
+
+- [x] [Review][Decision] `SET ... EX|PX|EXAT|PXAT` puts a TTL on any config key despite the `EXPIRE` ban — `+set` is granted and a Valkey ACL cannot filter arguments; Redis Insight's "Add key" form with a TTL sends `SET key value EX n` (verified by the Edge Case Hunter: `POST /api/databases/cvestream/string {"expire":100}` → TTL 100). On expiry an endpoint or token key fails closed (`config.rejected`), but an expired `products` key silently empties that endpoint's product list. `docs/operations.md` ("cannot set TTLs") and the spec are wrong. Options: (1) accept, correct the docs and add a `valkey` test pinning `SET ... EX` as allowed; (2) drop `+set` (breaks string editing in the UI). Resolved 2026-11-07: option 1.
+- [x] [Review][Decision] `secret.example.yaml` is a resource of the component, so every `kubectl apply -k` overwrites an out-of-band `cvestream-valkey-ui` Secret with the `REPLACE-ME` placeholder — the file header and `docs/operations.md` both suggest creating it out of band; Redis Insight re-reads the pre-setup file on each start, so the UI breaks at the next restart. A component is referenced, not copied, so the operator cannot drop the file without forking it. Options: (1) move the placeholder Secret into `tests/k8s/example-with-valkey-ui` and keep `secret.example.yaml` in the component as a non-resource template; (2) keep it and document "edit a copy of the component"; (3) keep it and use a `secretGenerator` with `behavior: merge` in the operator overlay. Resolved 2026-11-07: option 1.
+- [x] [Review][Decision] `DEL cvestream:v1:endpoints` from the UI yields a valid empty configuration, not `config.rejected` — `assemble()` builds endpoints from `SMEMBERS endpoints`, so an empty set is a valid document with zero endpoints and every feed disappears at the next reload; T3 expected "snapshot read, `config.rejected`, last valid kept" for all three structural keys, but only `schema` is tested and documented (`DEL revision` reads as `"0"`). Options: (1) accept, test and document the three cases (recovery: `cvestream config import`); (2) add a daemon guard (Python change, out of this story's "no application code" scope: defer to a hardening story). Resolved 2026-11-07: option 1 now; the daemon guard is deferred (bullet below).
+
+- [x] [Review][Patch] (from D1) Correct the docs ("cannot set TTLs" is false: `SET ... EX` is allowed, `EXPIRE` and friends are not) and add a `valkey` test pinning `SET ... EX` as granted, with the consequence of an expired key [docs/operations.md:226, tests/integration/test_valkey_ui.py]
+- [x] [Review][Patch] (from D2) Move the placeholder Secret out of the component's `resources:` into the test overlay `tests/k8s/example-with-valkey-ui`; keep `secret.example.yaml` in the component as a template only; update the unit tests, the component header and `docs/operations.md` [deploy/k8s/components/valkey-ui/kustomization.yaml:17]
+- [x] [Review][Patch] (from D3) Test and document `DEL` of each structural key as `cvestream-ui`: `schema` (rejected, last valid kept), `revision` (read as `"0"`), `endpoints` (valid empty configuration, every feed disappears; recover with `cvestream config import`) [tests/integration/test_valkey_ui.py:279, docs/operations.md:227]
+- [x] [Review][Patch] Redis Insight has no log transport: `RI_FILES_LOGGER=false` without `RI_STDOUT_LOGGER=true` (default `false` in `api/dist/config/default.js:199`, verified in the 3.8.0 image); every line goes to winston's "no transports" warning. Add `RI_STDOUT_LOGGER: "true"` to compose and the component [compose.yml:75, deploy/k8s/components/valkey-ui/deployment.yaml:38]
+- [x] [Review][Patch] Docs give a repair that does not work: `cvestream config import` cannot repair a non-integer revision (its `INCR` runs inside `MULTI`, `valkey_provider.py:555`; still open in `deferred-work.md`); only `SET cvestream:v1:revision <integer>` works [docs/operations.md:227]
+- [x] [Review][Patch] Refusal tests for `RENAME`, `RENAMENX`, `COPY`, `RESTORE` and `MIGRATE` pass for the wrong reason: their second key (`x`) is outside the namespace, so the key pattern refuses them even if the command were granted. Use a `cvestream:v1:*` target; also add `EVAL_RO`, `EVALSHA_RO`, `FCALL_RO` and `CLIENT NO-EVICT` from the Dev Notes list [tests/integration/test_valkey_ui.py:49]
+- [x] [Review][Patch] Unit ACL guard is weak: the never-grant set is checked only for `cvestream-ui` (comment and `config-contract.md` say every user), case-sensitively, with every `client|*` subcommand allowed except three; `test_only_the_ui_user_has_scan` checks only the literal `+scan` (a `+@keyspace` on another user passes); `sync`, `psync`, `replconf` are missing; no test pins the four other lines unchanged (AC 1). Check every user, lower-case the rules, allow-list `client|setinfo`/`client|setname`, refuse `+@` categories for every user, pin the other lines [tests/unit/test_deploy_valkey.py:168]
+- [x] [Review][Patch] Grant coverage gaps (AC 1 "proves each grant", T3): no `SET`/`DEL` of `token:team-php`; `MGET`, `EXISTS`, `PING`, `SELECT`, `DISCARD` never exercised [tests/integration/test_valkey_ui.py:116]
+- [x] [Review][Patch] The `emptyDir` eviction note announced in the Deployment comment is missing from `docs/operations.md`; the "rebuilt at start" comment is wrong for container restarts (an `emptyDir` survives a liveness or OOM restart) [deploy/k8s/components/valkey-ui/deployment.yaml:77,84]
+- [x] [Review][Patch] A Secret change (password rotation) never reaches the running UI: Redis Insight reads the pre-setup file only at start and the Secret has no hashed name; document `kubectl rollout restart deploy/cvestream-valkey-ui` [docs/operations.md:223]
+- [x] [Review][Patch] The `INFO` exposure rationale is wrong: `INFO clients` has aggregate counters only, client addresses and last commands are `CLIENT LIST`; the real exposure is server version, executable/config paths, persistence and replication details [docs/config-contract.md:182]
+- [x] [Review][Patch] Component deployment assumptions undocumented: Valkey in the same namespace, pod label `app.kubernetes.io/name: valkey`, port 6379, no TLS in `databases.json`; the overlay that lists the component must set `namespace:` (the example overlay's transformations do not reach it); `SCAN` (with `+select`, every logical DB) assumes a Valkey dedicated to cvestream [docs/operations.md:223]
+- [x] [Review][Patch] The NetworkPolicy test does not check the DNS `namespaceSelector` (kube-system), nor that the Valkey egress peer matches the example StatefulSet's pod labels [tests/unit/test_deploy_manifests.py:227]
+- [x] [Review][Patch] `ui_component_files` loads one document per file (`_load`), so an `Ingress` appended as a second document is not seen; `_load_all` is dead code — use it [tests/unit/test_deploy_manifests.py:139]
+- [x] [Review][Patch] The placeholder-Secret test is near-trivial (`"password" in value` always holds): parse the JSON and assert the `password` field is the `REPLACE-ME` value [tests/unit/test_deploy_manifests.py:292]
+- [x] [Review][Patch] One `SCAN` call is assumed to return everything (`assert cursor == 0`): loop like `_clean_namespace` [tests/integration/test_valkey_ui.py:139]
+- [x] [Review][Patch] Assertion whose first half can never matter: `entry["errors"] == [...] or "not seeded" in str(...)`; keep one exact check [tests/integration/test_valkey_ui.py:297]
+- [x] [Review][Patch] README `port-forward` lacks `-n <ns>` (component header and `operations.md` have it) [README.md:95]
+- [x] [Review][Patch] Unverified behaviour stated as fact: with the GitHub feature-flag fetch blocked on Kubernetes "the UI still works and only logs a warning" (never run on minikube, per the Completion Notes); verify or word it as expected [docs/operations.md:229, deploy/k8s/components/valkey-ui/networkpolicy.yaml:4]
+
+- [x] [Review][Defer] Daemon guard against a UI `DEL cvestream:v1:endpoints` (an empty `endpoints` set is a valid empty configuration that drops every feed) [src/cvestream/config/valkey_provider.py:140] — deferred: a Python change, outside story 3.4's "no application code" scope; for a Valkey hardening story
 
 ## Dev Notes
 
@@ -557,8 +587,9 @@ docker stop cvs-valkey
 - `deploy/k8s/components/valkey-ui/deployment.yaml` (new)
 - `deploy/k8s/components/valkey-ui/service.yaml` (new)
 - `deploy/k8s/components/valkey-ui/networkpolicy.yaml` (new)
-- `deploy/k8s/components/valkey-ui/secret.example.yaml` (new)
+- `deploy/k8s/components/valkey-ui/secret.example.yaml` (new; a template, not a resource of the component, since the code review)
 - `tests/k8s/example-with-valkey-ui/kustomization.yaml` (new)
+- `tests/k8s/example-with-valkey-ui/secret-valkey-ui.yaml` (new, code review: the test overlay's placeholder Secret)
 - `.github/workflows/ci.yml` (modified: kustomize build of the test overlay)
 - `tests/unit/test_deploy_valkey.py` (modified)
 - `tests/unit/test_deploy_manifests.py` (modified)
@@ -578,3 +609,4 @@ docker stop cvs-valkey
 
 - 2026-11-07: story created (bmad-create-story).
 - 2026-11-07: implemented (bmad-dev-story): ACL user and dev secrets, unit and integration tests, compose service, Kustomize component and test overlay, CI build, docs, pattern amendments; gates green; status review.
+- 2026-11-07: code review (bmad-code-review): 3 decisions resolved (`SET ... EX` accepted and documented; Secret template out of the component; `DEL endpoints` tested and documented, daemon guard deferred), 19 patches applied (Redis Insight stdout logger, docs corrections, stricter ACL unit guard for every user, refusal and grant coverage, structural-key deletions, manifest tests); gates green with a local Valkey 9.1.3; status done.

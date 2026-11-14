@@ -4,6 +4,7 @@ Reads the raw files (no kubectl, no network). The release workflow itself is
 checked by actionlint and zizmor, not here.
 """
 
+import json
 import tomllib
 from pathlib import Path
 from typing import Any, cast
@@ -146,7 +147,13 @@ def _load_all(path: Path) -> list[Manifest]:
 
 @pytest.fixture(scope="module")
 def ui_component_files() -> dict[str, Manifest]:
-    return {path.name: _load(path) for path in sorted(UI_COMPONENT.glob("*.yaml"))}
+    """One document per file: a second one (an Ingress, say) would be unseen."""
+    files: dict[str, Manifest] = {}
+    for path in sorted(UI_COMPONENT.glob("*.yaml")):
+        docs = _load_all(path)
+        assert len(docs) == 1, f"{path.name}: one YAML document per file"
+        files[path.name] = docs[0]
+    return files
 
 
 @pytest.fixture(scope="module")
@@ -166,7 +173,9 @@ def ui_container(ui_pod: Manifest) -> Manifest:
     return containers[0]
 
 
-def test_the_ui_component_is_a_component_listing_its_four_files() -> None:
+def test_the_ui_component_is_a_component_without_its_secret_template() -> None:
+    # The Secret template is not a resource: `kubectl apply -k` must never
+    # overwrite the Secret the operator created with the placeholder.
     kustomization = _load(UI_COMPONENT / "kustomization.yaml")
     assert kustomization["apiVersion"] == "kustomize.config.k8s.io/v1alpha1"
     assert kustomization["kind"] == "Component"
@@ -174,7 +183,6 @@ def test_the_ui_component_is_a_component_listing_its_four_files() -> None:
         "deployment.yaml",
         "service.yaml",
         "networkpolicy.yaml",
-        "secret.example.yaml",
     ]
 
 
@@ -239,12 +247,24 @@ def test_the_ui_networkpolicy_denies_ingress_and_allows_only_valkey_and_dns(
         {"port": 53, "protocol": "UDP"},
         {"port": 53, "protocol": "TCP"},
     ]
-    assert dns["to"][0]["podSelector"]["matchLabels"]["k8s-app"] == "kube-dns"
-    assert (
-        valkey["to"][0]["podSelector"]["matchLabels"]["app.kubernetes.io/name"]
-        == "valkey"
-    )
+    assert dns["to"] == [
+        {
+            "namespaceSelector": {
+                "matchLabels": {"kubernetes.io/metadata.name": "kube-system"}
+            },
+            "podSelector": {"matchLabels": {"k8s-app": "kube-dns"}},
+        }
+    ]
     assert valkey["ports"] == [{"port": 6379, "protocol": "TCP"}]
+    (peer,) = cast(list[Manifest], valkey["to"])
+    assert set(peer) == {"podSelector"}  # same namespace only
+    # The peer must select the example Valkey's pods, or the UI cannot connect.
+    (statefulset,) = [
+        doc for doc in _load_all(VALKEY_STATEFULSET) if doc["kind"] == "StatefulSet"
+    ]
+    pod_labels = statefulset["spec"]["template"]["metadata"]["labels"]
+    for key, value in peer["podSelector"]["matchLabels"].items():
+        assert pod_labels.get(key) == value, key
 
 
 def test_the_ui_pod_opts_into_the_valkey_networkpolicy(ui_deployment: Manifest) -> None:
@@ -271,6 +291,11 @@ def test_only_the_test_overlay_enables_the_ui_component() -> None:
         "components/valkey-ui" in str(component)
         for component in test_overlay.get("components", [])
     )
+    # The test overlay brings the placeholder Secret itself, equal to the template.
+    assert "secret-valkey-ui.yaml" in test_overlay["resources"]
+    assert _load(UI_TEST_OVERLAY / "secret-valkey-ui.yaml") == _load(
+        UI_COMPONENT / "secret.example.yaml"
+    )
 
 
 def test_the_dev_compose_ui_is_loopback_only_and_keeps_the_password_in_a_secret() -> (
@@ -294,6 +319,7 @@ def test_the_ui_component_secret_holds_only_a_placeholder(
 ) -> None:
     secret = ui_component_files["secret.example.yaml"]
     assert secret["kind"] == "Secret"
-    value = secret["stringData"]["databases.json"]
-    assert "REPLACE-ME" in value
-    assert "password" in value
+    assert secret["metadata"]["name"] == "cvestream-valkey-ui"
+    (database,) = json.loads(secret["stringData"]["databases.json"])
+    assert database["username"] == "cvestream-ui"
+    assert database["password"] == "REPLACE-ME-valkey-password-of-cvestream-ui"  # noqa: S105 (a placeholder)

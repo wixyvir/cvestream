@@ -47,7 +47,7 @@ main
 | 3.1 | wixyvir/cvestream#22 | reviewed, 0 open decisions |
 | 3.3 | wixyvir/cvestream#21 | review |
 | 3.2 | wixyvir/cvestream#23 | done |
-| 3.4 | <3.4 PR> | implemented, ready for review |
+| 3.4 | <3.4 PR> | reviewed, 0 open decisions (1 item deferred) |
 
 ### Why this order: `main <- 3.1 <- 3.3 <- 3.2 <- 3.4`
 

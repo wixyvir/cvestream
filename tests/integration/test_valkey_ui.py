@@ -15,12 +15,17 @@ from valkey import Valkey
 from valkey.exceptions import ExecAbortError, NoPermissionError, ResponseError
 
 from cvestream.config import keys
+from cvestream.config.provider import ConfigUnavailableError, ConfigValidationError
 from cvestream.config.valkey_provider import ValkeyConfigProvider
 from cvestream.pipeline.run import reload_config
 from tests.integration import valkey_support as support
-from tests.integration.test_valkey_provider import _php, _seed
+from tests.integration.test_valkey_provider import _document, _php, _seed
 
 pytestmark = [pytest.mark.valkey, pytest.mark.allow_hosts(support.ALLOWED_HOSTS)]
+
+# A key of the namespace that no test seeds: commands that take a second key
+# name it, so that only the command, never the key pattern, can refuse them.
+SPARE_KEY = "cvestream:v1:spare"
 
 # Every command the UI user must never run (AC 1 and the Dev Notes never-grant
 # list), as raw argument lists. `execute_command` is used throughout because
@@ -33,10 +38,13 @@ FORBIDDEN_CALLS: list[tuple[str, ...]] = [
     ("ACL", "LIST"),
     ("MODULE", "LIST"),
     ("EVAL", "return 1", "0"),
+    ("EVAL_RO", "return 1", "0"),
     ("EVALSHA", "0" * 64, "0"),
+    ("EVALSHA_RO", "0" * 64, "0"),
     ("SCRIPT", "LOAD", "return 1"),
     ("FUNCTION", "LIST"),
     ("FCALL", "f", "0"),
+    ("FCALL_RO", "f", "0"),
     ("SHUTDOWN",),
     ("REPLICAOF", "NO", "ONE"),
     ("SLAVEOF", "NO", "ONE"),
@@ -46,11 +54,12 @@ FORBIDDEN_CALLS: list[tuple[str, ...]] = [
     ("LATENCY", "HISTORY", "x"),
     ("CLIENT", "LIST"),
     ("CLIENT", "KILL", "TYPE", "normal"),
-    ("RENAME", keys.SCHEMA, "x"),
-    ("RENAMENX", keys.SCHEMA, "x"),
+    ("CLIENT", "NO-EVICT", "on"),
+    ("RENAME", keys.SCHEMA, SPARE_KEY),
+    ("RENAMENX", keys.SCHEMA, SPARE_KEY),
     ("MOVE", keys.SCHEMA, "1"),
-    ("COPY", keys.SCHEMA, "x"),
-    ("RESTORE", "x", "0", ""),
+    ("COPY", keys.SCHEMA, SPARE_KEY),
+    ("RESTORE", SPARE_KEY, "0", ""),
     ("DUMP", keys.SCHEMA),
     ("SWAPDB", "0", "1"),
     ("EXPIRE", keys.SCHEMA, "10"),
@@ -64,6 +73,9 @@ FORBIDDEN_CALLS: list[tuple[str, ...]] = [
     ("BGREWRITEAOF",),
     ("CLUSTER", "INFO"),
     ("FAILOVER",),
+    ("SYNC",),
+    ("PSYNC", "?", "-1"),
+    ("REPLCONF", "listening-port", "0"),
 ]
 
 
@@ -110,6 +122,24 @@ def _refused(operation: Any) -> None:
         operation()
 
 
+def _command_refused(operation: Any) -> None:
+    """Refused for the command itself, not for a key it names."""
+    with pytest.raises(NoPermissionError, match="no permissions to run the"):
+        operation()
+
+
+def _scan_all(connection: Valkey, match: str) -> set[bytes]:
+    found: set[bytes] = set()
+    cursor = 0
+    while True:
+        scanned = connection.scan(cursor, match=match)
+        assert isinstance(scanned, tuple)  # valkey-py's stubs include Awaitable
+        cursor, names = scanned
+        found |= set(names)
+        if cursor == 0:
+            return found
+
+
 # --- grants -------------------------------------------------------------------
 
 
@@ -117,12 +147,23 @@ def test_the_ui_reads_and_writes_the_whole_namespace(
     admin: Valkey, ui: Valkey, writer: ValkeyConfigProvider
 ) -> None:
     _seed(writer, _php())
+    token = keys.token("team-php")
+    assert ui.ping()
+    assert ui.execute_command("SELECT", "0")
     # strings, tokens included
     assert ui.get(keys.SCHEMA) == b"1"
-    assert ui.get(keys.token("team-php")) is not None
+    value = support.get(ui, token)
+    assert value is not None
+    assert ui.mget([keys.SCHEMA, token]) == [b"1", value]
+    assert ui.exists(keys.SCHEMA, token) == 2
     ui.set(keys.SCHEMA, "1")
     ui.delete(keys.SCHEMA)
     admin.set(keys.SCHEMA, "1")
+    ui.set(token, "t" * 43)
+    assert admin.get(token) == b"t" * 43
+    ui.delete(token)
+    assert admin.get(token) is None
+    ui.set(token, value)
     # sets
     ui.sadd(keys.ENDPOINTS, "x")
     assert support.members(ui, keys.ENDPOINTS) == {b"team-php", b"x"}
@@ -136,11 +177,7 @@ def test_the_ui_runs_every_browse_command_of_its_acl_line(
     admin: Valkey, ui: Valkey, writer: ValkeyConfigProvider
 ) -> None:
     _seed(writer, _php())
-    scanned = ui.scan(0, match="cvestream:v1:*")
-    assert isinstance(scanned, tuple)  # valkey-py's stubs include Awaitable
-    cursor, found = scanned
-    assert cursor == 0
-    assert set(found) == {
+    assert _scan_all(ui, "cvestream:v1:*") == {
         keys.SCHEMA.encode(),
         keys.REVISION.encode(),
         keys.ENDPOINTS.encode(),
@@ -174,6 +211,7 @@ def test_the_ui_runs_every_browse_command_of_its_acl_line(
         ui.execute_command("MEMORY", "USAGE", keys.SCHEMA, "SAMPLES", "0"), int
     )
     ui.execute_command("CLIENT", "SETNAME", "cvestream-ui-test")
+    ui.execute_command("CLIENT", "SETINFO", "LIB-NAME", "cvestream-test")
 
 
 def test_the_full_write_protocol_works_as_the_ui(
@@ -189,6 +227,46 @@ def test_the_full_write_protocol_works_as_the_ui(
     assert admin.get(keys.products("team-php")) == b'["go"]'
 
 
+def test_the_ui_can_abandon_a_transaction(
+    admin: Valkey, ui: Valkey, writer: ValkeyConfigProvider
+) -> None:
+    # One raw connection: the transaction state lives on it, and the client's
+    # reply callbacks would turn `QUEUED` into `False`.
+    _seed(writer, _php())
+    before = admin.get(keys.REVISION)
+    connection = ui.connection_pool.get_connection("MULTI")
+    try:
+        for command, reply in (
+            (("WATCH", keys.REVISION), b"OK"),
+            (("UNWATCH",), b"OK"),
+            (("MULTI",), b"OK"),
+            (("SET", keys.products("team-php"), '["go"]'), b"QUEUED"),
+            (("DISCARD",), b"OK"),
+        ):
+            connection.send_command(*command)
+            assert connection.read_response() == reply, command
+    finally:
+        ui.connection_pool.release(connection)
+    assert admin.get(keys.products("team-php")) != b'["go"]'
+    assert admin.get(keys.REVISION) == before
+
+
+def test_set_with_an_expiry_is_granted_despite_the_expire_ban(
+    admin: Valkey, ui: Valkey, writer: ValkeyConfigProvider
+) -> None:
+    # An ACL cannot filter arguments: `SET ... EX` gives a key a TTL although
+    # `EXPIRE` and friends are refused (docs/operations.md says never to).
+    _seed(writer, _php())
+    products = keys.products("team-php")
+    ui.set(products, '["go"]', ex=3600)
+    ttl = ui.ttl(products)
+    assert isinstance(ttl, int)  # valkey-py's stubs include Awaitable
+    assert 0 < ttl <= 3600
+    _command_refused(lambda: ui.execute_command("PERSIST", products))
+    ui.set(products, '["go"]')  # a plain SET clears the TTL
+    assert ui.ttl(products) == -1
+
+
 # --- refusals -----------------------------------------------------------------
 
 
@@ -197,7 +275,7 @@ def test_the_ui_is_refused_every_forbidden_command(
     admin: Valkey, ui: Valkey, writer: ValkeyConfigProvider, call: tuple[str, ...]
 ) -> None:
     _seed(writer, _php())
-    _refused(lambda: ui.execute_command(*call))
+    _command_refused(lambda: ui.execute_command(*call))
 
 
 def test_a_forbidden_command_queued_in_multi_fails_the_transaction(
@@ -276,14 +354,12 @@ def test_an_invalid_ui_edit_is_rejected_and_the_last_valid_kept(
     assert entry["errors"] == ["cvestream:v1:endpoint:team-php:products: invalid JSON"]
 
 
-def test_deleting_a_structural_key_is_granted_but_rejects_the_snapshot(
+def test_deleting_the_schema_rejects_the_store_until_repaired(
     admin: Valkey,
     ui: Valkey,
     daemon: ValkeyConfigProvider,
     writer: ValkeyConfigProvider,
 ) -> None:
-    from cvestream.config.provider import ConfigValidationError
-
     _seed(writer, _php())
     snapshot = daemon.load()
     ui.delete(keys.SCHEMA)
@@ -294,11 +370,50 @@ def test_deleting_a_structural_key_is_granted_but_rejects_the_snapshot(
         kept = reload_config(daemon, snapshot)
     assert kept is snapshot
     (entry,) = [e for e in logs if e["event"] == "config.rejected"]
-    assert entry["errors"] == ["the store is not seeded"] or "not seeded" in str(
-        entry["errors"]
-    )
-    admin.set(keys.SCHEMA, "1")  # repair
+    assert entry["errors"] == [
+        f"{keys.SCHEMA}: missing, the store is not seeded (see docs/config-contract.md)"
+    ]
+    ui.set(keys.SCHEMA, "1")  # repair
     assert daemon.load().endpoints
+
+
+def test_deleting_the_revision_reads_as_zero_and_stays_valid(
+    admin: Valkey,
+    ui: Valkey,
+    daemon: ValkeyConfigProvider,
+    writer: ValkeyConfigProvider,
+) -> None:
+    _seed(writer, _php())
+    snapshot = daemon.load()
+    ui.delete(keys.REVISION)
+    assert daemon.revision() == "0"
+    reloaded = reload_config(daemon, snapshot)
+    assert reloaded.revision == "0"
+    assert [e.id for e in reloaded.endpoints] == ["team-php"]
+    assert ui.incr(keys.REVISION) == 1  # the next writer starts again from 1
+
+
+def test_deleting_the_endpoints_set_is_a_valid_empty_configuration(
+    admin: Valkey,
+    ui: Valkey,
+    daemon: ValkeyConfigProvider,
+    writer: ValkeyConfigProvider,
+) -> None:
+    # Not rejected: the ids come from the set, so every endpoint (and feed)
+    # disappears at the next reload; the per-endpoint keys stay, orphaned.
+    # A daemon guard is deferred (deferred-work.md); recovery is config import.
+    _seed(writer, _php())
+    backup = writer.document()  # `cvestream config export`
+    snapshot = daemon.load()
+    ui.delete(keys.ENDPOINTS)
+    ui.incr(keys.REVISION)
+    with capture_logs() as logs:
+        reloaded = reload_config(daemon, snapshot)
+    assert reloaded.endpoints == ()
+    assert not [e for e in logs if e["event"] == "config.rejected"]
+    assert admin.get(keys.token("team-php")) is not None
+    writer.replace(backup)  # `cvestream config import`
+    assert [e.id for e in reload_config(daemon, reloaded).endpoints] == ["team-php"]
 
 
 def test_a_non_integer_revision_breaks_every_write_until_repaired(
@@ -307,8 +422,6 @@ def test_a_non_integer_revision_breaks_every_write_until_repaired(
     daemon: ValkeyConfigProvider,
     writer: ValkeyConfigProvider,
 ) -> None:
-    from cvestream.config.provider import ConfigValidationError
-
     _seed(writer, _php())
     snapshot = daemon.load()
     ui.set(keys.REVISION, "not-an-integer")
@@ -320,7 +433,10 @@ def test_a_non_integer_revision_breaks_every_write_until_repaired(
         kept = reload_config(daemon, snapshot, force=True)
     assert kept is snapshot
     assert any(e["event"] == "config.rejected" for e in logs)
-    # repair: SET an integer (or `cvestream config import`)
+    # `cvestream config import` cannot repair it: its INCR runs inside MULTI
+    # (deferred-work.md). Only a SET of an integer does.
+    with pytest.raises(ConfigUnavailableError):
+        writer.replace(_document(_php()))
     ui.set(keys.REVISION, "5")
     assert daemon.revision() == "5"
     assert reload_config(daemon, snapshot).revision == "5"

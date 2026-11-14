@@ -1,6 +1,7 @@
 # TEST ONLY (CI builds it, `.github/workflows/ci.yml`): the example overlay
 # with the opt-in valkey-ui component enabled, so the component cannot rot.
-# Never deploy this overlay as is: secret.example.yaml holds placeholders.
+# Never deploy this overlay as is: secret-valkey-ui.yaml holds a placeholder
+# (the component itself ships its Secret only as a template, not a resource).
 # The namespace and labels are repeated here because the component is listed
 # by this overlay: transformations of the example overlay do not reach it.
 apiVersion: kustomize.config.k8s.io/v1beta1
@@ -8,6 +9,7 @@ kind: Kustomization
 namespace: cvestream
 resources:
   - ../../../deploy/k8s/overlays/example
+  - secret-valkey-ui.yaml
 components:
   - ../../../deploy/k8s/components/valkey-ui
 labels:
