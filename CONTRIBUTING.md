@@ -21,7 +21,7 @@ uv sync --locked
 
 ## Quality gate
 
-CI runs exactly these commands. Run them locally before pushing:
+CI runs at least these commands. Run them locally before pushing:
 
 ```sh
 uv run ruff check
