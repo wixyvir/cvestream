@@ -1,0 +1,14 @@
+# Static settings as CVESTREAM_* variables (settings.example.yaml documents
+# them). CVESTREAM_DATA_DIR=/data comes from the image. Environment variables
+# are read at start: after a change, run `kubectl rollout restart deploy/cvestream`.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cvestream-settings
+data:
+  CVESTREAM_CONFIG_PROVIDER: yaml
+  # A file inside a mounted directory, never a subPath mount: a subPath does not
+  # follow Secret updates, which would silently break hot reload.
+  CVESTREAM_ENDPOINTS_FILE: /config/endpoints.yaml
+  CVESTREAM_LOG__FORMAT: json
+  CVESTREAM_LOG__LEVEL: info

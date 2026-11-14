@@ -262,19 +262,19 @@ Not applicable: no UI. RSS is the only output contract.
   - The stories of an epic may be delivered as a **linear stack of PRs**: each PR's base is the previous story's branch, and it is retargeted to `main` when its parent merges. `ci.yml` runs on every `pull_request`, whatever its base. A change to a lower PR is propagated by rebasing the upper branches in order (`uv.lock` regenerated with `uv lock`, never merged by hand) and pushing them with `git push --force-with-lease`.
   - Commits inside a PR stay separated by concern and are not squashed.
   - A PR is merged only when `ci.yml` is green. Once story 1 has added CI, `main` is protected: PRs only, required `ci` status check.
-- **GitHub Actions** (versions at decision time: checkout v7.0.1, setup-uv v10.3.2, build-push-action v7.4.0, metadata-action v6.2.0, login-action v4.7.0, setup-buildx-action v4.4.1, setup-qemu-action v4.4.0, attest-build-provenance v4.2.2):
+- **GitHub Actions** (versions at decision time: checkout v7.0.1, setup-uv v10.3.2, build-push-action v7.4.0, metadata-action v6.2.0, login-action v4.7.0, setup-buildx-action v4.4.1, setup-qemu-action v4.4.0, actions/attest v4.2.2, which replaces attest-build-provenance, now a wrapper of it):
 
 | Workflow | Trigger | Jobs |
 |---|---|---|
-| `ci.yml` | PR (any base), push to `main` | `ci` job: `uv sync --locked` → ruff check + format check → ty → import-linter → pytest (unit, contract on fixtures, provider tests against `valkey/valkey:9.1.3`, started by a `docker run` step after checkout, because a `services:` container starts before `actions/checkout` and could not mount `deploy/valkey/`; `VALKEY_TEST_ADDRESS` names it, and the `valkey` tests fail instead of skipping when it is missing on CI). then build the runtime image (amd64, no push) and smoke-test `--help`, all in the one job, so `ci` stays the only required check and a broken Dockerfile cannot merge. Then `publish` (push to `main`: amd64 + arm64, push `edge` and `sha-<short>`, `packages: write`) |
-| `release.yml` | tag `v*` | tag = `pyproject.toml` version check → multi-arch build → push GHCR → provenance attestation → GitHub Release |
+| `ci.yml` | PR (any base), push to `main` | `ci` job: `uv sync --locked` → ruff check + format check → ty → import-linter → pytest (unit, contract on fixtures, provider tests against `valkey/valkey:9.1.3`, started by a `docker run` step after checkout, because a `services:` container starts before `actions/checkout` and could not mount `deploy/valkey/`; `VALKEY_TEST_ADDRESS` names it, and the `valkey` tests fail instead of skipping when it is missing on CI). then `kubectl kustomize` of `deploy/k8s/base` and `deploy/k8s/overlays/example` (preinstalled on the runner, plain build without `--load-restrictor`), then build the runtime image (amd64, no push) and smoke-test `--help`, all in the one job, so `ci` stays the only required check and a broken Dockerfile cannot merge. Then `publish` (push to `main`: amd64 + arm64, push `edge` and `sha-<short>`, `packages: write`) |
+| `release.yml` | tag `v*` | `check`: tag must be exactly `v` + the `pyproject.toml` version (pre-release tags refused, so `latest` and `X.Y` never move on a candidate) → `image`: amd64 + arm64 build of the `runtime` target, push GHCR `X.Y.Z`, `X.Y`, `latest` with OCI labels, BuildKit SBOM and max-mode provenance attestations (no build cache), plus a GitHub artifact attestation (`actions/attest`) only when the repository is public (it needs a public repository or GitHub Enterprise Cloud) → `release`: `gh release create --verify-tag --generate-notes`. Top-level `permissions: {}`, per-job least privilege |
 | `source-drift.yml` | nightly + manual | contract tests against the live APIs; on failure opens/updates an issue labelled `source-drift` |
 
   All third-party Actions pinned by commit SHA (version in a comment). Least-privilege `permissions:` per job. Dependabot for `uv`, `github-actions`, `docker`, weekly.
 - **Deployment targets:**
   - Dev: `compose.yml` (`app` target `dev` with `develop.watch`, `valkey` with `deploy/valkey/users.acl`, private network) + `.devcontainer/` pointing to it.
   - Docker self-hosted: `deploy/compose/compose.yml` (GHCR image, named volumes, `restart: unless-stopped`, only 8080 published; reverse proxy and HTTPS provided by the operator).
-  - Kubernetes: `deploy/k8s/` Kustomize base + example overlay: `Deployment` (replicas 1, `strategy: Recreate`, hardened `securityContext`, `terminationGracePeriodSeconds: 60` so the current pipeline run can finish), RWO `PersistentVolumeClaim` on `/data` (block storage, not NFS/SMB), `Service` `cvestream-public` (8080) and `cvestream-private` (9090), example `Ingress` for the public Service only, `NetworkPolicy`, `exec` probes using `cvestream healthcheck` (`startupProbe` and `readinessProbe` with `--ready`, `livenessProbe` without), minimal example Valkey `StatefulSet` (or an existing Valkey).
+  - Kubernetes: `deploy/k8s/` Kustomize base + example overlay: `Deployment` (replicas 1, `strategy: Recreate`, hardened `securityContext`, `terminationGracePeriodSeconds: 60` so the current pipeline run can finish), RWO `PersistentVolumeClaim` on `/data` (block storage, not NFS/SMB), `Service` `cvestream-public` (8080) and `cvestream-private` (9090), example `Ingress` for the public Service only, `NetworkPolicy`, `exec` probes using `cvestream healthcheck` (`startupProbe` and `readinessProbe` with `--ready`, `livenessProbe` without), minimal example Valkey `StatefulSet` (or an existing Valkey). The base uses the YAML provider (Secret `cvestream-endpoints` mounted as a directory); `overlays/example` switches to the Valkey provider. The Valkey files of `deploy/valkey/` reach the overlay through `deploy/valkey/kustomization.yaml` listed under `resources:` (a generator cannot read outside its directory). The image tag in the base and in `deploy/compose/compose.yml` equals the `pyproject.toml` version (`tests/unit/test_deploy_manifests.py`), so a version bump PR bumps the pins too; `enableServiceLinks: false` keeps `cvestream-*` Services from injecting variables into the `CVESTREAM_` namespace.
   - Local: `uv run cvestream run` with the YAML provider and `./data`.
 - **Backups:** Valkey RDB snapshot + `cvestream config export` (YAML, can live in git). SQLite: `cvestream db backup <file>` (SQLite online backup API; SQLite only, PostgreSQL would use `pg_dump`).
 - **Scaling:** single replica by design (documented). RWO volume prevents two writers.
@@ -519,7 +519,8 @@ cvestream/
 │   ├── valkey/
 │   │   ├── valkey.conf               # appendonly yes, appendfsync everysec, aclfile
 │   │   ├── users.acl                 # default off; cvestream-daemon, cvestream-admin, connector-example (SHA-256 hashes, no comment line)
-│   │   └── dev-secrets/              # public dev-only passwords of the three users (compose, tests)
+│   │   ├── dev-secrets/              # public dev-only passwords of the three users (compose, tests)
+│   │   └── kustomization.yaml        # generates the valkey.conf ConfigMap and the users.acl Secret for the overlay (Kustomize load restrictor)
 │   ├── compose/
 │   │   └── compose.yml               # self-hosted: GHCR image, named volumes, only 8080 published
 │   └── k8s/
@@ -533,8 +534,9 @@ cvestream/
 │       │   └── networkpolicy.yaml
 │       └── overlays/example/
 │           ├── kustomization.yaml
-│           ├── ingress.yaml          # public Service only
-│           ├── valkey-statefulset.yaml
+│           ├── ingress.yaml          # public Service only, /feeds/
+│           ├── valkey-statefulset.yaml   # headless Service + StatefulSet
+│           ├── networkpolicy-valkey.yaml
 │           └── secret.example.yaml
 ├── docs/
 │   ├── configuration.md              # settings.yaml + CVESTREAM_* variables

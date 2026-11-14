@@ -1,0 +1,13 @@
+# The SQLite state. RWO on block storage, never NFS, SMB or CIFS (SQLite file
+# locking is unreliable there); RWO also keeps a second writer away. No
+# storageClassName: the cluster default is used, set one in your overlay.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: cvestream-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi

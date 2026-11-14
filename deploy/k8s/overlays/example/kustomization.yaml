@@ -1,0 +1,92 @@
+# Example overlay: the Valkey configuration provider, an example Valkey, an
+# Ingress for the feeds. Copy it into your own overlay rather than editing it
+# (namespace, image tag, Ingress host and class, NetworkPolicy peers, storage
+# class, Secrets). See docs/operations.md, "Kubernetes".
+#
+# Prerequisite: a namespace with the restricted Pod Security Standard.
+#   kubectl create namespace cvestream
+#   kubectl label namespace cvestream pod-security.kubernetes.io/enforce=restricted
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: cvestream
+resources:
+  - ../../base
+  # Generates the valkey.conf ConfigMap and the users.acl Secret (story 3.1).
+  - ../../../valkey
+  - valkey-statefulset.yaml
+  - networkpolicy-valkey.yaml
+  - ingress.yaml
+  - secret.example.yaml
+# The base labels only its own resources: label the Valkey ones too, so that
+# `-l app.kubernetes.io/part-of=cvestream` selects the whole deployment.
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: cvestream
+    includeSelectors: false
+patches:
+  # Valkey provider instead of the YAML one; no endpoints.yaml file.
+  - patch: |-
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: cvestream-settings
+      data:
+        CVESTREAM_CONFIG_PROVIDER: valkey
+        CVESTREAM_ENDPOINTS_FILE: null
+        # The user name comes from the URL; the password from the file below.
+        CVESTREAM_VALKEY__URL: valkey://cvestream-daemon@cvestream-valkey:6379/0
+        CVESTREAM_VALKEY__PASSWORD_FILE: /secrets/valkey/password
+  # The Valkey password Secret replaces the endpoints Secret.
+  - patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: cvestream
+      spec:
+        template:
+          spec:
+            containers:
+              - name: cvestream
+                volumeMounts:
+                  - mountPath: /config
+                    $patch: delete
+                  - name: valkey
+                    mountPath: /secrets/valkey
+                    readOnly: true
+            volumes:
+              - name: endpoints
+                $patch: delete
+              - name: valkey
+                secret:
+                  secretName: cvestream-valkey
+                  defaultMode: 0440
+  # NetworkPolicy of cvestream. The paths index the base's rules: ingress 0 is
+  # the 8080 rule, egress ends with the HTTPS rule (keep the base's order).
+  - target:
+      group: networking.k8s.io
+      version: v1
+      kind: NetworkPolicy
+      name: cvestream
+    patch: |-
+      # Feeds: only from the Ingress controller (change namespace and labels
+      # to match yours; Traefik here).
+      - op: replace
+        path: /spec/ingress/0/from
+        value:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: traefik
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/name: traefik
+      # Valkey.
+      - op: add
+        path: /spec/egress/-
+        value:
+          to:
+            - podSelector:
+                matchLabels:
+                  app.kubernetes.io/name: valkey
+          ports:
+            - port: 6379
+              protocol: TCP

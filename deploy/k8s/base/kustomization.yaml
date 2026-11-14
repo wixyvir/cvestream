@@ -1,0 +1,16 @@
+# cvestream alone, with the YAML configuration provider (endpoints.yaml in a
+# Secret). No namespace here: the overlay or `kubectl -n` sets it.
+# See docs/operations.md, "Kubernetes".
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - configmap-settings.yaml
+  - deployment.yaml
+  - pvc.yaml
+  - service-public.yaml
+  - service-private.yaml
+  - networkpolicy.yaml
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: cvestream
+    includeSelectors: false

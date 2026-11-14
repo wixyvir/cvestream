@@ -22,6 +22,8 @@ uv run lint-imports
 uv run pytest
 uv run cvestream config schema --check
 uv run cvestream config validate endpoints.example.yaml
+kubectl kustomize deploy/k8s/base
+kubectl kustomize deploy/k8s/overlays/example
 docker build --target runtime -t cvestream:local .
 ```
 
