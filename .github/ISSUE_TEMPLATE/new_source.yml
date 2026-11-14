@@ -1,0 +1,50 @@
+name: New vulnerability source
+about: Propose adding a new vulnerability feed or advisory source
+description: Describe the source and provide a sample payload.
+title: "feat(source): add <source-name>"
+labels: ["enhancement", "new-source"]
+body:
+  - type: input
+    id: source-name
+    attributes:
+      label: Source name
+      description: Short slug for the source (e.g. `nvd`, `github_advisory`).
+      placeholder: nvd
+    validations:
+      required: true
+  - type: input
+    id: source-url
+    attributes:
+      label: Source URL
+      description: The API or feed URL.
+    validations:
+      required: true
+  - type: dropdown
+    id: format
+    attributes:
+      label: Payload format
+      options:
+        - JSON
+        - XML / RSS
+        - CSV
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: sample
+    attributes:
+      label: Sample payload
+      description: A small, representative payload (redact nothing — these are public sources).
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: license
+    attributes:
+      label: Data license
+      description: The license of the source data, if known.
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional notes
+      description: Pagination, rate limits, timezone assumptions, etc.
