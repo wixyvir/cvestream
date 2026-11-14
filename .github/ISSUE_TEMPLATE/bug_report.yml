@@ -1,0 +1,58 @@
+name: Bug report
+about: Report something that is not working as expected
+description: Please describe the bug. Include logs and configuration snippets (redact tokens).
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the bug and what you expected instead.
+      placeholder: A clear description of the unexpected behaviour.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps to reproduce the issue.
+      placeholder: |
+        1. Run `cvestream ...`
+        2. See error
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant log output (JSON lines). Redact any feed tokens.
+      render: text
+      placeholder: Paste logs here. Never paste a feed URL or token.
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      description: The cvestream version or commit SHA you are running.
+      placeholder: v0.1.0 or abc1234
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Configuration (redacted)
+      description: Relevant parts of endpoints.yaml or settings (remove tokens and secrets).
+      render: yaml
+  - type: dropdown
+    id: source
+    attributes:
+      label: Affected source
+      description: Which vulnerability source is involved, if any.
+      options:
+        - euvd
+        - cisa_kev
+        - cert_eu
+        - eu_kev
+        - not source-specific
+    validations:
+      required: false
