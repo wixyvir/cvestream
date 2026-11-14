@@ -8,6 +8,7 @@ accepts a number of seconds.
 """
 
 import os
+import re
 import types
 import typing
 from collections.abc import Mapping
@@ -15,10 +16,18 @@ from contextvars import ContextVar
 from datetime import timedelta
 from importlib.resources.abc import Traversable
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Self
+from urllib.parse import urlsplit
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, SecretStr
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    field_validator,
+    model_validator,
+)
 from pydantic.fields import FieldInfo
 from pydantic_settings import (
     BaseSettings,
@@ -39,6 +48,9 @@ DEFAULT_SOURCE_INTERVAL = timedelta(minutes=15)
 DEFAULT_EUVD_PAGE_PAUSE = timedelta(seconds=1.5)
 MAX_EUVD_PAGE_PAUSE = timedelta(seconds=60)
 DATABASE_FILE = "cvestream.db"
+DEFAULT_VALKEY_STARTUP_TIMEOUT = timedelta(seconds=60)
+MAX_VALKEY_STARTUP_TIMEOUT = timedelta(hours=1)
+VALKEY_SCHEMES = ("valkey", "valkeys")
 
 # The environment seen by the next `Settings()` construction. `load_settings`
 # sets it so tests (and callers) can inject an environment mapping.
@@ -90,6 +102,60 @@ class StateSettings(BaseModel):
     # SQLAlchemy URL. Secret: a PostgreSQL URL carries a password
     # (CVESTREAM_STATE__URL_FILE).
     url: SecretStr | None = None
+
+
+class ValkeySettings(BaseModel):
+    """Connection to the Valkey configuration store (`config_provider: valkey`)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # `valkey://<user>@<host>:<port>/<db>` (`valkeys://` for TLS). The user name
+    # is not secret; the password never goes in the URL.
+    url: str | None = None
+    # Secret (CVESTREAM_VALKEY__PASSWORD_FILE).
+    password: SecretStr | None = None
+    # How long the daemon waits for Valkey at startup before exiting with code 3.
+    startup_timeout: timedelta = Field(
+        default=DEFAULT_VALKEY_STARTUP_TIMEOUT,
+        gt=timedelta(0),
+        le=MAX_VALKEY_STARTUP_TIMEOUT,
+    )
+
+    @field_validator("url")
+    @classmethod
+    def _check_url(cls, value: str | None) -> str | None:
+        # Messages never include the value: it names a user and a host, and a
+        # mistake could put a password in it.
+        if value is None:
+            return None
+        try:
+            parts = urlsplit(value)
+            port = parts.port  # a bad port raises ValueError here
+        except ValueError:
+            msg = "valkey.url is not a valid URL"
+            raise ValueError(msg) from None
+        if parts.scheme not in VALKEY_SCHEMES:
+            msg = "valkey.url: scheme must be valkey:// or valkeys://"
+            raise ValueError(msg)
+        if parts.password is not None:
+            msg = (
+                "valkey.url must not contain a password: use valkey.password "
+                "(CVESTREAM_VALKEY__PASSWORD_FILE)"
+            )
+            raise ValueError(msg)
+        if not parts.hostname:
+            msg = "valkey.url: a host is required"
+            raise ValueError(msg)
+        if port == 0:
+            msg = "valkey.url: invalid port"
+            raise ValueError(msg)
+        if parts.query or parts.fragment:
+            msg = "valkey.url: a query string or a fragment is not supported"
+            raise ValueError(msg)
+        if parts.path not in ("", "/") and not re.fullmatch(r"/[0-9]+", parts.path):
+            msg = "valkey.url: the path must be a database number (/0)"
+            raise ValueError(msg)
+        return value
 
 
 class ListenerSettings(BaseModel):
@@ -258,11 +324,19 @@ class Settings(BaseSettings):
 
     log: LogSettings = Field(default_factory=LogSettings)
     sources: SourcesSettings = Field(default_factory=SourcesSettings)
-    config_provider: Literal["yaml"] = "yaml"
+    config_provider: Literal["yaml", "valkey"] = "yaml"
     endpoints_file: Path = Path("endpoints.yaml")
     data_dir: Path = Path("data")
     state: StateSettings = Field(default_factory=StateSettings)
     http: HttpSettings = Field(default_factory=HttpSettings)
+    valkey: ValkeySettings = Field(default_factory=ValkeySettings)
+
+    @model_validator(mode="after")
+    def _valkey_needs_a_url(self) -> Self:
+        if self.config_provider == "valkey" and self.valkey.url is None:
+            msg = "config_provider valkey requires valkey.url (CVESTREAM_VALKEY__URL)"
+            raise ValueError(msg)
+        return self
 
     @classmethod
     def settings_customise_sources(

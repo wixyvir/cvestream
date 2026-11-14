@@ -3,7 +3,7 @@
 cvestream has two configuration layers:
 
 - **Static settings** (`settings.yaml` and `CVESTREAM_*` variables): logging, polling intervals, where the endpoint configuration lives.
-- **Endpoint configuration** (`endpoints.yaml`): teams, product lists, rules and feed tokens.
+- **Endpoint configuration** (`endpoints.yaml`, or a Valkey service): teams, product lists, rules and feed tokens.
 
 ## `settings.yaml`
 
@@ -23,10 +23,13 @@ cvestream has two configuration layers:
   | `sources.<name>.enabled` | `true` | poll this source (`euvd`, `cisa_kev`, `cert_eu`) |
   | `sources.<name>.interval` | `PT15M` | polling interval, greater than 0 and at most 60 minutes |
   | `sources.euvd.page_pause` | `PT1.5S` | pause between two EUVD result pages, 0 to 60 seconds; EUVD answers 403 when paged faster than about 40 to 60 requests a minute (see [sources](sources.md)) |
-  | `config_provider` | `yaml` | where endpoints come from; only `yaml` exists for now |
+  | `config_provider` | `yaml` | where endpoints come from: `yaml` (the file) or `valkey` (a Valkey service, see [Valkey provider](#valkey-provider)) |
   | `endpoints_file` | `endpoints.yaml` | path of the endpoints file, relative to the working directory |
   | `data_dir` | `data` | directory for runtime data, the state database included (`/data` in the image) |
   | `state.url` | `sqlite:///<data_dir>/cvestream.db` | SQLAlchemy URL of the state database; a **secret** |
+  | `valkey.url` | none | `valkey://<user>@<host>:<port>/<db>` (`valkeys://` for TLS); required when `config_provider` is `valkey`; never carries a password |
+  | `valkey.password` | none | password of the user in `valkey.url`; a **secret** |
+  | `valkey.startup_timeout` | `PT60S` | how long the daemon waits for Valkey at startup before exiting with code 3; greater than 0, at most 1 hour |
 
 - **Durations:** ISO 8601 in environment variables (`PT30M`; a bare number is rejected there). In YAML, either ISO 8601 or a number of seconds (`1800`).
 
@@ -34,9 +37,9 @@ cvestream has two configuration layers:
 
 - Every setting can be set through a variable with the `CVESTREAM_` prefix. A double underscore nests: `CVESTREAM_SOURCES__EUVD__INTERVAL=PT30M` sets `sources.euvd.interval`.
 - **Precedence**, highest first: environment variables, secret files (`*_FILE`), `settings.yaml`. Values merge key by key.
-- **Secrets** are read from a file with `CVESTREAM_<NAME>_FILE=/path`, nested names included. This applies to secret fields only: `state.url` is the first one (`CVESTREAM_STATE__URL_FILE`), and the Valkey password will follow with the Valkey provider. Setting both `CVESTREAM_<NAME>` and `CVESTREAM_<NAME>_FILE` is an error.
+- **Secrets** are read from a file with `CVESTREAM_<NAME>_FILE=/path`, nested names included. This applies to secret fields only: `state.url` (`CVESTREAM_STATE__URL_FILE`) and `valkey.password` (`CVESTREAM_VALKEY__PASSWORD_FILE`). Setting both `CVESTREAM_<NAME>` and `CVESTREAM_<NAME>_FILE` is an error.
 - `http.*` values are not secrets: `CVESTREAM_HTTP__PUBLIC__PORT=18080`, `CVESTREAM_HTTP__PRIVATE__HOST=127.0.0.1`.
-- `CVESTREAM_ENDPOINTS_FILE` is a plain path, **not** a secret file: it sets `endpoints_file`. `CVESTREAM_CONFIG_PROVIDER` sets `config_provider`. `CVESTREAM_DATA_DIR` sets `data_dir`.
+- `CVESTREAM_ENDPOINTS_FILE` is a plain path, **not** a secret file: it sets `endpoints_file`. `CVESTREAM_CONFIG_PROVIDER` sets `config_provider`. `CVESTREAM_DATA_DIR` sets `data_dir`. `CVESTREAM_VALKEY__URL` and `CVESTREAM_VALKEY__STARTUP_TIMEOUT` set the non-secret `valkey.*` keys.
 
 ## State database
 
@@ -47,6 +50,16 @@ The state (vulnerabilities, source records, publications and source cursors) liv
 - **Create or upgrade:** `cvestream db migrate` brings the database to the latest revision and creates the data directory when it is missing. Running it again changes nothing. The daemon does the same at startup.
 - **Back up:** `cvestream db backup <file>` copies the database with the SQLite online backup API (a consistent snapshot, WAL included, while the daemon runs). It refuses to overwrite an existing file. For PostgreSQL use `pg_dump`.
 - **PostgreSQL:** planned. It will be an optional `psycopg` extra and a `state.url` change; the code is already portable.
+
+## Valkey provider
+
+With `config_provider: valkey` the daemon reads the endpoint configuration from a Valkey service instead of `endpoints.yaml`, so that other tools (BoM connectors, CD workers) can maintain product lists through a documented, versioned contract: [config-contract.md](config-contract.md). `config_provider: yaml` stays the default and keeps working as before; it never imports the Valkey client.
+
+- **Connection:** `valkey.url` carries the scheme, the **user name**, the host, the port and the database number (`valkey://cvestream-daemon@valkey:6379/0`). The **password never goes in the URL**: a URL with a password, a query string, a fragment or another scheme is rejected (the error does not repeat the URL). Provide it as `valkey.password`, preferably as a secret file: `CVESTREAM_VALKEY__PASSWORD_FILE=/run/secrets/valkey-password`. Without a user name in the URL the client authenticates as `default`, which the shipped ACL file disables.
+- **Server and users:** [`deploy/valkey/`](../deploy/valkey/) holds the server configuration (`valkey.conf`: AOF every second) and the ACL file (`users.acl`): `cvestream-daemon` (read-only, what this daemon uses), `cvestream-admin` and `connector-example`. The passwords in `deploy/valkey/dev-secrets/` are public and for development only: production ships its own ACL file with its own hashes.
+- **TLS:** `valkeys://` is accepted; the server certificate is verified against the system trust store and must match the host name of `valkey.url` (there is no option to turn either check off). TLS is not exercised by the test suite: no TLS server runs in CI. :factory:
+- **Startup:** the daemon retries an unreachable Valkey with a capped exponential backoff (1 s, doubling, at most 10 s) for `valkey.startup_timeout` (`PT60S` by default), then exits with code `3`. Meanwhile `/healthz` answers 200 and `/readyz` 503. A refused authentication or permission is not retried: the daemon exits `3` at once. An invalid or unseeded store exits `2`, as an invalid `endpoints.yaml` does.
+- **Hot reload:** see [Reloading](#reloading).
 
 ## `endpoints.yaml`
 
@@ -113,5 +126,7 @@ Exit code 0 when valid (one line on stdout). Exit code 2 when invalid or unreada
 ### Reloading
 
 The daemon reloads the file by itself, without a restart. The revision of the file is the SHA-256 of its bytes: any change, comments included, triggers a reload. The check runs at the start of every pipeline cycle, so a change applies at the next cycle, that is the next source fetch (within the polling interval, 15 minutes by default). It covers endpoints, product lists, rules, `enabled` flags and tokens: a rotated token serves the new URL at once and the old one answers `404`.
+
+**With Valkey,** the revision is the `cvestream:v1:revision` integer that every writer increments: the daemon reads it (one `GET`) at the start of each cycle and reloads when it changed. As a safety net for a writer that forgot to increment it, **every 12th pipeline cycle reloads the configuration even when the revision did not change** (about once an hour with three sources at 15 minutes); that reload is silent when nothing changed. While Valkey is unreachable, each cycle logs a `config.unavailable` warning and keeps the last valid configuration: polling and feeds continue, `/readyz` stays 200, and a cycle is delayed at most by the client's 5 s socket timeouts. A rotated token reaches the daemon at the next cycle, that is the next source fetch. :factory:
 
 When the new content is invalid, the daemon keeps the last valid configuration and logs `config.rejected` with the field errors (never a token). When the file cannot be read, it keeps it too and logs `config.unavailable`. See [operations.md](operations.md).

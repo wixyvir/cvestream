@@ -10,7 +10,7 @@ Error messages name the field and the error, never the input: a token must not
 leak through an exception.
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Protocol
@@ -20,6 +20,7 @@ from pydantic import ValidationError
 from cvestream.config.models import ConfigDocument
 from cvestream.domain.endpoint import Endpoint
 from cvestream.errors import CvestreamError
+from cvestream.settings import Settings
 
 _VALUE_ERROR_PREFIX = "Value error, "
 # Tags of the callable discriminator of product items: not part of the contract.
@@ -32,6 +33,22 @@ class ConfigError(CvestreamError):
 
 class ConfigUnavailableError(ConfigError):
     """The configuration store cannot be read (missing file, store down)."""
+
+
+class ConfigAccessDeniedError(ConfigUnavailableError):
+    """The store refused the credentials or the command (authentication, ACL).
+
+    Unlike a network failure it does not heal by waiting: the daemon does not
+    retry it at startup.
+    """
+
+
+class ConfigConflictError(ConfigUnavailableError):
+    """The revision kept moving during a read, or a write kept losing its race.
+
+    Transient: the next read or the next attempt may succeed, so it is retried
+    like a network failure.
+    """
 
 
 class ConfigValidationError(ConfigError):
@@ -123,3 +140,24 @@ def build_snapshot(data: object, *, revision: str, source: str) -> ConfigSnapsho
     return ConfigSnapshot(
         revision=revision, endpoints=endpoints, tokens=MappingProxyType(tokens)
     )
+
+
+def open_provider(settings: Settings) -> tuple[ConfigProvider, Callable[[], None]]:
+    """The provider `settings` names, and the function that closes it.
+
+    Each provider module is imported here, not at the top: YAML mode never
+    imports `valkey`.
+    """
+    if settings.config_provider == "valkey":
+        from cvestream.config.valkey_provider import ValkeyConfigProvider
+
+        valkey_provider = ValkeyConfigProvider.from_settings(settings.valkey)
+        return valkey_provider, valkey_provider.close
+
+    from cvestream.config.yaml_provider import YamlConfigProvider
+
+    return YamlConfigProvider(settings.endpoints_file), _nothing_to_close
+
+
+def _nothing_to_close() -> None:
+    return None

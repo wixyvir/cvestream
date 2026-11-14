@@ -15,6 +15,7 @@ import functools
 import random as random_module
 import signal
 import sys
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
@@ -40,11 +41,13 @@ from cvestream.app.servers import (
 )
 from cvestream.clock import Clock, SystemClock
 from cvestream.config.provider import (
+    ConfigAccessDeniedError,
+    ConfigProvider,
     ConfigSnapshot,
     ConfigUnavailableError,
     ConfigValidationError,
+    open_provider,
 )
-from cvestream.config.yaml_provider import YamlConfigProvider
 from cvestream.http import HttpClient
 from cvestream.pipeline.run import SourceOutcome, cycle, load_cursors, load_feeds
 from cvestream.settings import ListenerSettings, Settings, SourcesSettings, state_url
@@ -56,11 +59,18 @@ EXIT_FAILED = 1
 EXIT_USER_ERROR = 2
 EXIT_CONFIG_UNAVAILABLE = 3
 
+# Startup wait for Valkey: 1 s, doubling, at most 10 s per wait.
+STARTUP_BACKOFF_BASE = 1.0
+STARTUP_BACKOFF_CAP = 10.0
+
 type Sleep = Callable[[float], Awaitable[None]]
 type ServerFactory = Callable[[str, ASGIApp, ListenerSettings], Listener]
 type SourcesFactory = Callable[
     [SourcesSettings, HttpClient, Clock], tuple[ScheduledSource, ...]
 ]
+# The provider and the function that closes it.
+type ProviderFactory = Callable[[Settings], tuple[ConfigProvider, Callable[[], None]]]
+type Monotonic = Callable[[], float]
 
 log = structlog.get_logger()
 
@@ -74,20 +84,71 @@ def _report(message: str) -> None:
     sys.stderr.write(f"{message}\n")
 
 
-async def _load_snapshot(
-    provider: YamlConfigProvider,
-) -> tuple[ConfigSnapshot | None, int]:
-    """The configuration, or the exit code of the failure (already reported)."""
+async def _wait_or_stop(sleep: Sleep, delay: float, stop: asyncio.Event | None) -> bool:
+    """Sleep `delay`; True when `stop` was set meanwhile."""
+    if stop is None:
+        await sleep(delay)
+        return False
+    sleeper = asyncio.ensure_future(sleep(delay))
+    stopper = asyncio.ensure_future(stop.wait())
     try:
-        return await asyncio.to_thread(provider.load), EXIT_OK
-    except ConfigUnavailableError as exc:
-        log.error("config.unavailable", error_type=type(exc).__name__)
-        _report(str(exc))
-        return None, EXIT_CONFIG_UNAVAILABLE
-    except ConfigValidationError as exc:
-        log.error("config.rejected", errors=list(exc.errors))
-        _report(str(exc))
-        return None, EXIT_USER_ERROR
+        await asyncio.wait({sleeper, stopper}, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        sleeper.cancel()
+        stopper.cancel()
+    return stop.is_set()
+
+
+async def _load_snapshot(
+    provider: ConfigProvider,
+    settings: Settings,
+    *,
+    sleep: Sleep,
+    monotonic: Monotonic,
+    stop: asyncio.Event | None = None,
+) -> tuple[ConfigSnapshot | None, int]:
+    """The configuration, or the exit code of the failure (already reported).
+
+    With the Valkey provider an unreachable store is retried (capped exponential
+    backoff) until `valkey.startup_timeout`: Valkey may simply start after the
+    daemon. An authentication or permission failure is not retried (waiting does
+    not fix a wrong password). The YAML file is read once. A `stop` during the
+    wait ends the startup with exit code 0.
+    """
+    retry = settings.config_provider == "valkey"
+    deadline = monotonic() + settings.valkey.startup_timeout.total_seconds()
+    delay = STARTUP_BACKOFF_BASE
+    while True:
+        try:
+            snapshot = await asyncio.to_thread(provider.load)
+        except ConfigAccessDeniedError as exc:
+            log.error("config.unavailable", error_type=type(exc).__name__)
+            _report(str(exc))
+            return None, EXIT_CONFIG_UNAVAILABLE
+        except ConfigValidationError as exc:
+            log.error("config.rejected", errors=list(exc.errors))
+            _report(str(exc))
+            return None, EXIT_USER_ERROR
+        except ConfigUnavailableError as exc:
+            remaining = deadline - monotonic()
+            if not retry or remaining <= 0:
+                log.error("config.unavailable", error_type=type(exc).__name__)
+                _report(str(exc))
+                return None, EXIT_CONFIG_UNAVAILABLE
+            wait = min(delay, remaining, STARTUP_BACKOFF_CAP)
+            log.warning(
+                "config.unavailable", error_type=type(exc).__name__, retry_in=wait
+            )
+            if await _wait_or_stop(sleep, wait, stop):
+                return None, EXIT_OK
+            delay *= 2
+        else:
+            log.info(
+                "config.loaded",
+                count=len(snapshot.endpoints),
+                revision=snapshot.revision,
+            )
+            return snapshot, EXIT_OK
 
 
 @dataclass
@@ -101,6 +162,7 @@ class _Running:
     loops: list[asyncio.Task[None]] = field(default_factory=list)
     worker: asyncio.Task[None] | None = None
     http: HttpClient | None = None
+    close_provider: Callable[[], None] | None = None
 
 
 async def _shutdown(running: _Running) -> None:
@@ -122,6 +184,8 @@ async def _shutdown(running: _Running) -> None:
         await server.stop()
     if running.http is not None:
         await running.http.aclose()
+    if running.close_provider is not None:
+        running.close_provider()
     running.state.dispose()
     log.info("app.stopped")
 
@@ -185,6 +249,8 @@ async def _start(
     sleep: Sleep,
     server_factory: ServerFactory,
     sources_factory: SourcesFactory,
+    provider_factory: ProviderFactory,
+    monotonic: Monotonic,
 ) -> int:
     state, status, stop = running.state, running.status, running.stop
     holder = FeedCacheHolder()
@@ -197,8 +263,10 @@ async def _start(
     await private.start()
     running.servers.append(private)
 
-    provider = YamlConfigProvider(settings.endpoints_file)
-    snapshot, failure = await _load_snapshot(provider)
+    provider, running.close_provider = provider_factory(settings)
+    snapshot, failure = await _load_snapshot(
+        provider, settings, sleep=sleep, monotonic=monotonic, stop=stop
+    )
     if snapshot is None:
         return failure
 
@@ -244,6 +312,8 @@ async def serve(
     sleep: Sleep = asyncio.sleep,
     server_factory: ServerFactory = _managed_server,
     sources_factory: SourcesFactory = build_sources,
+    provider_factory: ProviderFactory = open_provider,
+    monotonic: Monotonic = time.monotonic,
 ) -> int:
     """Run the daemon until SIGTERM, SIGINT or `stop`; return the exit code.
 
@@ -264,7 +334,15 @@ async def serve(
     code = EXIT_OK
     try:
         code = await _start(
-            settings, running, clock, random, sleep, server_factory, sources_factory
+            settings,
+            running,
+            clock,
+            random,
+            sleep,
+            server_factory,
+            sources_factory,
+            provider_factory,
+            monotonic,
         )
     except ListenerError as exc:
         log.error("app.failed", error_type=type(exc).__name__)
@@ -282,6 +360,9 @@ async def poll_once(
     *,
     clock: Clock | None = None,
     sources_factory: SourcesFactory = build_sources,
+    provider_factory: ProviderFactory = open_provider,
+    sleep: Sleep = asyncio.sleep,
+    monotonic: Monotonic = time.monotonic,
 ) -> int:
     """Fetch every enabled source once and run one cycle; return the exit code.
 
@@ -290,10 +371,13 @@ async def poll_once(
     """
     clock = clock or SystemClock()
     state = State(state_url(settings))
+    close_provider: Callable[[], None] | None = None
     try:
         await asyncio.to_thread(state.migrate)
-        provider = YamlConfigProvider(settings.endpoints_file)
-        snapshot, failure = await _load_snapshot(provider)
+        provider, close_provider = provider_factory(settings)
+        snapshot, failure = await _load_snapshot(
+            provider, settings, sleep=sleep, monotonic=monotonic
+        )
         if snapshot is None:
             return failure
         cursors = await asyncio.to_thread(load_cursors, state)
@@ -305,4 +389,6 @@ async def poll_once(
         await asyncio.to_thread(cycle, state, provider, snapshot, outcomes, clock)
         return EXIT_OK
     finally:
+        if close_provider is not None:
+            close_provider()
         state.dispose()

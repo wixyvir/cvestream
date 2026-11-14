@@ -1,16 +1,25 @@
+import subprocess
+import sys
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from cvestream.config.models import EndpointConfig
 from cvestream.config.provider import (
+    ConfigAccessDeniedError,
+    ConfigConflictError,
     ConfigError,
     ConfigProvider,
     ConfigUnavailableError,
     ConfigValidationError,
     build_snapshot,
+    open_provider,
 )
+from cvestream.config.valkey_provider import ValkeyConfigProvider
+from cvestream.config.yaml_provider import YamlConfigProvider
 from cvestream.errors import CvestreamError
+from cvestream.settings import load_settings
 
 TOKEN_A = "a" * 43
 TOKEN_B = "b" * 43
@@ -50,11 +59,25 @@ def test_validation_error_without_errors() -> None:
 
 
 def test_exception_family() -> None:
-    for cls in (ConfigError, ConfigUnavailableError, ConfigValidationError):
+    for cls in (
+        ConfigError,
+        ConfigUnavailableError,
+        ConfigValidationError,
+        ConfigAccessDeniedError,
+        ConfigConflictError,
+    ):
         assert issubclass(cls, CvestreamError)
         assert cls.__name__.endswith("Error")
     assert issubclass(ConfigUnavailableError, ConfigError)
     assert issubclass(ConfigValidationError, ConfigError)
+
+
+def test_access_denied_and_conflict_are_unavailable() -> None:
+    # `reload_config` and the startup loader tell them apart: access denied is
+    # not retried, a conflict is.
+    assert issubclass(ConfigAccessDeniedError, ConfigUnavailableError)
+    assert issubclass(ConfigConflictError, ConfigUnavailableError)
+    assert not issubclass(ConfigConflictError, ConfigAccessDeniedError)
 
 
 def test_build_snapshot_maps_tokens_to_endpoints() -> None:
@@ -182,3 +205,46 @@ def test_protocol_is_structural() -> None:
 
     provider: ConfigProvider = _Fake()
     assert provider.revision() == "r"
+
+
+# --- open_provider -----------------------------------------------------------
+
+
+def test_open_provider_yaml(tmp_path: Path) -> None:
+    settings = load_settings({"CVESTREAM_ENDPOINTS_FILE": str(tmp_path / "e.yaml")})
+    provider, close = open_provider(settings)
+    assert isinstance(provider, YamlConfigProvider)
+    close()  # a no-op, and safe to call twice
+    close()
+
+
+def test_open_provider_valkey_builds_a_lazy_client() -> None:
+    settings = load_settings(
+        {
+            "CVESTREAM_CONFIG_PROVIDER": "valkey",
+            "CVESTREAM_VALKEY__URL": "valkey://cvestream-daemon@valkey:6379/0",
+        }
+    )
+    provider, close = open_provider(settings)
+    try:
+        assert isinstance(provider, ValkeyConfigProvider)  # no connection yet
+    finally:
+        close()
+
+
+def test_yaml_mode_never_imports_valkey() -> None:
+    script = (
+        "import sys\n"
+        "from cvestream.config.provider import open_provider\n"
+        "from cvestream.settings import load_settings\n"
+        "import cvestream.app.runtime, cvestream.cli.main\n"
+        "open_provider(load_settings({}))\n"
+        "assert 'valkey' not in sys.modules, 'valkey was imported'\n"
+    )
+    result = subprocess.run(  # noqa: S603
+        [sys.executable, "-I", "-c", script],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr

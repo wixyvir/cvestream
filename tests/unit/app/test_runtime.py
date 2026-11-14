@@ -15,6 +15,15 @@ from structlog.testing import capture_logs
 from cvestream.app.runtime import poll_once, serve
 from cvestream.app.servers import ASGIApp, ListenerError
 from cvestream.clock import Clock
+from cvestream.config.provider import (
+    ConfigAccessDeniedError,
+    ConfigConflictError,
+    ConfigProvider,
+    ConfigSnapshot,
+    ConfigUnavailableError,
+    ConfigValidationError,
+    build_snapshot,
+)
 from cvestream.domain.model import AffectedProduct, CvssScore, Sourced, SourceRecord
 from cvestream.http import HttpClient
 from cvestream.pipeline import run as pipeline_run
@@ -167,16 +176,17 @@ class _Harness:
         async with httpx.AsyncClient(transport=transport, base_url="http://t") as http:
             return await http.get(path)
 
-    def serve(self, *, own_signals: bool = False) -> Awaitable[int]:
-        return serve(
-            self.settings,
-            clock=self.clock,
-            stop=None if own_signals else self.stop,
-            sleep=_block,
-            random=lambda: 0.0,
-            server_factory=self.server_factory,
-            sources_factory=self.sources_factory,
-        )
+    def serve(self, *, own_signals: bool = False, **overrides: Any) -> Awaitable[int]:
+        arguments: dict[str, Any] = {
+            "clock": self.clock,
+            "stop": None if own_signals else self.stop,
+            "sleep": _block,
+            "random": lambda: 0.0,
+            "server_factory": self.server_factory,
+            "sources_factory": self.sources_factory,
+        }
+        arguments.update(overrides)
+        return serve(self.settings, **arguments)
 
 
 async def _block(_delay: float) -> None:
@@ -582,3 +592,299 @@ async def test_poll_once_lets_a_cycle_failure_propagate(
         await poll_once(
             harness.settings, clock=fake_clock, sources_factory=harness.sources_factory
         )
+
+
+# --- Valkey provider: startup waits for the store, exit code 3 ----------------
+
+
+class _FakeTime:
+    """A fake `sleep` that advances a fake `monotonic`: no real waiting."""
+
+    def __init__(self) -> None:
+        self.now = 1000.0
+        self.waits: list[float] = []
+
+    def monotonic(self) -> float:
+        return self.now
+
+    async def sleep(self, delay: float) -> None:
+        self.waits.append(delay)
+        self.now += delay
+        await asyncio.sleep(0)
+
+
+class _ScriptedProvider:
+    """`load()` replays a script: an exception is raised, a snapshot returned."""
+
+    def __init__(self, *script: Exception | None, revision: str = "5") -> None:
+        self.script = list(script)
+        self.attempts = 0
+        self.closed = False
+        self._revision = revision
+
+    def revision(self) -> str:
+        return self._revision
+
+    def load(self) -> ConfigSnapshot:
+        self.attempts += 1
+        step = self.script.pop(0) if self.script else None
+        if step is not None:
+            raise step
+        return build_snapshot(
+            {
+                "version": 1,
+                "endpoints": [
+                    {
+                        "id": "team-php",
+                        "name": "PHP",
+                        "token": TOKEN,
+                        "products": ["php"],
+                    }
+                ],
+            },
+            revision=self._revision,
+            source="valkey",
+        )
+
+    def close(self) -> None:
+        self.closed = True
+
+    def factory(self, _settings: Settings) -> tuple[ConfigProvider, Callable[[], None]]:
+        return self, self.close
+
+
+def _valkey(harness: _Harness, **extra: str) -> None:
+    harness.settings = harness.load_settings(
+        CVESTREAM_CONFIG_PROVIDER="valkey",
+        CVESTREAM_VALKEY__URL="valkey://cvestream-daemon@valkey:6379/0",
+        **extra,
+    )
+
+
+@pytest.mark.anyio
+async def test_valkey_startup_retries_with_backoff_then_exits_3(
+    harness: _Harness, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _valkey(harness, CVESTREAM_VALKEY__STARTUP_TIMEOUT="PT40S")
+    provider = _ScriptedProvider(
+        *[ConfigUnavailableError("valkey: cannot reach valkey:6379: ConnectionError")]
+        * 20
+    )
+    fake = _FakeTime()
+    with capture_logs() as logs:
+        code = await harness.serve(
+            provider_factory=provider.factory,
+            sleep=fake.sleep,
+            monotonic=fake.monotonic,
+        )
+    assert code == 3
+    # 1, 2, 4, 8, 10, 10 then the last wait is cut to what is left of 40 s
+    assert fake.waits == [1, 2, 4, 8, 10, 10, 5]
+    assert provider.attempts == len(fake.waits) + 1
+    warnings = [e for e in logs if e["event"] == "config.unavailable"]
+    assert [e["log_level"] for e in warnings] == ["warning"] * 7 + ["error"]
+    assert [e["retry_in"] for e in warnings[:-1]] == fake.waits
+    assert all(e["error_type"] == "ConfigUnavailableError" for e in warnings)
+    err = capsys.readouterr().err
+    assert err.splitlines() == ["valkey: cannot reach valkey:6379: ConnectionError"]
+    # never ready, public listener never started, provider closed
+    assert "test.listener_started:public" not in _order(logs)
+    assert provider.closed
+
+
+@pytest.mark.anyio
+async def test_valkey_startup_is_not_ready_while_it_retries(
+    harness: _Harness,
+) -> None:
+    _valkey(harness)
+    provider = _ScriptedProvider(ConfigUnavailableError("down"), None)
+    fake = _FakeTime()
+    seen: list[tuple[int, int]] = []
+
+    async def sleeping(delay: float) -> None:
+        # the private listener is up: liveness 200, readiness 503
+        seen.append(
+            (
+                (await harness.get("private", "/healthz")).status_code,
+                (await harness.get("private", "/readyz")).status_code,
+            )
+        )
+        await fake.sleep(delay)
+
+    with capture_logs() as logs:
+        task = asyncio.ensure_future(
+            harness.serve(
+                provider_factory=provider.factory,
+                sleep=sleeping,
+                monotonic=fake.monotonic,
+            )
+        )
+        await _until(lambda: any(e["event"] == "app.ready" for e in logs))
+        assert (await harness.get("private", "/readyz")).status_code == 200
+        harness.stop.set()
+        assert await task == 0
+    assert seen == [(200, 503)]
+    loaded = [e for e in logs if e["event"] == "config.loaded"]
+    assert [(e["count"], e["revision"]) for e in loaded] == [(1, "5")]
+    assert provider.closed
+
+
+@pytest.mark.anyio
+async def test_a_conflict_at_startup_is_retried_like_a_network_error(
+    harness: _Harness,
+) -> None:
+    _valkey(harness)
+    provider = _ScriptedProvider(ConfigConflictError("kept changing"), None)
+    fake = _FakeTime()
+    with capture_logs() as logs:
+        task = asyncio.ensure_future(
+            harness.serve(
+                provider_factory=provider.factory,
+                sleep=fake.sleep,
+                monotonic=fake.monotonic,
+            )
+        )
+        await _until(lambda: any(e["event"] == "app.ready" for e in logs))
+        harness.stop.set()
+        assert await task == 0
+    assert fake.waits == [1]
+
+
+@pytest.mark.anyio
+async def test_valkey_access_denied_exits_3_without_retry(
+    harness: _Harness, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _valkey(harness)
+    provider = _ScriptedProvider(
+        ConfigAccessDeniedError("valkey: authentication failed for user 'x'")
+    )
+    fake = _FakeTime()
+    with capture_logs() as logs:
+        code = await harness.serve(
+            provider_factory=provider.factory,
+            sleep=fake.sleep,
+            monotonic=fake.monotonic,
+        )
+    assert code == 3
+    assert provider.attempts == 1
+    assert fake.waits == []
+    (entry,) = [e for e in logs if e["event"] == "config.unavailable"]
+    assert entry["log_level"] == "error"
+    assert entry["error_type"] == "ConfigAccessDeniedError"
+    assert capsys.readouterr().err.splitlines() == [
+        "valkey: authentication failed for user 'x'"
+    ]
+
+
+@pytest.mark.anyio
+async def test_an_invalid_valkey_configuration_exits_2_without_retry(
+    harness: _Harness, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _valkey(harness)
+    provider = _ScriptedProvider(
+        ConfigValidationError("valkey", ["cvestream:v1:schema: missing"])
+    )
+    fake = _FakeTime()
+    with capture_logs() as logs:
+        code = await harness.serve(
+            provider_factory=provider.factory,
+            sleep=fake.sleep,
+            monotonic=fake.monotonic,
+        )
+    assert code == 2
+    assert fake.waits == []
+    (entry,) = [e for e in logs if e["event"] == "config.rejected"]
+    assert entry["errors"] == ["cvestream:v1:schema: missing"]
+    assert capsys.readouterr().err.splitlines() == [
+        "valkey: cvestream:v1:schema: missing"
+    ]
+
+
+@pytest.mark.anyio
+async def test_a_stop_during_the_startup_wait_exits_0(harness: _Harness) -> None:
+    _valkey(harness)
+    provider = _ScriptedProvider(*[ConfigUnavailableError("down")] * 5)
+    waiting = asyncio.Event()
+
+    async def hang(_delay: float) -> None:
+        waiting.set()
+        await asyncio.Event().wait()
+
+    task = asyncio.ensure_future(
+        harness.serve(provider_factory=provider.factory, sleep=hang)
+    )
+    await waiting.wait()
+    harness.stop.set()
+    assert await task == 0
+    assert provider.attempts == 1
+    assert provider.closed
+
+
+@pytest.mark.anyio
+async def test_the_yaml_provider_is_not_retried(
+    harness: _Harness, capsys: pytest.CaptureFixture[str]
+) -> None:
+    harness.endpoints.unlink()
+    waits: list[float] = []
+
+    async def no_sleep(delay: float) -> None:
+        waits.append(delay)
+
+    code = await harness.serve(sleep=no_sleep)
+    assert code == 3
+    assert waits == []
+
+
+@pytest.mark.anyio
+async def test_the_provider_is_closed_on_a_normal_shutdown(harness: _Harness) -> None:
+    _valkey(harness)
+    provider = _ScriptedProvider()
+    with capture_logs() as logs:
+        task = asyncio.ensure_future(harness.serve(provider_factory=provider.factory))
+        await _until(lambda: any(e["event"] == "app.ready" for e in logs))
+        assert not provider.closed
+        harness.stop.set()
+        assert await task == 0
+    assert provider.closed
+
+
+@pytest.mark.anyio
+async def test_poll_once_waits_for_valkey_then_exits_3(
+    harness: _Harness, fake_clock: FakeClock, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _valkey(harness, CVESTREAM_VALKEY__STARTUP_TIMEOUT="PT5S")
+    provider = _ScriptedProvider(*[ConfigUnavailableError("down")] * 20)
+    fake = _FakeTime()
+    code = await poll_once(
+        harness.settings,
+        clock=fake_clock,
+        sources_factory=harness.sources_factory,
+        provider_factory=provider.factory,
+        sleep=fake.sleep,
+        monotonic=fake.monotonic,
+    )
+    assert code == 3
+    assert fake.waits == [1, 2, 2]
+    assert capsys.readouterr().err.splitlines() == ["down"]
+    assert provider.closed
+
+
+@pytest.mark.anyio
+async def test_poll_once_runs_a_cycle_on_the_valkey_provider(
+    harness: _Harness, fake_clock: FakeClock
+) -> None:
+    _valkey(harness)
+    provider = _ScriptedProvider(ConfigUnavailableError("down"))
+    harness.adapters = (_Adapter("euvd", FetchResult((_record(fake_clock),), "c1")),)
+    fake = _FakeTime()
+    code = await poll_once(
+        harness.settings,
+        clock=fake_clock,
+        sources_factory=harness.sources_factory,
+        provider_factory=provider.factory,
+        sleep=fake.sleep,
+        monotonic=fake.monotonic,
+    )
+    assert code == 0
+    assert fake.waits == [1]
+    assert provider.closed

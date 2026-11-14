@@ -179,16 +179,16 @@ _All versions verified online on 2026-10-26._
 - Key layout (public contract, v1):
 
 ```
-cvestream:v1:schema                   "1"
+cvestream:v1:schema                   1 (JSON integer); missing = store not seeded, rejected
 cvestream:v1:revision                 integer, INCR by every writer
 cvestream:v1:endpoints                SET of endpoint ids
 cvestream:v1:endpoint:{id}            JSON {name, enabled, min_cvss, kev_only}
-cvestream:v1:endpoint:{id}:products   JSON [{name, aliases[], exclude[], min_version}]
-cvestream:v1:token:{id}               feed token (plaintext; own namespace so connector ACLs do not cover it)
+cvestream:v1:endpoint:{id}:products   JSON array of product items (shorthand string or entry); missing = []
+cvestream:v1:token:{id}               feed token, raw text (not JSON); own namespace so connector ACLs do not cover it
 ```
 
-- Write protocol: `WATCH cvestream:v1:revision` → `MULTI` → writes → `INCR cvestream:v1:revision` → `EXEC`. Retry on conflict.
-- Read protocol (daemon): check `revision` at each pipeline run. If it changed, read a consistent snapshot: read `revision`, read all keys in one pipelined batch, read `revision` again; if it moved, retry (up to 3 times), otherwise keep the last valid configuration. Validate the whole snapshot. If invalid, keep the last valid configuration and log `config.rejected` (FR-23). Full reload every N cycles as a safety net. YAML provider: revision = SHA-256 of the file content.
+- Write protocol: `WATCH cvestream:v1:revision` → `MULTI` → writes → `INCR cvestream:v1:revision` → `EXEC`. Retry on conflict (5 attempts, then `ConfigConflictError`). `update()` in `config/valkey_provider.py` implements it; the CLI (story 3.2) builds on it.
+- Read protocol (daemon): check `revision` at each pipeline run. If it changed, read a consistent snapshot: read `revision`, read all keys in one pipelined batch, read `revision` again; if it moved, retry (up to 3 times), otherwise `ConfigConflictError` and keep the last valid configuration. Validate the whole snapshot. If invalid, keep the last valid configuration and log `config.rejected` (FR-23). Full reload every 12 pipeline cycles as a safety net (`FULL_RELOAD_EVERY` in `app/scheduler.py`, `reload_config(force=True)`): it skips the revision comparison and logs `config.reloaded` only when the snapshot differs. A missing `schema` key is an invalid (unseeded) store; a missing `endpoint:{id}` or `token:{id}` rejects the snapshot. YAML provider: revision = SHA-256 of the file content.
 - The configuration is never persisted by the daemon: the provider is the only source of truth (see startup behaviour under API & Communication Patterns).
 - Values are plain JSON strings (no Valkey JSON module). Persistence: AOF (`appendonly yes`, `appendfsync everysec`).
 - Schema: Pydantic models are the single source of truth. JSON Schema is exported to `schemas/config-v1.json`. `cvestream config validate` is available for other tools' CI. The YAML provider (`endpoints.yaml`) uses the same models. The document is `version: 1` plus `endpoints: [...]`, each endpoint carrying its feed `token` inline and a product list where an item is a full entry or the shorthand `name >= version`.
@@ -213,7 +213,7 @@ Rules (story 1.6): every enabled endpoint is rendered at every run, inside the r
 
 - **Feed access (FR-20):** URL `/feeds/{token}.xml`. The token alone resolves the endpoint. Token = `secrets.token_urlsafe(32)` (256 bits), stored in plaintext under `cvestream:v1:token:{id}` (user decision: the operator must be able to retrieve the URL with `cvestream endpoint show`). Rotation takes effect at the next config reload. Unknown or revoked token → `404`. Rate limiting is left to the reverse proxy.
 - **Interfaces:** public listener `:8080` serves only `GET`/`HEAD /feeds/{token}.xml`. Private listener `:9090` serves `/healthz`, `/readyz`, `/status`. Valkey is on a private network only. The CLI has no network endpoint.
-- **Valkey ACL users:** `default` disabled. `cvestream-daemon`: read-only on `cvestream:v1:*`. `cvestream-admin` (CLI): read/write on `cvestream:v1:*`. `connector-<name>`: read on `cvestream:v1:schema`, `cvestream:v1:revision`, `cvestream:v1:endpoint*`, write on `cvestream:v1:endpoint:*:products` and `cvestream:v1:revision`. Exact ACL lines are written and tested in the Valkey provider story (`%R~`/`%W~` syntax confirmed in the Valkey docs). Credentials from env or a mounted secret file. TLS (`rediss://`) optional, recommended across hosts.
+- **Valkey ACL users:** `default` disabled. `cvestream-daemon`: read-only on `cvestream:v1:*`. `cvestream-admin` (CLI): read/write on `cvestream:v1:*`. `connector-<name>`: read on `cvestream:v1:schema`, `cvestream:v1:revision`, `cvestream:v1:endpoint*`, write on `cvestream:v1:endpoint:*:products` and `cvestream:v1:revision`. The ACL lines are in `deploy/valkey/users.acl` and explained in `docs/config-contract.md`, and tested against a real server (`tests/integration/test_valkey_provider.py`). Rules: explicit command lists, never `+@read`/`+@write` (they include `KEYS`, `SCAN`, `FLUSHALL`); `INCR` needs read and write access (`%RW~` on `revision`; valkey-py sends `INCRBY`, so both commands are listed); the `default` line is required (without it Valkey recreates an open `default`); **an ACL file takes no comment line** (Valkey 9.1 accepts only `user` lines), so the explanations live in the docs; the file holds SHA-256 hashes (`#<hash>`), never a plaintext password. Credentials from env or a mounted secret file. TLS (`valkeys://`, certificate verified against the system trust store) optional, recommended across hosts. The password is never in `valkey.url` (it carries the user name only): `valkey.password` / `CVESTREAM_VALKEY__PASSWORD_FILE`.
 - **Outbound:** direct connections only, no proxy support (`trust_env=False`, so proxy variables in the environment are ignored). TLS verification always on, against the image's system trust store (`ssl.create_default_context()`, Debian `ca-certificates`). Timeouts, response size limits, per-source backoff.
 - **Untrusted input:** source payloads validated by Pydantic. XML parsed with the standard library (`xml.etree.ElementTree`), a DOCTYPE is refused so no entity is resolved (story 2.1). RSS output built with an XML serializer, source text escaped as plain text.
 - **Container:** UID 999, read-only root filesystem (writable `/data`, `/tmp`), all capabilities dropped, no privilege escalation.
@@ -228,8 +228,8 @@ Rules (story 1.6): every enabled endpoint is rendered at every run, inside the r
   - HTTP handlers only read the in-memory feed cache, so asyncio code never touches SQLite.
   - a source loop reads its cursor from the state before each fetch and waits for the run that carries its outcome; every fetch outcome, failed ones included, triggers one cycle (the worker drains a backlog into a single run).
   - `cvestream poll --once` runs one cycle and exits. SIGTERM: stop loops, finish the current pipeline run, stop servers.
-- **Startup behaviour:** migrate the state store → start the private listener (`/healthz` OK, `/readyz` not ready) → load the configuration from the provider. With the Valkey provider, the daemon **only runs if Valkey is available**: it retries with backoff for `valkey.startup_timeout` (default 60 s), then exits with code 3 and logs `config.unavailable`. Nothing is persisted as a fallback. Once the configuration is loaded: start the source loops and the public listener, `/readyz` becomes ready.
-- **Valkey outage while running:** the in-memory last valid configuration keeps being used, polling and feeds continue, and each pipeline run logs a `config.unavailable` warning until Valkey is back.
+- **Startup behaviour:** migrate the state store → start the private listener (`/healthz` OK, `/readyz` not ready) → load the configuration from the provider. With the Valkey provider, the daemon **only runs if Valkey is available**: it retries with backoff for `valkey.startup_timeout` (default 60 s), then exits with code 3 and logs `config.unavailable`. The wait is a capped exponential backoff (1 s, doubling, at most 10 s, the last wait cut to the deadline), a `config.unavailable` warning per failed attempt. An authentication or permission failure (`ConfigAccessDeniedError`) is not retried: exit 3 at once. An invalid or unseeded store exits 2 (`config.rejected`), like an invalid `endpoints.yaml`. `ConfigConflictError` (a read whose revision kept moving) is retried like a network error. The client sets `socket_timeout` and `socket_connect_timeout` to 5 s (valkey-py has no default timeout, and the worker never cancels a run in its thread). Nothing is persisted as a fallback. Once the configuration is loaded: start the source loops and the public listener, `/readyz` becomes ready.
+- **Valkey outage while running:** the in-memory last valid configuration keeps being used, polling and feeds continue, and each pipeline run logs a `config.unavailable` warning until Valkey is back, `/readyz` stays 200, and the next cycle reads the revision again.
 - **First run:** the initial cursor for each source is now − 14 days (the feed window), so the 7-day backfill (FR-16) works from day one. KEV dumps are loaded in full. An incremental cursor older than the feed window (long outage) is clamped to now − 14 days with a `source.cursor_clamped` warning, so a backlog never exceeds the page cap and the source heals itself.
 - **Libraries:** Starlette 1.10.0, uvicorn 0.54.0, httpx 0.28.1 (pinned `>=0.28,<1`, wrapped in `cvestream.http`; httpx 1.0 is in development), Typer 0.27.3, watchfiles 1.3.0 (dev reload). Rejected: FastAPI (OpenAPI unnecessary), Granian (hard to embed), APScheduler (unnecessary), aiohttp (kept as a fallback for httpx).
 - **Routes:**
@@ -266,7 +266,7 @@ Not applicable: no UI. RSS is the only output contract.
 
 | Workflow | Trigger | Jobs |
 |---|---|---|
-| `ci.yml` | PR (any base), push to `main` | `ci` job: `uv sync --locked` → ruff check + format check → ty → import-linter → pytest (unit, contract on fixtures, provider tests against a `valkey/valkey:9.1` service). then build the runtime image (amd64, no push) and smoke-test `--help`, all in the one job, so `ci` stays the only required check and a broken Dockerfile cannot merge. Then `publish` (push to `main`: amd64 + arm64, push `edge` and `sha-<short>`, `packages: write`) |
+| `ci.yml` | PR (any base), push to `main` | `ci` job: `uv sync --locked` → ruff check + format check → ty → import-linter → pytest (unit, contract on fixtures, provider tests against `valkey/valkey:9.1.3`, started by a `docker run` step after checkout, because a `services:` container starts before `actions/checkout` and could not mount `deploy/valkey/`; `VALKEY_TEST_ADDRESS` names it, and the `valkey` tests fail instead of skipping when it is missing on CI). then build the runtime image (amd64, no push) and smoke-test `--help`, all in the one job, so `ci` stays the only required check and a broken Dockerfile cannot merge. Then `publish` (push to `main`: amd64 + arm64, push `edge` and `sha-<short>`, `packages: write`) |
 | `release.yml` | tag `v*` | tag = `pyproject.toml` version check → multi-arch build → push GHCR → provenance attestation → GitHub Release |
 | `source-drift.yml` | nightly + manual | contract tests against the live APIs; on failure opens/updates an issue labelled `source-drift` |
 
@@ -367,7 +367,7 @@ cli ──────────▶ app ──────────▶ pipe
 The "Component boundaries (allowed imports)" list in the Project Structure section is the authoritative rule. This diagram illustrates it.
 
 - `domain`: pure (no I/O, no third-party imports apart from the standard library and `packaging`, the only allowed exception, used by `domain/version.py` and whitelisted in the import-linter contract). It holds the model, matching, version parsing, bands and the publication decision.
-- Only `sources/*` and `cvestream.http` import `httpx`. Only `state/` imports `sqlalchemy` and `alembic`. Only `config/valkey_provider.py` imports `valkey`. Only `app/` imports `starlette`/`uvicorn`. Only `cli/` imports `typer`. Ownership is about direct imports: the import-linter ownership contracts set `allow_indirect_imports = true` (a `pipeline` module may import `state`, which imports `sqlalchemy`); the `layers` contract still forbids upward imports.
+- Only `sources/*` and `cvestream.http` import `httpx`. Only `state/` imports `sqlalchemy` and `alembic`. Only `config/valkey_provider.py` imports `valkey` (import-linter: the whole `cvestream.config` package is a source of the forbidden contract, with one `ignore_imports` entry for that module; `config/provider.py` imports the provider lazily in `open_provider()`, so YAML mode never loads `valkey`). Only `app/` imports `starlette`/`uvicorn`. Only `cli/` imports `typer`. Ownership is about direct imports: the import-linter ownership contracts set `allow_indirect_imports = true` (a `pipeline` module may import `state`, which imports `sqlalchemy`); the `layers` contract still forbids upward imports.
 - `pipeline` orchestrates synchronously. `app` owns asyncio, the loops and the servers.
 
 **Tests:**
@@ -518,7 +518,8 @@ cvestream/
 ├── deploy/
 │   ├── valkey/
 │   │   ├── valkey.conf               # appendonly yes, appendfsync everysec, aclfile
-│   │   └── users.acl                 # default off; cvestream-daemon, cvestream-admin, connector-example
+│   │   ├── users.acl                 # default off; cvestream-daemon, cvestream-admin, connector-example (SHA-256 hashes, no comment line)
+│   │   └── dev-secrets/              # public dev-only passwords of the three users (compose, tests)
 │   ├── compose/
 │   │   └── compose.yml               # self-hosted: GHCR image, named volumes, only 8080 published
 │   └── k8s/
@@ -625,7 +626,9 @@ cvestream/
     ├── integration/
     │   ├── test_pipeline_end_to_end.py
     │   ├── test_restart_no_repost.py # NFR-3 / SM-4
-    │   ├── test_startup_requires_valkey.py  # marker valkey: exit code 3 after startup_timeout
+    │   ├── conftest.py               # `admin` fixture (clean namespace)
+    │   ├── valkey_support.py         # VALKEY_TEST_ADDRESS, clients per user
+    │   ├── test_startup_requires_valkey.py  # closed port: exit code 3 after startup_timeout (no server); access cases marked valkey
     │   └── test_valkey_provider.py   # marker valkey
     └── fixtures/
         ├── euvd/

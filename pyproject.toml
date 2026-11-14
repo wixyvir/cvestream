@@ -15,6 +15,7 @@ dependencies = [
     "structlog>=26.1.0",
     "typer>=0.27.3",
     "uvicorn>=0.54.0",
+    "valkey>=6.2.0",
 ]
 
 [project.scripts]
@@ -51,6 +52,7 @@ select = ["E", "F", "W", "I", "UP", "B", "DTZ", "BLE", "S", "RUF"]
 "tests/unit/config/test_models.py" = ["S105", "S106"]
 "tests/unit/config/test_provider.py" = ["S105", "S106"]
 "tests/unit/config/test_yaml_provider.py" = ["S105", "S106"]
+"tests/unit/config/test_valkey_provider.py" = ["S105", "S106"]
 "tests/unit/cli/test_config.py" = ["S105", "S106"]
 
 [tool.ty.environment]
@@ -164,15 +166,16 @@ source_modules = [
 forbidden_modules = ["sqlalchemy", "alembic"]
 allow_indirect_imports = true
 
-# valkey: only cvestream.config.valkey_provider. That module does not exist
-# yet, so for now only cvestream.config as a whole may import it; story 3.1
-# tightens this to cvestream.config.valkey_provider.
+# valkey: only cvestream.config.valkey_provider. The whole cvestream.config
+# package is a source (so a new module there is covered at once) and the one
+# allowed import is listed in ignore_imports.
 [[tool.importlinter.contracts]]
-name = "valkey only in config"
+name = "valkey only in config.valkey_provider"
 type = "forbidden"
 source_modules = [
     "cvestream.http",
     "cvestream.domain",
+    "cvestream.config",
     "cvestream.sources",
     "cvestream.state",
     "cvestream.pipeline",
@@ -185,6 +188,7 @@ source_modules = [
 ]
 forbidden_modules = ["valkey"]
 allow_indirect_imports = true
+ignore_imports = ["cvestream.config.valkey_provider -> valkey"]
 
 [[tool.importlinter.contracts]]
 name = "starlette and uvicorn only in app"

@@ -10,6 +10,7 @@ from cvestream.app.feed_cache import FeedCacheHolder
 from cvestream.app.private_api import RuntimeStatus, SourceActivity, SourceStatus
 from cvestream.app.scheduler import (
     CRASH_BACKOFF_CAP,
+    FULL_RELOAD_EVERY,
     JITTER,
     PipelineWorker,
     crash_backoff_cap,
@@ -345,11 +346,15 @@ async def test_a_rolled_back_run_does_not_advance_the_cursor(
         snapshot: ConfigSnapshot,
         outcomes: list[SourceOutcome],
         clock: Clock,
+        *,
+        force_reload: bool = False,
     ) -> CycleResult:
         calls.append(1)
         if len(calls) == 1:
             raise RuntimeError("disk full")
-        return cycle(state, provider, snapshot, outcomes, clock)
+        return cycle(
+            state, provider, snapshot, outcomes, clock, force_reload=force_reload
+        )
 
     stop = asyncio.Event()
     pipeline = PipelineWorker(
@@ -386,11 +391,15 @@ async def test_a_failed_run_keeps_the_previous_feed_cache(
         snapshot: ConfigSnapshot,
         outcomes: list[SourceOutcome],
         clock: Clock,
+        *,
+        force_reload: bool = False,
     ) -> CycleResult:
         runs.append(1)
         if len(runs) == 2:
             raise RuntimeError("disk full")
-        return cycle(state, provider, snapshot, outcomes, clock)
+        return cycle(
+            state, provider, snapshot, outcomes, clock, force_reload=force_reload
+        )
 
     stop = asyncio.Event()
     pipeline = PipelineWorker(
@@ -419,9 +428,13 @@ async def test_the_worker_drains_queued_outcomes_into_one_cycle(
         snapshot: ConfigSnapshot,
         outcomes: list[SourceOutcome],
         clock: Clock,
+        *,
+        force_reload: bool = False,
     ) -> CycleResult:
         seen.append([o.source for o in outcomes])
-        return cycle(state, provider, snapshot, outcomes, clock)
+        return cycle(
+            state, provider, snapshot, outcomes, clock, force_reload=force_reload
+        )
 
     stop = asyncio.Event()
     pipeline = PipelineWorker(
@@ -439,6 +452,40 @@ async def test_the_worker_drains_queued_outcomes_into_one_cycle(
     await worker_task
     assert results == [True, True, True]
     assert seen == [["euvd", "cisa_kev", "other"]]
+
+
+@pytest.mark.anyio
+async def test_every_twelfth_run_forces_a_configuration_reload(
+    state: State, clock: FakeClock, holder: FeedCacheHolder
+) -> None:
+    forced: list[bool] = []
+
+    def recording(
+        state: State,
+        provider: ConfigProvider,
+        snapshot: ConfigSnapshot,
+        outcomes: list[SourceOutcome],
+        clock: Clock,
+        *,
+        force_reload: bool = False,
+    ) -> CycleResult:
+        forced.append(force_reload)
+        return cycle(
+            state, provider, snapshot, outcomes, clock, force_reload=force_reload
+        )
+
+    stop = asyncio.Event()
+    pipeline = PipelineWorker(
+        state, _Provider(), _snapshot(), holder, clock, run_cycle=recording
+    )
+    task = asyncio.create_task(pipeline.work(stop))
+    for _ in range(2 * FULL_RELOAD_EVERY + 1):
+        assert await pipeline.submit(SourceOutcome("euvd", FetchResult((), None)))
+    stop.set()
+    await task
+    assert FULL_RELOAD_EVERY == 12
+    assert [n for n, flag in enumerate(forced, start=1) if flag] == [12, 24]
+    assert forced[0] is False
 
 
 @pytest.mark.anyio

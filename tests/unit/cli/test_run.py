@@ -95,6 +95,18 @@ def test_a_bad_setting_is_one_line_and_exit_2(
     assert "70000" not in result.stderr
 
 
+def test_a_valkey_url_with_a_password_is_never_echoed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CVESTREAM_CONFIG_PROVIDER", "valkey")
+    monkeypatch.setenv("CVESTREAM_VALKEY__URL", "valkey://u:hunter2-secret@valkey:6379")
+    result = runner.invoke(app, ["run"])
+    assert result.exit_code == 2
+    assert result.stderr.startswith("settings: valkey.url")
+    assert len(result.stderr.splitlines()) == 1
+    assert "hunter2" not in result.stderr
+
+
 def test_a_settings_error_is_one_line_and_exit_2(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

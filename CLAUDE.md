@@ -25,11 +25,13 @@ uv run cvestream config validate endpoints.example.yaml
 docker build --target runtime -t cvestream:local .
 ```
 
+The `valkey`-marked tests need a Valkey server: they skip without `VALKEY_TEST_ADDRESS=<ip>:<port>` (CI sets it and fails when it is missing). Start a disposable one with the repo's `deploy/valkey/` files, see README.
+
 ## Key rules
 
 - Use **uv**, not poetry or pip: `uv add`, `uv sync --locked`, `uv run`. Never edit `uv.lock` by hand.
 - Python 3.14: never add `from __future__ import annotations`.
-- Layering is enforced by import-linter (`[tool.importlinter]`); `domain` imports only stdlib and `packaging`. Library ownership: `typer` only in `cli/`, `httpx` only in `sources/` and `http`, `sqlalchemy`/`alembic` only in `state/`, `starlette`/`uvicorn` only in `app/`, `valkey` only in `config/`.
+- Layering is enforced by import-linter (`[tool.importlinter]`); `domain` imports only stdlib and `packaging`. Library ownership: `typer` only in `cli/`, `httpx` only in `sources/` and `http`, `sqlalchemy`/`alembic` only in `state/`, `starlette`/`uvicorn` only in `app/`, `valkey` only in `config/valkey_provider.py`.
 - Outbound HTTP goes only through `cvestream.http` (`trust_env=False`, system trust store, retries live there and nowhere else).
 - Unknown is `None`, never `0`, `""` or `"n/a"`.
 - Free-text versions are parsed only by `domain/version.py`; `packaging` is the only third-party import allowed in `domain`.

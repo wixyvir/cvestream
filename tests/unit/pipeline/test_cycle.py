@@ -1,6 +1,7 @@
 from collections.abc import Mapping, MutableMapping
 from datetime import timedelta
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 import pytest
@@ -102,6 +103,78 @@ def test_a_valid_change_is_loaded_and_logged(
     (entry,) = _events(logs, "config.reloaded")
     assert entry["count"] == 2
     assert entry["log_level"] == "info"
+
+
+def test_the_reloaded_event_carries_the_revision(
+    provider: YamlConfigProvider, snapshot: ConfigSnapshot, endpoints_file: Path
+) -> None:
+    endpoints_file.write_text(_yaml(("team-php", TOKEN_B, "php")), encoding="utf-8")
+    with capture_logs() as logs:
+        reloaded = reload_config(provider, snapshot)
+    (entry,) = _events(logs, "config.reloaded")
+    assert entry["revision"] == reloaded.revision != snapshot.revision
+
+
+def test_a_forced_reload_of_an_unchanged_configuration_is_silent(
+    provider: YamlConfigProvider, snapshot: ConfigSnapshot
+) -> None:
+    with capture_logs() as logs:
+        assert reload_config(provider, snapshot, force=True) is snapshot
+    assert logs == []
+
+
+def test_a_forced_reload_picks_up_a_change_the_revision_does_not_show(
+    snapshot: ConfigSnapshot,
+) -> None:
+    changed = ConfigSnapshot(
+        snapshot.revision,
+        snapshot.endpoints,
+        MappingProxyType({TOKEN_B: "team-php"}),
+    )
+
+    class ForgotToBump:
+        def revision(self) -> str:
+            return snapshot.revision
+
+        def load(self) -> ConfigSnapshot:
+            return changed
+
+    with capture_logs() as logs:
+        assert reload_config(ForgotToBump(), snapshot) is snapshot
+        assert reload_config(ForgotToBump(), snapshot, force=True) is changed
+    (entry,) = _events(logs, "config.reloaded")
+    assert entry["revision"] == snapshot.revision
+
+
+def test_a_forced_reload_keeps_the_snapshot_when_the_store_is_down(
+    snapshot: ConfigSnapshot,
+) -> None:
+    class Down:
+        def revision(self) -> str:
+            return snapshot.revision
+
+        def load(self) -> ConfigSnapshot:
+            raise ConfigUnavailableError("down")
+
+    with capture_logs() as logs:
+        assert reload_config(Down(), snapshot, force=True) is snapshot
+    assert len(_events(logs, "config.unavailable")) == 1
+
+
+def test_an_outage_logs_one_warning_per_cycle_and_keeps_the_snapshot(
+    snapshot: ConfigSnapshot,
+) -> None:
+    class Down:
+        def revision(self) -> str:
+            raise ConfigUnavailableError("down")
+
+        def load(self) -> ConfigSnapshot:
+            raise AssertionError
+
+    with capture_logs() as logs:
+        for _ in range(3):
+            assert reload_config(Down(), snapshot) is snapshot
+    assert len(_events(logs, "config.unavailable")) == 3
 
 
 def test_a_rotated_token_serves_the_new_one_only(
