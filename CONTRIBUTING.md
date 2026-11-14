@@ -65,7 +65,7 @@ Read these before making changes:
   the authoritative design document.
 - [`_bmad-output/project-context.md`](_bmad-output/project-context.md) —
   the condensed rule set (layering, state, configuration, testing).
-- [`CLAUDE.md`](CLAUDE.md) — quick reference for AI agents.
+- [`AGENTS.md`](AGENTS.md) — quick reference for AI agents.
 
 Key rules in brief:
 

@@ -1,4 +1,4 @@
-# CLAUDE.md
+# AGENTS.md
 
 Rules for AI agents working on cvestream. Keep this file short; the details live
 in two documents that you MUST read before changing code:

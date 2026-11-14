@@ -112,7 +112,7 @@ We welcome contributions. Please read:
 - [`SECURITY.md`](SECURITY.md) — how to report a security issue
 
 Work is delivered one story per branch and per pull request; see
-[`CLAUDE.md`](CLAUDE.md) for the rules.
+[`AGENTS.md`](AGENTS.md) for the rules.
 
 ## License
 
