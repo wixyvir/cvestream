@@ -55,6 +55,15 @@ def _split_shorthand(value: str) -> tuple[str, str | None]:
     return match.group(1), match.group(2)
 
 
+def split_shorthand(value: str) -> tuple[str, str | None]:
+    """`(name, version)` of a shorthand product; the version may be `None`.
+
+    Raises `ValueError` when `value` is not a shorthand. Not validated further:
+    the version is checked by the `Shorthand` type.
+    """
+    return _split_shorthand(value)
+
+
 def _check_shorthand(value: str) -> str:
     _, version = _split_shorthand(value)
     if version is not None and parse_version(version) is None:

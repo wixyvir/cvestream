@@ -12,3 +12,6 @@ data:
   CVESTREAM_ENDPOINTS_FILE: /config/endpoints.yaml
   CVESTREAM_LOG__FORMAT: json
   CVESTREAM_LOG__LEVEL: info
+  # Only the operator CLI reads it, to print feed URLs (`cvestream endpoint show`);
+  # set it to the public host of your Ingress.
+  # CVESTREAM_HTTP__PUBLIC__BASE_URL: https://feeds.example.org

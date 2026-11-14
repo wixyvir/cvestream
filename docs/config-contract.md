@@ -115,6 +115,8 @@ EXEC                                  # nil when another writer touched the revi
 - Removing an endpoint means `SREM endpoints <id>` and `DEL` of its three keys, in one transaction.
 - libraries: valkey-py sends `INCR` as `INCRBY key 1`, so the ACL line of a user that increments lists both commands.
 
+The `cvestream` operator CLI is the reference writer: every `endpoint`, `product` and `token` command, and `config import`, runs this transaction (`WATCH` the revision, read, apply, validate, `MULTI`, write **every** key of the configuration, `INCR`, `EXEC`), so a connector's concurrent `INCR` makes the CLI retry with fresh data and never loses the connector's change. `cvestream config export` and `cvestream config import` exist for backups: `import` replaces the whole configuration (the `endpoints` set and all keys of the endpoints it drops) in one such transaction, and works on an invalid or unseeded store. :factory:
+
 ### `valkey-cli` example (admin)
 
 Seed the store with one endpoint, as `cvestream-admin` (here against the dev stack, `docker compose exec -T valkey valkey-cli`; the password of the dev users is in `deploy/valkey/dev-secrets/`):

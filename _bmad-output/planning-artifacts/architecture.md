@@ -187,8 +187,11 @@ cvestream:v1:endpoint:{id}:products   JSON array of product items (shorthand str
 cvestream:v1:token:{id}               feed token, raw text (not JSON); own namespace so connector ACLs do not cover it
 ```
 
-- Write protocol: `WATCH cvestream:v1:revision` → `MULTI` → writes → `INCR cvestream:v1:revision` → `EXEC`. Retry on conflict (5 attempts, then `ConfigConflictError`). `update()` in `config/valkey_provider.py` implements it; the CLI (story 3.2) builds on it.
+- Write protocol: `WATCH cvestream:v1:revision` → `MULTI` → writes → `INCR cvestream:v1:revision` → `EXEC`. Retry on conflict (5 attempts, then `ConfigConflictError`). `update()` in `config/valkey_provider.py` implements it and the operator CLI (story 3.2) runs on it: a CLI write rewrites **every** key of the configuration in one transaction, so a connector's concurrent `INCR` makes `EXEC` fail and the CLI retry with fresh data (never an optimisation to per-key writes). An exception raised by the caller's `change` reaches the caller unchanged (it is not mapped to a Valkey failure), and a `WatchError` raised because the connection dropped while watching is reported as `ConfigUnavailableError`, not retried as a lost race.
 - Read protocol (daemon): check `revision` at each pipeline run. If it changed, read a consistent snapshot: read `revision`, read all keys in one pipelined batch, read `revision` again; if it moved, retry (up to 3 times), otherwise `ConfigConflictError` and keep the last valid configuration. Validate the whole snapshot. If invalid, keep the last valid configuration and log `config.rejected` (FR-23). Full reload every 12 pipeline cycles as a safety net (`FULL_RELOAD_EVERY` in `app/scheduler.py`, `reload_config(force=True)`): it skips the revision comparison and logs `config.reloaded` only when the snapshot differs. A missing `schema` key is an invalid (unseeded) store; a missing `endpoint:{id}` or `token:{id}` rejects the snapshot. YAML provider: revision = SHA-256 of the file content.
+- **`ConfigStore` (story 3.2):** the write side of a provider, `config/provider.py`: `document()` (the validated current `ConfigDocument`), `update(change)` (read, pure `change`, validate, write; retried on conflict; an invalid current content refuses the edit) and `replace(document)` (write a whole document **without** parsing the current content, so it repairs an invalid, missing or unseeded store; used by `config import`). Both providers implement it and `open_provider()` returns one. `change` may run once per attempt: it is pure, the token is generated once by the CLI and passed in.
+- **YAML writes (story 3.2):** `YamlConfigProvider.update()/replace()` serialise with PyYAML (`dump_document()`: a fixed header line saying comments are not kept, only non-default values, `version` and required fields always, endpoint order kept) and write atomically: a temporary file in the target's own directory, `fsync`, `chmod` to the old file's mode (`0600` for a new file), `os.replace`, directory `fsync`; the path is resolved so a symlink is written through. Before the rename the file is re-read: if its bytes changed since the read the whole cycle starts over (5 attempts, then `ConfigConflictError`). A write error is `ConfigUnavailableError` (read-only directory, single-file bind mount). Comments are dropped (a round-trip library would parse YAML 1.2 while the daemon reads YAML 1.1, and add a dependency); the provider reports `dropped_comments` so the CLI prints a one-time stderr notice. Hand editing keeps working: every command starts from the current file.
+- **Import is replace (story 3.2):** `cvestream config import FILE` validates FILE like `config validate`, then `store.replace()`: the whole configuration of the active provider, endpoints absent from FILE removed, in one write (Valkey: one write-protocol transaction that also drops invalid members of the `endpoints` set). `config export` writes the same document through the same dumper (endpoints sorted by id), so YAML export, Valkey import, Valkey export give the same bytes.
 - The configuration is never persisted by the daemon: the provider is the only source of truth (see startup behaviour under API & Communication Patterns).
 - Values are plain JSON strings (no Valkey JSON module). Persistence: AOF (`appendonly yes`, `appendfsync everysec`).
 - Schema: Pydantic models are the single source of truth. JSON Schema is exported to `schemas/config-v1.json`. `cvestream config validate` is available for other tools' CI. The YAML provider (`endpoints.yaml`) uses the same models. The document is `version: 1` plus `endpoints: [...]`, each endpoint carrying its feed `token` inline and a product list where an item is a full entry or the shorthand `name >= version`.
@@ -244,6 +247,11 @@ Rules (story 1.6): every enabled endpoint is rendered at every run, inside the r
 - **Source adapters:** `SourceAdapter` protocol (`name`, `async fetch(cursor) -> FetchResult(records, next_cursor)`). Built-in: `euvd`, `cert_eu`, `cisa_kev` (generic RSS/JSON adapters, FR-5, are deferred after v1). The `cert_eu` adapter emits one record per (advisory, CVE) pair (record ID `<serial>:<CVE>`, aliases = the CVE + `CERT-EU-SA<serial>`) so that a multi-CVE advisory never merges vulnerabilities; an advisory without CVE emits one advisory-only record. Sequential pages, short pauses, exponential backoff. The cursor is an opaque string owned by the adapter (`next_cursor` comes from source data, never from the local clock; the fetch time only caps it, so a future-dated source record cannot park it ahead). The `euvd` adapter also loads `/api/kev/dump` in full on every fetch and emits `eu_kev` records (an EU KEV addition does not change `dateUpdated`).
 - **Error taxonomy:** `SourceTransportError`, `SourcePayloadError`, `SourceContractError` (source level: logged, cursor not advanced, others continue). Record-level failure: skipped and counted. `SourceTransportError.status_code` carries the final HTTP status; an adapter that fetches one document per record (`cert_eu`) treats a final 4xx other than 429 on that document as a record-level skip, while a 5xx, a 429 or a network error stays source level (story 2.1 review). Invalid config: last valid kept. Unexpected exception in a loop: supervisor logs and restarts the loop with backoff. The process never crashes because of a source.
 - **CLI (Typer):** `run`, `poll --once`, `healthcheck [--ready]`, `endpoint create|list|show|edit|delete`, `product add|remove|list`, `token rotate`, `config validate|schema|export|import`, `db migrate|backup`.
+  - **Operator commands (story 3.2)** go through the active provider (`open_store()` in `cli/context.py`: settings, `open_provider()`, always closed) with the pure edits of `config/edit.py` (`ConfigDocument -> ConfigDocument`, no I/O, no randomness, validated by the contract models). Every `ConfigError` (unknown or duplicate id, invalid value, invalid document, provider unreachable, access denied, write conflict) is one stderr line and exit 2; an unexpected error is exit 1 (traceback only under `--debug`). The commands log nothing and never call `configure_logging()`: stdout carries the output and `--json` stays parseable.
+  - **Tokens:** `secrets.token_urlsafe(32)` through `CliState.new_token` (an injectable function; tests inject a fixed one with `CliRunner.invoke(..., obj=CliState(new_token=...))`), never an option. A token is printed only inside the feed URL of `endpoint create|show` and `token rotate`, and by `config export`.
+  - **Feed URL:** `<base>/feeds/<token>.xml`, with `base` = `http.public.base_url` (a static, non-secret setting the daemon ignores) or `http://localhost:<http.public.port>`.
+  - **`--json`** (`endpoint list|show`, `product list`): snake_case, no envelope, products always as the normalized object (`name`, `aliases`, `exclude`, `min_version`, `match_description`), `null` for unknown.
+  - **`endpoint delete`** asks for confirmation unless `--yes`; without a terminal it refuses instead of hanging. `endpoint create` takes no products (`product add`). A new token takes effect at the daemon's next cycle (the revision is read before each run, one run per source fetch); `token rotate` says so, a revision poll independent of the fetches stays deferred.
 - **`cvestream healthcheck`:** calls `http://127.0.0.1:9090/healthz` (or `/readyz` with `--ready`) with the standard library (`urllib`, no proxy handler, 2 s timeout) and exits 0 when healthy, 1 otherwise. It is used by the Docker `HEALTHCHECK` and by the Kubernetes `exec` probes, so the image needs no `curl`. It imports neither the app nor the providers, so it stays fast.
 - **Inter-service communication:** Valkey only (configuration). No message queue.
 
@@ -278,7 +286,7 @@ Not applicable: no UI. RSS is the only output contract.
   - Local: `uv run cvestream run` with the YAML provider and `./data`.
 - **Backups:** Valkey RDB snapshot + `cvestream config export` (YAML, can live in git). SQLite: `cvestream db backup <file>` (SQLite online backup API; SQLite only, PostgreSQL would use `pg_dump`).
 - **Scaling:** single replica by design (documented). RWO volume prevents two writers.
-- **Runtime configuration:** pydantic-settings 2.16: `CVESTREAM_*` env vars override an optional `settings.yaml` (`CVESTREAM_SETTINGS_FILE`). Static settings: listeners (`http.public.host`/`port`, default `0.0.0.0:8080`, and `http.private.host`/`port`, default `0.0.0.0:9090`), `data_dir`, `state.url` (SQLAlchemy URL, default SQLite under `data_dir`), `config_provider` (`valkey` | `yaml`), `valkey.url` + password file + `valkey.startup_timeout`, sources with intervals (default 15 min, max 60 for NFR-1), adapter settings, log level/format. `endpoints.yaml` (YAML provider) is a separate file.
+- **Runtime configuration:** pydantic-settings 2.16: `CVESTREAM_*` env vars override an optional `settings.yaml` (`CVESTREAM_SETTINGS_FILE`). Static settings: listeners (`http.public.host`/`port`, default `0.0.0.0:8080`, and `http.private.host`/`port`, default `0.0.0.0:9090`), `data_dir`, `state.url` (SQLAlchemy URL, default SQLite under `data_dir`), `http.public.base_url` (optional, the base of the feed URLs the CLI prints; the daemon ignores it), `config_provider` (`valkey` | `yaml`), `valkey.url` + password file + `valkey.startup_timeout`, sources with intervals (default 15 min, max 60 for NFR-1), adapter settings, log level/format. `endpoints.yaml` (YAML provider) is a separate file.
 - **Logging:** structlog 26.1, JSON in production, console in dev, dot-separated event names (`poll.completed`, `source.failed`, `publish.decided`, `config.rejected`). `cycle.summary` per run: per-source result, per-endpoint published count, pass-throughs on unknown score and unknown versions (NFR-4).
 - **Code quality and tests:** ruff 0.17.2, ty 0.0.92 (beta; fallback mypy 2.4.0 with the same CI step), pytest 9.1.1 + anyio plugin, respx 0.23.1. Recorded payloads in `tests/fixtures/<source>/`. Pre-commit optional; CI is the gate.
 
@@ -563,10 +571,11 @@ cvestream/
 │   ├── config/
 │   │   ├── __init__.py
 │   │   ├── models.py                 # Pydantic contract models v1 (extra="forbid") → domain objects
-│   │   ├── provider.py               # ConfigProvider protocol, ConfigSnapshot, ConfigError family, build_snapshot()
+│   │   ├── provider.py               # ConfigProvider and ConfigStore protocols, ConfigSnapshot, ConfigError family, validate_document(), build_snapshot()
 │   │   ├── keys.py                   # Valkey key layout constants and builders
-│   │   ├── yaml_provider.py
-│   │   ├── valkey_provider.py        # snapshot read; WATCH/MULTI/INCR write protocol
+│   │   ├── yaml_provider.py          # read; atomic writer (update, replace, document), dump_document()
+│   │   ├── valkey_provider.py        # snapshot read; WATCH/MULTI/INCR write protocol (update, replace, document)
+│   │   ├── edit.py                   # pure document edits for the CLI (create/edit/delete endpoint, add/remove product, set token)
 │   │   └── schema.py                 # JSON Schema export
 │   ├── sources/
 │   │   ├── __init__.py
@@ -605,13 +614,14 @@ cvestream/
 │   └── cli/
 │       ├── __init__.py
 │       ├── main.py                   # Typer root: run, poll --once, --debug
+│       ├── context.py                # CliState (debug, injectable new_token), user_error, open_store(), Session
 │       ├── endpoint.py
 │       ├── product.py
 │       ├── token.py
 │       ├── config.py                 # validate, schema, export, import
 │       ├── db.py                     # migrate, backup
 │       ├── healthcheck.py            # stdlib-only probe of 127.0.0.1:9090 (Docker HEALTHCHECK, k8s exec probes)
-│       └── output.py                 # table / --json output helpers
+│       └── output.py                 # table / --json output helpers, feed_url(), product_view()
 └── tests/
     ├── conftest.py                   # FakeClock, tmp SQLite, provider fixtures, socket blocking
     ├── unit/
@@ -631,6 +641,8 @@ cvestream/
     │   ├── conftest.py               # `admin` fixture (clean namespace)
     │   ├── valkey_support.py         # VALKEY_TEST_ADDRESS, clients per user
     │   ├── test_startup_requires_valkey.py  # closed port: exit code 3 after startup_timeout (no server); access cases marked valkey
+    │   ├── test_token_rotation.py    # CLI rotate, reload, old URL 404 / new URL 200 (no server)
+    │   ├── test_cli_valkey.py        # the CLI against a real Valkey, marker valkey
     │   └── test_valkey_provider.py   # marker valkey
     └── fixtures/
         ├── euvd/

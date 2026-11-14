@@ -51,6 +51,10 @@ class ConfigConflictError(ConfigUnavailableError):
     """
 
 
+class ConfigEditError(ConfigError):
+    """A requested change cannot be applied (unknown id, duplicate, nothing to do)."""
+
+
 class ConfigValidationError(ConfigError):
     """The configuration was read but is invalid; `errors` names each field."""
 
@@ -93,6 +97,27 @@ class ConfigProvider(Protocol):
         ...
 
 
+class ConfigStore(ConfigProvider, Protocol):
+    """A provider the operator CLI can also write through."""
+
+    def document(self) -> ConfigDocument:
+        """The validated current content; raises `ConfigError`."""
+        ...
+
+    def update(self, change: Callable[[ConfigDocument], ConfigDocument]) -> str:
+        """Read, apply the pure `change`, validate, write; return the new revision.
+
+        `change` may run once per attempt. An invalid current content refuses the
+        edit; a lost race is retried, then `ConfigConflictError`.
+        """
+        ...
+
+    def replace(self, document: ConfigDocument) -> str:
+        """Write `document` as the whole configuration, ignoring the current
+        content (it may be invalid or missing); return the new revision."""
+        ...
+
+
 def _is_tag(location: tuple[int | str, ...], index: int) -> bool:
     # A tag only follows `products[<i>]`; elsewhere `entry` is a real key name.
     return (
@@ -121,13 +146,13 @@ def _format_error(location: tuple[int | str, ...], message: str) -> str:
     return f"{path}: {message}" if path else message
 
 
-def build_snapshot(data: object, *, revision: str, source: str) -> ConfigSnapshot:
-    """Validate raw configuration `data` and build a snapshot.
+def validate_document(data: object, *, source: str) -> ConfigDocument:
+    """Validate raw configuration `data` into a document.
 
-    Shared by every provider (YAML now, Valkey later).
+    The error message names fields and problems, never the input (a token).
     """
     try:
-        document = ConfigDocument.model_validate(data)
+        return ConfigDocument.model_validate(data)
     except ValidationError as exc:
         # Not `str(exc)`: it embeds `input_value`, which can be a token.
         errors = [
@@ -135,6 +160,14 @@ def build_snapshot(data: object, *, revision: str, source: str) -> ConfigSnapsho
             for error in exc.errors(include_input=False, include_url=False)
         ]
         raise ConfigValidationError(source, errors) from None
+
+
+def build_snapshot(data: object, *, revision: str, source: str) -> ConfigSnapshot:
+    """Validate raw configuration `data` and build a snapshot.
+
+    Shared by every provider (YAML now, Valkey later).
+    """
+    document = validate_document(data, source=source)
     endpoints = tuple(endpoint.to_domain() for endpoint in document.endpoints)
     tokens = {endpoint.token: endpoint.id for endpoint in document.endpoints}
     return ConfigSnapshot(
@@ -142,7 +175,7 @@ def build_snapshot(data: object, *, revision: str, source: str) -> ConfigSnapsho
     )
 
 
-def open_provider(settings: Settings) -> tuple[ConfigProvider, Callable[[], None]]:
+def open_provider(settings: Settings) -> tuple[ConfigStore, Callable[[], None]]:
     """The provider `settings` names, and the function that closes it.
 
     Each provider module is imported here, not at the top: YAML mode never

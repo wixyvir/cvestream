@@ -17,14 +17,17 @@ from valkey.exceptions import (
     NoPermissionError,
     ResponseError,
     ValkeyError,
+    WatchError,
 )
 from valkey.exceptions import ConnectionError as ValkeyConnectionError
 from valkey.exceptions import TimeoutError as ValkeyTimeoutError
 
 from cvestream.config import keys
+from cvestream.config.models import ConfigDocument, EndpointConfig
 from cvestream.config.provider import (
     ConfigAccessDeniedError,
     ConfigConflictError,
+    ConfigError,
     ConfigUnavailableError,
     ConfigValidationError,
 )
@@ -537,3 +540,316 @@ def test_plain_connections_take_no_tls_options() -> None:
         provider._client.connection_pool.make_connection()
     finally:
         provider.close()
+
+
+# --- the write protocol on a fake client ---------------------------------------
+
+
+class _FakePipeline:
+    """A just-enough WATCH/MULTI/EXEC pipeline over a dict."""
+
+    def __init__(self, client: _FakeClient) -> None:
+        self._client = client
+        self.queued: list[tuple[str, tuple[Any, ...]]] = []
+        self.multi_started = False
+
+    def __enter__(self) -> _FakePipeline:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        return None
+
+    def watch(self, *_: str) -> None:
+        self._client.commands.append("watch")
+
+    def get(self, key: str) -> bytes | None:
+        self._client.commands.append(f"get {key}")
+        return self._client.strings.get(key)
+
+    def smembers(self, key: str) -> list[bytes]:
+        self._client.commands.append(f"smembers {key}")
+        return [
+            m.encode() if isinstance(m, str) else m
+            for m in self._client.sets.get(key, [])
+        ]
+
+    def multi(self) -> None:
+        self.multi_started = True
+
+    def _queue(self, name: str, *args: Any) -> None:
+        assert self.multi_started
+        self.queued.append((name, args))
+
+    def set(self, key: str, value: str) -> None:
+        self._queue("set", key, value)
+
+    def sadd(self, key: str, *members: str) -> None:
+        self._queue("sadd", key, *members)
+
+    def srem(self, key: str, *members: str) -> None:
+        self._queue("srem", key, *members)
+
+    def delete(self, *names: str) -> None:
+        self._queue("delete", *names)
+
+    def incr(self, key: str) -> None:
+        self._queue("incr", key)
+
+    def execute(self) -> list[object]:
+        client = self._client
+        client.executions += 1
+        if client.execute_errors:
+            raise client.execute_errors.pop(0)
+        results: list[object] = []
+        for name, args in self.queued:
+            client.commands.append(f"{name} {' '.join(map(str, args))}")
+            if name == "set":
+                client.strings[args[0]] = args[1].encode()
+            elif name == "sadd":
+                client.sets.setdefault(args[0], set()).update(args[1:])
+            elif name == "srem":
+                client.sets.get(args[0], set()).difference_update(args[1:])
+            elif name == "delete":
+                for key in args:
+                    client.strings.pop(key, None)
+                    client.sets.pop(key, None)
+            elif name == "incr":
+                value = int(client.strings.get(args[0], b"0")) + 1
+                client.strings[args[0]] = str(value).encode()
+                results.append(value)
+                continue
+            results.append(1)
+        return results
+
+
+class _FakeClient:
+    def __init__(self) -> None:
+        self.strings: dict[str, bytes] = {}
+        self.sets: dict[str, set[Any]] = {}
+        self.commands: list[str] = []
+        self.executions = 0
+        self.execute_errors: list[Exception] = []
+
+    def pipeline(self, transaction: bool = True) -> _FakePipeline:
+        return _FakePipeline(self)
+
+
+def _fake_provider() -> tuple[ValkeyConfigProvider, _FakeClient]:
+    client = _FakeClient()
+    return ValkeyConfigProvider(client, user="cvestream-admin"), client  # ty: ignore[invalid-argument-type]
+
+
+def _seed(client: _FakeClient, **tokens: str) -> None:
+    client.strings[keys.SCHEMA] = b"1"
+    client.strings[keys.REVISION] = b"4"
+    client.sets[keys.ENDPOINTS] = set(tokens)
+    for endpoint_id, token in tokens.items():
+        client.strings[keys.endpoint(endpoint_id)] = _json({"name": endpoint_id})
+        client.strings[keys.products(endpoint_id)] = _json(["php"])
+        client.strings[keys.token(endpoint_id)] = token.encode()
+
+
+def _document(*ids: str) -> ConfigDocument:
+    return ConfigDocument(
+        version=1,
+        endpoints=[
+            EndpointConfig(id=endpoint_id, name=endpoint_id.upper(), token=str(n) * 43)
+            for n, endpoint_id in enumerate(ids, start=1)
+        ],
+    )
+
+
+def _rename(document: ConfigDocument) -> ConfigDocument:
+    first = document.endpoints[0].model_copy(update={"name": "Renamed"})
+    return document.model_copy(update={"endpoints": [first, *document.endpoints[1:]]})
+
+
+def test_update_seeds_an_unseeded_store() -> None:
+    provider, client = _fake_provider()
+    revision = provider.update(
+        lambda doc: doc.model_copy(update={"endpoints": _document("x").endpoints})
+    )
+    assert revision == "1"
+    assert client.strings[keys.SCHEMA] == b"1"
+    assert client.sets[keys.ENDPOINTS] == {"x"}
+    assert client.strings[keys.token("x")] == b"1" * 43
+
+
+def test_update_rewrites_and_grows_the_revision_by_one() -> None:
+    provider, client = _fake_provider()
+    _seed(client, a=TOKEN_A)
+    assert provider.update(_rename) == "5"
+    assert json.loads(client.strings[keys.endpoint("a")])["name"] == "Renamed"
+
+
+def test_update_refuses_an_invalid_store_and_writes_nothing() -> None:
+    provider, client = _fake_provider()
+    _seed(client, a=TOKEN_A)
+    client.strings[keys.products("a")] = b"{not json"
+    with pytest.raises(ConfigValidationError):
+        provider.update(_rename)
+    assert client.executions == 0
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        ConfigError("nope"),
+        ValueError("nope"),
+        OSError("nope"),
+        ValkeyConnectionError("nope"),
+        ResponseError("NOPERM nope"),
+    ],
+    ids=["config", "value", "os", "valkey-connection", "valkey-response"],
+)
+def test_an_error_raised_by_change_reaches_the_caller_unchanged(
+    error: Exception,
+) -> None:
+    provider, client = _fake_provider()
+    _seed(client, a=TOKEN_A)
+
+    def change(_: ConfigDocument) -> ConfigDocument:
+        raise error
+
+    with pytest.raises(type(error)) as excinfo:
+        provider.update(change)
+    assert excinfo.value is error
+    assert client.executions == 0
+
+
+def test_replace_writes_a_document_over_an_invalid_store() -> None:
+    provider, client = _fake_provider()
+    _seed(client, a=TOKEN_A, b=TOKEN_B)
+    client.strings[keys.products("a")] = b"{not json"
+    client.strings[keys.endpoint("b")] = b"[]"
+    client.sets[keys.ENDPOINTS].add("Not A Slug")
+    client.sets[keys.ENDPOINTS].add(b"\xff")
+
+    revision = provider.replace(_document("a", "c"))
+
+    assert revision == "5"
+    assert client.sets[keys.ENDPOINTS] == {"a", "c"}
+    assert keys.endpoint("b") not in client.strings
+    assert keys.products("b") not in client.strings
+    assert keys.token("b") not in client.strings
+    assert json.loads(client.strings[keys.products("a")]) == []
+    assert client.strings[keys.token("c")] == b"2" * 43
+    # the stored values were never read
+    assert not [c for c in client.commands if c.startswith("get ")]
+
+
+def test_replace_seeds_an_unseeded_store() -> None:
+    provider, client = _fake_provider()
+    assert provider.replace(_document("x")) == "1"
+    assert client.strings[keys.SCHEMA] == b"1"
+    assert client.sets[keys.ENDPOINTS] == {"x"}
+
+
+def test_replace_with_no_endpoint_empties_the_store() -> None:
+    provider, client = _fake_provider()
+    _seed(client, a=TOKEN_A)
+    provider.replace(ConfigDocument(version=1, endpoints=[]))
+    assert keys.ENDPOINTS not in client.sets
+    assert keys.endpoint("a") not in client.strings
+    assert client.strings[keys.REVISION] == b"5"
+
+
+def test_replace_validates_before_connecting() -> None:
+    provider, client = _fake_provider()
+    duplicate = _document("a", "b")
+    duplicate.endpoints[1].token = duplicate.endpoints[0].token
+    with pytest.raises(ConfigValidationError, match="same token"):
+        provider.replace(duplicate)
+    assert client.commands == []
+
+
+def test_replace_only_uses_commands_of_the_admin_acl() -> None:
+    provider, client = _fake_provider()
+    _seed(client, a=TOKEN_A)
+    provider.replace(_document("a", "b"))
+    used = {c.split()[0] for c in client.commands}
+    assert used <= {"watch", "smembers", "set", "sadd", "delete", "incr"}
+
+
+def test_a_lost_race_is_retried() -> None:
+    provider, client = _fake_provider()
+    _seed(client, a=TOKEN_A)
+    client.execute_errors = [WatchError("Watched variable changed.")]
+    assert provider.update(_rename) == "5"
+    assert client.executions == 2
+
+
+def test_replace_retries_a_lost_race() -> None:
+    provider, client = _fake_provider()
+    client.execute_errors = [WatchError("Watched variable changed.")] * 2
+    assert provider.replace(_document("x")) == "1"
+    assert client.executions == 3
+
+
+def test_endless_lost_races_give_up() -> None:
+    provider, client = _fake_provider()
+    _seed(client, a=TOKEN_A)
+    client.execute_errors = [WatchError("Watched variable changed.")] * 5
+    with pytest.raises(ConfigConflictError, match="gave up after 5 attempts"):
+        provider.update(_rename)
+    assert client.executions == 5
+
+
+@pytest.mark.parametrize(
+    ("cause", "name"),
+    [
+        (ValkeyConnectionError("secret-host dropped"), "ConnectionError"),
+        (ValkeyTimeoutError("slow"), "TimeoutError"),
+    ],
+)
+def test_a_connection_lost_while_watching_is_unavailable_not_a_conflict(
+    cause: Exception, name: str
+) -> None:
+    provider, client = _fake_provider()
+    _seed(client, a=TOKEN_A)
+
+    def drop() -> WatchError:
+        try:
+            try:
+                raise cause
+            except ValkeyError:
+                raise WatchError(
+                    "A ConnectionError occurred on while watching one or more keys"
+                ) from None
+        except WatchError as exc:
+            return exc
+
+    client.execute_errors = [drop()]
+    with pytest.raises(ConfigUnavailableError) as excinfo:
+        provider.update(_rename)
+    assert not isinstance(excinfo.value, ConfigConflictError)
+    assert str(excinfo.value) == f"valkey: cannot reach valkey:6379: {name}"
+    assert client.executions == 1
+
+
+def test_document_is_the_validated_stored_document() -> None:
+    provider = _ScriptedProvider(["3", "3"], _raw(a=_endpoint()))
+    document = provider.document()
+    assert [e.id for e in document.endpoints] == ["a"]
+    assert document.endpoints[0].token == TOKEN_A
+
+
+def test_document_retries_like_load() -> None:
+    provider = _ScriptedProvider(["1", "2", "2", "2"], _raw(a=_endpoint()))
+    provider.document()
+    assert provider.raw_reads == 2
+
+
+def test_document_names_the_endpoint_in_model_errors() -> None:
+    provider = _ScriptedProvider(
+        ["1", "1"], _raw(a=_endpoint(body={"name": "x", "min_cvss": 11}))
+    )
+    with pytest.raises(ConfigValidationError) as excinfo:
+        provider.document()
+    assert excinfo.value.errors[0].startswith("endpoint:a.min_cvss: ")
+
+
+def test_document_of_an_unseeded_store_is_a_validation_error() -> None:
+    provider = _ScriptedProvider(["0", "0"], RawConfig(None, {}))
+    with pytest.raises(ConfigValidationError, match="not seeded"):
+        provider.document()

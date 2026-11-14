@@ -18,6 +18,7 @@ cvestream has two configuration layers:
   | `log.format` | `json` | `json` (one object per line) or `console` |
   | `http.public.host` | `0.0.0.0` | address the public listener (feeds) binds |
   | `http.public.port` | `8080` | port of the public listener, 1 to 65535 |
+  | `http.public.base_url` | none | where readers reach the feeds (`https://feeds.example.org`, a path prefix is allowed); only the operator CLI uses it, to print feed URLs. Without it the CLI prints `http://localhost:<http.public.port>` :factory: |
   | `http.private.host` | `0.0.0.0` | address the private listener (`/healthz`, `/readyz`, `/status`) binds |
   | `http.private.port` | `9090` | port of the private listener, 1 to 65535 |
   | `sources.<name>.enabled` | `true` | poll this source (`euvd`, `cisa_kev`, `cert_eu`) |
@@ -101,7 +102,7 @@ A product entry has `name` (required), `aliases[]`, `exclude[]`, `min_version` a
 
 **Shorthand.** `php >= 8.2` means name `php`, minimum version `8.2`. A bare `php` is a name only. Spaces around `>=` are optional and names may contain spaces (`apache http server >= 2.4`). Only `>=` exists.
 
-**Tokens.** The token **is** the access control: anyone who knows a feed URL can read the feed. Generate one per endpoint:
+**Tokens.** The token **is** the access control: anyone who knows a feed URL can read the feed. `cvestream endpoint create` and `cvestream token rotate` generate one (see [CLI](#cli)). When you edit the file by hand, generate one per endpoint:
 
 ```sh
 python -c "import secrets; print(secrets.token_urlsafe(32))"
@@ -130,3 +131,37 @@ The daemon reloads the file by itself, without a restart. The revision of the fi
 **With Valkey,** the revision is the `cvestream:v1:revision` integer that every writer increments: the daemon reads it (one `GET`) at the start of each cycle and reloads when it changed. As a safety net for a writer that forgot to increment it, **every 12th pipeline cycle reloads the configuration even when the revision did not change** (about once an hour with three sources at 15 minutes); that reload is silent when nothing changed. While Valkey is unreachable, each cycle logs a `config.unavailable` warning and keeps the last valid configuration: polling and feeds continue, `/readyz` stays 200, and a cycle is delayed at most by the client's 5 s socket timeouts. A rotated token reaches the daemon at the next cycle, that is the next source fetch. :factory:
 
 When the new content is invalid, the daemon keeps the last valid configuration and logs `config.rejected` with the field errors (never a token). When the file cannot be read, it keeps it too and logs `config.unavailable`. See [operations.md](operations.md).
+
+## CLI
+
+The operator CLI manages endpoints, products and tokens through the **active provider** (`config_provider`): the same commands write `endpoints.yaml` or the Valkey store, so nobody edits Valkey keys by hand. They read the settings like the daemon does. The daemon applies a change at its next cycle, with no restart. :factory:
+
+| Command | What it does |
+|---|---|
+| `cvestream endpoint create ID --name NAME [--min-cvss N] [--kev-only] [--disabled]` | create an endpoint with a new random token; prints `feed: <url>` as its last line. Add products with `product add` |
+| `cvestream endpoint list [--json]` | `ID NAME ENABLED MIN_CVSS KEV_ONLY PRODUCTS`, sorted by id; no token, no URL |
+| `cvestream endpoint show ID [--json]` | every field, the products and the feed URL |
+| `cvestream endpoint edit ID [--name N] [--min-cvss N \| --no-min-cvss] [--kev-only/--no-kev-only] [--enable/--disable]` | change the given fields; no option is an error |
+| `cvestream endpoint delete ID [--yes]` | delete the endpoint, its products and its token; asks for confirmation, and without a terminal needs `--yes` |
+| `cvestream product add ENDPOINT PRODUCT [--alias A]... [--exclude T]... [--min-version V] [--match-description/--no-match-description]` | `PRODUCT` is a name or `"name >= version"`; stored as given when no option refines it, as a full entry otherwise; a name the endpoint already has is refused |
+| `cvestream product remove ENDPOINT NAME` | remove every product named NAME (case-insensitive, aliases are not considered) |
+| `cvestream product list ENDPOINT [--json]` | `NAME MIN_VERSION ALIASES EXCLUDE MATCH_DESCRIPTION` |
+| `cvestream token rotate ENDPOINT` | new token, prints the new feed URL; the old URL answers `404` once the daemon reloaded |
+| `cvestream config export [-o FILE]` | the whole active configuration (tokens included) as a v1 YAML document, endpoints sorted by id; `-o` creates a new file with mode `0600` |
+| `cvestream config import FILE` | validate FILE, then **replace** the whole configuration of the active provider (it also repairs an invalid or unseeded store) |
+
+```sh
+cvestream endpoint create team-php --name "PHP team" --min-cvss 7
+cvestream product add team-php "php >= 8.2"
+cvestream product add team-php gitlab --alias gitlab-ce --exclude gitlab-runner --min-version 17.0
+cvestream endpoint show team-php --json
+cvestream token rotate team-php
+```
+
+- **Feed URL.** `endpoint create`, `endpoint show` and `token rotate` print `<base>/feeds/<token>.xml`. `<base>` is `http.public.base_url` (`CVESTREAM_HTTP__PUBLIC__BASE_URL`, for example `https://feeds.example.org`), or `http://localhost:<http.public.port>` without it. The daemon ignores the setting. The token appears on stdout only in those three feed URLs and in `config export`; it never appears in an error line or a log.
+- **Tokens** come from `secrets.token_urlsafe(32)`, never from a command-line option (it would end up in the shell history).
+- **Exit codes.** `0` success. `2` for a user error: unknown or duplicate id, invalid value, invalid current document, bad options, provider unreachable or access denied (with Valkey, a write as the read-only `cvestream-daemon` user), a write conflict that lasted: one line on stderr. `1` for an unexpected error (the traceback only with `cvestream --debug ...`).
+- **Validation.** Every change is validated with the contract models before anything is written: an invalid change leaves the file bytes (YAML) or the keys and the revision (Valkey) untouched. An invalid current file or store refuses every edit with the field errors; repair it by hand or with `cvestream config import`.
+- **`--json`** (`endpoint list`, `endpoint show`, `product list`) prints snake_case JSON with no envelope. Products always have the same shape (`name`, `aliases`, `exclude`, `min_version`, `match_description`), whether stored as a shorthand string or as an entry; an unknown `min_cvss` or `min_version` is `null`.
+- **YAML rewrite.** The CLI rewrites the whole file: the write is atomic (a temporary file in the same directory, `fsync`, then a rename), the file mode is kept (`0600` for a new file), and so are its owner and group when the CLI may set them (as root, or as the owner), so `sudo cvestream ...` does not leave a file the daemon can no longer read, only values that differ from the defaults are written, and **comments are not kept**. The first line says so (`# Written by cvestream; comments are not kept`), and the CLI prints a notice on stderr the first time it rewrites a file that had comments. Hand editing keeps working: every command starts from the current content of the file, and a change that lands between the CLI's read and its rename makes it read again (a very small window remains: do not run two writers on purpose). The directory must be writable: with a read-only mount (the self-hosted compose mounts `./config` read-only, Kubernetes mounts a Secret read-only) run the CLI where the file is writable, then the daemon reloads it through the mount, or use the Valkey provider.
+- **Valkey.** A write is the 3.1 write protocol: `WATCH` the revision, read, apply, validate, `MULTI`, write every key of the configuration, `INCR` the revision, `EXEC`, retried on conflict, so each command grows the revision by exactly 1 and a connector writing at the same time makes the CLI retry instead of losing its change. See [Running the CLI against Valkey](operations.md#valkey).
