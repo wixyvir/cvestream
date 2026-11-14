@@ -1,31 +1,35 @@
 # cvestream
 
-cvestream turns the noisy public vulnerability feeds (EUVD, CISA KEV and CERT-EU
-advisories) into small, filtered RSS feeds. Each team gets a feed that
+[![CI](https://github.com/wixyvir/cvestream/actions/workflows/ci.yml/badge.svg)](https://github.com/wixyvir/cvestream/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.14-blue.svg)](pyproject.toml)
+
+cvestream turns noisy public vulnerability feeds (EUVD, CISA KEV, CERT-EU
+advisories) into small, filtered RSS 2.0 feeds. Each team gets a feed that
 matches its own stack, so a Slack RSS integration only posts what is relevant
-to them, with CVSS score, known-exploited status and affected versions
-in each item.
+to them — with CVSS score, known-exploited status, and affected versions in
+each item.
 
-**Status:** pre-release. Epic 1 (a first working pipeline) is done and epic 2
-(European advisory sources) is in progress; this repository currently holds
-the project skeleton, the container image, the CI quality gate, the domain
-model, the endpoint configuration contract, the EUVD, CISA KEV and CERT-EU
-source adapters, and the state store with the correlation and publication
-decisions (each vulnerability is merged across sources and decided
-once per endpoint, surviving restarts), and the daemon that polls the sources
-and serves one token-protected RSS 2.0 feed per endpoint.
+**Status:** v0.x — early development. The API and configuration format may
+change between releases.
 
-Design: [`_bmad-output/planning-artifacts/architecture.md`](_bmad-output/planning-artifacts/architecture.md).
-Sources and their assumptions: [`docs/sources.md`](docs/sources.md).
-Static settings: [`settings.example.yaml`](settings.example.yaml) (every key is
-documented there; environment variables use the `CVESTREAM_` prefix, `__` for
-nesting). Endpoint configuration (`endpoints.yaml`) and settings are described
-in [`docs/configuration.md`](docs/configuration.md).
+## How it works
+
+```
+EUVD ─┐
+CISA KEV ─┼─→ poll → normalize → correlate → match per endpoint → publish once → RSS 2.0 per team
+CERT-EU ─┘                                                            (token-protected, :8080)
+```
+
+Each vulnerability is merged across sources (CVE/EUVD aliases), matched
+against each endpoint's product list and rules, and published once. It is
+re-posted only when it becomes known-exploited or its severity band rises.
+State survives restarts; a restart never re-posts.
 
 ## Self-hosted quick start
 
-One container, the YAML configuration provider and a named volume for the state.
-Needs Docker with Compose.
+One container, the YAML configuration provider, and a named volume for the
+state. Needs Docker with Compose.
 
 ```sh
 cd deploy/compose
@@ -88,5 +92,28 @@ docker run --rm cvestream:local --help        # runtime image: UID 999, no uv, v
 The repository also ships a [devcontainer](.devcontainer/devcontainer.json)
 that uses the same `app` service as `docker compose watch`.
 
+## Documentation
+
+| Document | What it covers |
+|---|---|
+| [`docs/configuration.md`](docs/configuration.md) | `settings.yaml`, `CVESTREAM_*` env vars, `endpoints.yaml` |
+| [`docs/operations.md`](docs/operations.md) | Running, logs, health, backups, token rotation, source drift |
+| [`docs/sources.md`](docs/sources.md) | Each source's API assumptions (timezone, pagination, placeholders) |
+| [`settings.example.yaml`](settings.example.yaml) | Annotated reference for all static settings |
+| [`endpoints.example.yaml`](endpoints.example.yaml) | Annotated reference for endpoint configuration |
+| [`_bmad-output/planning-artifacts/architecture.md`](_bmad-output/planning-artifacts/architecture.md) | Design and layering (authoritative) |
+
+## Contributing
+
+We welcome contributions. Please read:
+
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — setup, quality gates, branching, commits
+- [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) — community standards
+- [`SECURITY.md`](SECURITY.md) — how to report a security issue
+
 Work is delivered one story per branch and per pull request; see
-`CLAUDE.md` for the rules.
+[`CLAUDE.md`](CLAUDE.md) for the rules.
+
+## License
+
+cvestream is licensed under the [Apache License 2.0](LICENSE).
