@@ -1,0 +1,12 @@
+# ClusterIP only: the UI is reached with `kubectl port-forward`, never exposed.
+apiVersion: v1
+kind: Service
+metadata:
+  name: cvestream-valkey-ui
+spec:
+  selector:
+    app.kubernetes.io/name: valkey-ui
+  ports:
+    - name: http
+      port: 5540
+      targetPort: http

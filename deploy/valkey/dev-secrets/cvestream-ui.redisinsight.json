@@ -1,0 +1,1 @@
+[{"id": "cvestream", "name": "cvestream", "host": "valkey", "port": 6379, "username": "cvestream-ui", "password": "dev-only-cvestream-ui"}]

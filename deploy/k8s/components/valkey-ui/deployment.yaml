@@ -1,0 +1,98 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cvestream-valkey-ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: valkey-ui
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: valkey-ui
+        # Admitted by the example Valkey NetworkPolicy (opt-in label).
+        cvestream.io/valkey-access: "true"
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000          # `node` in the image: a name, so restricted needs the number
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: redisinsight
+          # Same pin as compose.yml's valkey-ui (a test keeps them equal).
+          # SSPL-licensed: used unmodified, never redistributed.
+          image: redis/redisinsight:3.8.0
+          env:
+            - name: RI_ACCEPT_TERMS_AND_CONDITIONS
+              value: "true"   # skips the EULA screen, analytics off
+            - name: RI_DATABASE_MANAGEMENT
+              value: "false"  # the connection list is fixed
+            - name: RI_STATICS_AUTO_UPDATE
+              value: "false"
+            # Logs on stdout only: the stdout transport is off by default, so
+            # turning the files off without it would leave no log transport.
+            - name: RI_STDOUT_LOGGER
+              value: "true"
+            - name: RI_FILES_LOGGER
+              value: "false"
+            # host, user and password of the cvestream connection, from the Secret
+            - name: RI_PRE_SETUP_DATABASES_PATH
+              value: /secrets/valkey-ui/databases.json
+          ports:
+            - name: http
+              containerPort: 5540
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+          # No health endpoint assumed in 3.8.0: probe the port.
+          startupProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 24
+          readinessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: data
+              mountPath: /data      # SQLite, content; kept across container restarts, emptied when the pod is recreated
+            - name: tmp
+              mountPath: /tmp
+            - name: databases
+              mountPath: /secrets/valkey-ui
+              readOnly: true
+      volumes:
+        # Exceeding the limit evicts the pod (documented in docs/operations.md).
+        - name: data
+          emptyDir:
+            sizeLimit: 256Mi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: databases
+          secret:
+            secretName: cvestream-valkey-ui
+            defaultMode: 0440

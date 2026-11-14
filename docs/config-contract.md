@@ -6,7 +6,7 @@
 - Six kinds of key: `schema` (`1`), `revision` (an integer every writer `INCR`s), `endpoints` (a set of ids), and per endpoint `endpoint:<id>` (JSON), `endpoint:<id>:products` (JSON array) and `token:<id>` (the feed token, **raw text**).
 - **Readers** (the daemon): read `revision`, read the keys, read `revision` again; if it moved, start over. **Writers**: `WATCH revision`, read, `MULTI`, write, **`INCR revision`**, `EXEC`; retry on conflict.
 - The JSON values follow [`schemas/config-v1.json`](../schemas/config-v1.json): the same models validate `endpoints.yaml` and Valkey. Anything invalid is rejected as a whole and the daemon keeps its last valid configuration.
-- Access is per role through an ACL file ([`deploy/valkey/users.acl`](../deploy/valkey/users.acl)): the daemon is read-only, the admin writes `cvestream:v1:*`, a connector writes only `endpoint:*:products` and `revision`, and **nobody but the daemon and the admin can see a token**.
+- Access is per role through an ACL file ([`deploy/valkey/users.acl`](../deploy/valkey/users.acl)): the daemon is read-only, the admin writes `cvestream:v1:*`, a connector writes only `endpoint:*:products` and `revision`, and **nobody but the daemon, the admin and the administration UI can see a token**.
 - Compatibility: the `v1` in the key prefix is the contract version. A breaking change gets a new prefix (`cvestream:v2:*`), never a silent change of `v1`.
 
 :factory: This document was written by an AI agent.
@@ -18,6 +18,7 @@
 | Daemon (`cvestream run`) | `cvestream-daemon` | everything under `cvestream:v1:*`, tokens included (it serves the feeds) | nothing |
 | Operator / CLI | `cvestream-admin` | everything under `cvestream:v1:*` | everything under `cvestream:v1:*` |
 | Connector (BoM, CD worker) | `connector-<name>` | `schema`, `revision`, `endpoints`, `endpoint:*` (products included) | `endpoint:<id>:products` and `revision` only; never `token:*` |
+| Administration UI (story 3.4) | `cvestream-ui` | everything under `cvestream:v1:*`, tokens included, plus the key names of the whole database through `SCAN` | everything under `cvestream:v1:*` |
 
 ## Key layout
 
@@ -157,12 +158,13 @@ A connector should read the list of ids it may edit from `SMEMBERS cvestream:v1:
 
 ## Access rules (ACL)
 
-[`deploy/valkey/users.acl`](../deploy/valkey/users.acl) defines four users. It is loaded by `valkey.conf` (`aclfile /usr/local/etc/valkey/users.acl`):
+[`deploy/valkey/users.acl`](../deploy/valkey/users.acl) defines five users. It is loaded by `valkey.conf` (`aclfile /usr/local/etc/valkey/users.acl`):
 
 ```
 user default off resetpass resetkeys resetchannels -@all
 user cvestream-daemon on #<sha256> resetchannels %R~cvestream:v1:* -@all +get +mget +smembers +exists +ping +select +client|setinfo
 user cvestream-admin on #<sha256> resetchannels ~cvestream:v1:* -@all +get +mget +smembers +exists +set +del +sadd +srem +incr +incrby +watch +unwatch +multi +exec +discard +ping +select +client|setinfo
+user cvestream-ui on #<sha256> resetchannels ~cvestream:v1:* -@all +get +mget +smembers +exists +set +del +sadd +srem +incr +incrby +watch +unwatch +multi +exec +discard +ping +select +client|setinfo +client|setname +scan +type +ttl +pttl +strlen +getrange +scard +sscan +sismember +dbsize +info +memory|usage
 user connector-example on #<sha256> resetchannels %R~cvestream:v1:schema %R~cvestream:v1:endpoints %R~cvestream:v1:endpoint:* %W~cvestream:v1:endpoint:*:products %RW~cvestream:v1:revision -@all +get +mget +smembers +exists +set +incr +incrby +watch +unwatch +multi +exec +discard +ping +select +client|setinfo
 ```
 
@@ -174,7 +176,13 @@ user connector-example on #<sha256> resetchannels %R~cvestream:v1:schema %R~cves
 - **Key permissions per command.** `GET`, `MGET` and `SMEMBERS` need read access to the key; `SET`, `SADD`, `SREM` and `DEL` need write access; **`INCR` needs read and write** (hence `%RW~` on `revision` for the connector); `WATCH` only needs the key to match one of the user's patterns. A command queued inside `MULTI` is checked when it is queued: a refused one makes the transaction fail.
 - **Pattern details.** `%R~cvestream:v1:endpoint:*` also matches `cvestream:v1:endpoint:<id>:products` (a glob `*` crosses `:`), so connectors can read product lists. It does **not** match `cvestream:v1:endpoints` (which has its own pattern) nor `cvestream:v1:token:<id>`.
 - **Tokens stay secret.** `token:<id>` lives in its own namespace, outside `endpoint:*`: no connector pattern covers it. Keep it that way when you add a user.
-- **`client|setinfo`.** valkey-py sends `CLIENT SETINFO` after `AUTH` and ignores a refusal; the line grants it so the server's ACL log stays clean.
+- **`client|setinfo`.** valkey-py sends `CLIENT SETINFO` after `AUTH` and ignores a refusal; the line grants it so the server's ACL log stays clean. The UI's client (ioredis) sends `CLIENT SETNAME` instead: `cvestream-ui` grants `client|setname`, never the whole `client` command.
+- **`cvestream-ui` (the administration UI, story 3.4).** It is the only user with `SCAN`: `SCAN` is keyspace-wide and lists every key name of the database, which is accepted because the database holds only `cvestream:v1:*` (a token key name carries only the endpoint id). Its extra grants are the browse commands the UI needs (`TYPE`, `TTL`, `PTTL`, `STRLEN`, `GETRANGE`, `SCARD`, `SSCAN`, `SISMEMBER`, `DBSIZE`, `INFO`, `MEMORY USAGE`), settled empirically with `ACL LOG` on 2026-11-07: with them, the key browser, string and set views and edits, key deletion and the CLI tab all work; the commands the UI also tries and that stay refused (`CONFIG GET`, `CLUSTER NODES`, `ACL CAT`) are optional and the UI degrades on them.
+- **Never granted to any user:** `KEYS`, `FLUSHALL`/`FLUSHDB`, `CONFIG`, `ACL`, `DEBUG`, `MODULE`, scripting (`EVAL`/`EVALSHA`/`SCRIPT`/`FUNCTION`/`FCALL`), `SHUTDOWN`, `REPLICAOF`/`SLAVEOF`, `MIGRATE`, `MONITOR`, `SLOWLOG`, `LATENCY`, `CLIENT LIST`/`KILL`, `RENAME`/`RENAMENX`, `MOVE`, `COPY`, `RESTORE`, `DUMP`, `SWAPDB`, the `EXPIRE` family (`EXPIRE`/`PEXPIRE`/`EXPIREAT`/`PEXPIREAT`/`PERSIST`/`GETEX` — a TTL on a config key would make it vanish), `SAVE`/`BGSAVE`/`BGREWRITEAOF`, `CLUSTER`, `FAILOVER`, `SYNC`/`PSYNC`/`REPLCONF` (they stream the whole dataset), and every `CLIENT` subcommand but `SETINFO` and `SETNAME`; no user gets a `+@` category either. `tests/unit/test_deploy_valkey.py` guards the list on the raw file, for every user, whatever the case of the rule.
+- **`SET` can still set a TTL.** An ACL cannot filter arguments: a user with `SET` can run `SET <key> <value> EX <seconds>` (or `PX`, `EXAT`, `PXAT`). The `EXPIRE` ban closes the commands made for it, not this option: never give a configuration key a TTL (see `docs/operations.md`, "Valkey administration UI").
+- **The accepted `INFO` exposure.** `cvestream-ui` is granted `INFO`. Its clients section has counters only (the client list, with addresses and last commands, is `CLIENT LIST`, refused), but the other sections show the server and OS versions, the executable and configuration file paths, persistence and replication details (replica addresses), per-command statistics and the key count of each logical database. Refusing `INFO` degrades the UI, so the exposure is accepted and recorded here (checked against `valkey/valkey:9.1.3` on 2026-11-07).
+- **UI writes skip validation and the revision bump.** The UI writes keys directly: no `WATCH`/`INCR` protocol, no validation against the schema. The daemon still catches both: the forced reload every 12th pipeline cycle picks up an edit that did not `INCR`, and an invalid edit is rejected with `config.rejected`, keeping the last valid configuration (see the read protocol above). Prefer the CLI for writes; after a UI edit, run `INCR cvestream:v1:revision`.
+- **Production: the UI user.** The committed file carries the hash of a public dev password. In production add your own `cvestream-ui` line (same commands, your own `#<sha256>`, generated as in step 1 below) only when you enable the UI, and put the password in the `cvestream-valkey-ui` Secret's `databases.json` (see `docs/operations.md`, "Valkey administration UI").
 
 ### Adding a connector user
 

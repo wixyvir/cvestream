@@ -1,0 +1,18 @@
+# Opt-in component (story 3.4): the Valkey administration UI (Redis Insight,
+# SSPL-licensed, used unmodified). Enable it by listing this directory under
+# `components:` of your overlay (which sets `namespace:` itself), then create
+# the cvestream-valkey-ui Secret from the secret.example.yaml template and add
+# a cvestream-ui line with your own password hash to the users.acl you deploy.
+# The template is not a resource here: `kubectl apply -k` never overwrites the
+# Secret you create. Access it with
+#   kubectl -n <ns> port-forward svc/cvestream-valkey-ui 5540:5540
+# and open http://127.0.0.1:5540. It is never exposed: there is no Ingress, and
+# its NetworkPolicy has no ingress rule (port-forward enters the pod directly
+# and is not filtered). The UI has no authentication of its own: whoever
+# reaches it controls the store and sees every token.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - deployment.yaml
+  - service.yaml
+  - networkpolicy.yaml

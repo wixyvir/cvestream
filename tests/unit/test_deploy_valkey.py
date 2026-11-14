@@ -2,14 +2,98 @@
 
 import fnmatch
 import hashlib
+import json
 from pathlib import Path
 
 import pytest
 
 DEPLOY = Path(__file__).resolve().parents[2] / "deploy" / "valkey"
-USERS = ("cvestream-daemon", "cvestream-admin", "connector-example")
+USERS = ("cvestream-daemon", "cvestream-admin", "cvestream-ui", "connector-example")
 # A key no connector may reach.
 A_TOKEN_KEY = "cvestream:v1:token:team-php"  # noqa: S105 (a key name, not a secret)
+
+# Commands no shipped user may ever run (story 3.4), with every subcommand: the
+# dangerous server commands, scripting, the EXPIRE family (a TTL on a config key
+# would make it vanish; `SET ... EX` stays possible, see docs/config-contract.md),
+# the commands that move keys out of the contract layout or stream the dataset,
+# and `CLIENT` (its subcommands list or kill other clients) but for the
+# allow-listed subcommands below.
+FORBIDDEN_COMMANDS = {
+    "keys",
+    "flushall",
+    "flushdb",
+    "config",
+    "acl",
+    "debug",
+    "module",
+    "eval",
+    "evalsha",
+    "eval_ro",
+    "evalsha_ro",
+    "script",
+    "function",
+    "fcall",
+    "fcall_ro",
+    "shutdown",
+    "replicaof",
+    "slaveof",
+    "migrate",
+    "monitor",
+    "slowlog",
+    "latency",
+    "client",
+    "rename",
+    "renamenx",
+    "move",
+    "copy",
+    "swapdb",
+    "restore",
+    "dump",
+    "expire",
+    "pexpire",
+    "expireat",
+    "pexpireat",
+    "persist",
+    "getex",
+    "save",
+    "bgsave",
+    "bgrewriteaof",
+    "cluster",
+    "failover",
+    "sync",
+    "psync",
+    "replconf",
+}
+# The only subcommands of a forbidden command that a user may get: client
+# libraries send them after `AUTH` (valkey-py `SETINFO`, ioredis `SETNAME`).
+ALLOWED_SUBCOMMANDS = {"client|setinfo", "client|setname"}
+# Story 3.4 adds `cvestream-ui` and must leave the other lines as they are
+# (AC 1): changing one of them is deliberate and updates this table too.
+UNCHANGED_LINES = {
+    "default": "user default off resetpass resetkeys resetchannels -@all",
+    "cvestream-daemon": (
+        "user cvestream-daemon on "
+        "#46f4efafd071de07d56f12258421edcb70b39bad7e3199cb250fc693329567e3 "
+        "resetchannels %R~cvestream:v1:* -@all +get +mget +smembers +exists "
+        "+ping +select +client|setinfo"
+    ),
+    "cvestream-admin": (
+        "user cvestream-admin on "
+        "#5f558d6e4f84fae21673ad9ea14f3a312ef3f4304b59a51ceb0da3a9290da7a3 "
+        "resetchannels ~cvestream:v1:* -@all +get +mget +smembers +exists "
+        "+set +del +sadd +srem +incr +incrby +watch +unwatch +multi +exec "
+        "+discard +ping +select +client|setinfo"
+    ),
+    "connector-example": (
+        "user connector-example on "
+        "#174808d04c670f4b8e094fe329f5237bb3b149a8f41c1936349c38678c85b48f "
+        "resetchannels %R~cvestream:v1:schema %R~cvestream:v1:endpoints "
+        "%R~cvestream:v1:endpoint:* %W~cvestream:v1:endpoint:*:products "
+        "%RW~cvestream:v1:revision -@all +get +mget +smembers +exists +set "
+        "+incr +incrby +watch +unwatch +multi +exec +discard +ping +select "
+        "+client|setinfo"
+    ),
+}
 
 
 def _acl_lines() -> dict[str, list[str]]:
@@ -21,6 +105,11 @@ def _acl_lines() -> dict[str, list[str]]:
         assert words[0] == "user", f"only `user` lines are valid in an ACL file: {line}"
         users[words[1]] = words[2:]
     return users
+
+
+def _commands(rules: list[str]) -> set[str]:
+    """The granted commands, lower-cased: ACL rules are case-insensitive."""
+    return {rule[1:].lower() for rule in rules if rule.startswith("+")}
 
 
 def _patterns(rules: list[str]) -> list[tuple[str, str]]:
@@ -111,6 +200,63 @@ def test_the_connector_writes_only_products_and_revision() -> None:
     for key in ("cvestream:v1:endpoint:team-php", "cvestream:v1:endpoints"):
         assert not any(fnmatch.fnmatchcase(key, glob) for glob in writable)
     assert fnmatch.fnmatchcase("cvestream:v1:endpoint:team-php:products", writable[0])
+
+
+def test_the_ui_user_is_limited_to_the_namespace() -> None:
+    rules = _acl_lines()["cvestream-ui"]
+    assert _patterns(rules) == [("RW", "cvestream:v1:*")]
+
+
+@pytest.mark.parametrize("name", USERS)
+def test_no_user_gets_a_category_or_a_forbidden_command(name: str) -> None:
+    rules = _acl_lines()[name]
+    assert rules.index("-@all") < min(
+        index for index, rule in enumerate(rules) if rule.startswith("+")
+    )
+    for command in _commands(rules):
+        assert not command.startswith("@"), f"{name}: +{command} is a category"
+        if command in ALLOWED_SUBCOMMANDS:
+            continue
+        parent = command.partition("|")[0]
+        assert parent not in FORBIDDEN_COMMANDS, f"{name}: +{command} is forbidden"
+
+
+def test_only_the_ui_user_has_scan() -> None:
+    # Categories are refused above, so the explicit grant is the only way in.
+    for name, rules in _acl_lines().items():
+        assert ("scan" in _commands(rules)) == (name == "cvestream-ui"), name
+
+
+def test_the_other_users_lines_are_unchanged() -> None:
+    lines = {
+        line.split()[1]: line
+        for line in (DEPLOY / "users.acl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    }
+    for name, expected in UNCHANGED_LINES.items():
+        assert lines[name] == expected, name
+
+
+def test_the_redisinsight_pre_setup_file_matches_the_dev_secret_and_the_acl() -> None:
+    databases = json.loads(
+        (DEPLOY / "dev-secrets" / "cvestream-ui.redisinsight.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    password = (DEPLOY / "dev-secrets" / "cvestream-ui.password").read_text(
+        encoding="utf-8"
+    )
+    assert len(databases) == 1
+    (database,) = databases
+    assert database == {
+        "id": "cvestream",
+        "name": "cvestream",
+        "host": "valkey",
+        "port": 6379,
+        "username": "cvestream-ui",
+        "password": password,
+    }
+    assert "cvestream-ui" in _acl_lines()
 
 
 def test_the_connector_reads_what_the_read_protocol_needs() -> None:

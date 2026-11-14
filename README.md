@@ -89,6 +89,14 @@ package: add an `imagePullSecrets` or make it public. Details, Secrets,
 seeding and Ingress access logs:
 [`docs/operations.md`](docs/operations.md#kubernetes).
 
+The optional Valkey administration UI ships as the opt-in Kustomize component
+`deploy/k8s/components/valkey-ui` (not enabled by the example overlay): list it
+under `components:` in your own overlay, create its Secret from
+`secret.example.yaml`, and reach it with
+`kubectl -n <ns> port-forward svc/cvestream-valkey-ui 5540:5540`. Never expose it —
+it has no authentication of its own
+([docs/operations.md](docs/operations.md#valkey-administration-ui)). :factory:
+
 ## Releases and image tags
 
 Pushing a tag `vX.Y.Z` (equal to the `pyproject.toml` version) runs
@@ -126,8 +134,9 @@ uv run lint-imports
 uv run pytest
 uv run cvestream config schema --check
 uv run cvestream config validate endpoints.example.yaml
-kubectl kustomize deploy/k8s/base              # both must build
+kubectl kustomize deploy/k8s/base              # all must build
 kubectl kustomize deploy/k8s/overlays/example
+kubectl kustomize tests/k8s/example-with-valkey-ui
 ```
 
 `pytest` blocks the network (pytest-socket). Tests marked `live` hit real
@@ -155,8 +164,14 @@ docker run --rm cvestream:local --help        # runtime image: UID 999, no uv, v
                                               # (its default command is `run`, with a HEALTHCHECK)
 ```
 
+The stack also starts a Valkey administration UI (Redis Insight) on
+`http://127.0.0.1:5540`, already connected to the `valkey` service as
+`cvestream-ui`; see [docs/operations.md](docs/operations.md#valkey-administration-ui).
+Loopback only: it has no authentication of its own. :factory:
+
 The repository also ships a [devcontainer](.devcontainer/devcontainer.json)
-that uses the same `app` service as `docker compose watch`.
+that uses the same `app` service as `docker compose watch`; it starts the
+Valkey UI too.
 
 Work is delivered one story per branch and per pull request; see
 `CLAUDE.md` for the rules.
