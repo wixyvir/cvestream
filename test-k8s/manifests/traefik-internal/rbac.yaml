@@ -1,0 +1,56 @@
+# wixyvir/services#1 step 3: namespaced Roles, not the public instance's
+# ClusterRole (which reads every secret). Cluster-scoped lookups (nodes,
+# ingressclasses) are off: --providers.kubernetescrd.disableClusterScopeResources.
+# Nothing at all in `apps`: mixed apps are reached through ExternalName
+# Services in `private` (see ../private/service-cvestream.yaml).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: traefik-internal
+  namespace: traefik
+---
+# Its own namespace: the routes and whatever they reference there.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: traefik-internal
+  namespace: private
+rules:
+  # secrets and configmaps are required even with plain HTTP: the CRD provider
+  # starts informers on both in every watched namespace and builds no
+  # configuration at all until they sync (measured on v3.6.15: every route
+  # 404s, and only client-go "forbidden" lines on stderr say why). Keep
+  # nothing but Traefik's own resources in `private`.
+  - apiGroups: [""]
+    resources: ["services", "secrets", "configmaps"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["traefik.io"]
+    resources:
+      - "ingressroutes"
+      - "ingressroutetcps"
+      - "ingressrouteudps"
+      - "middlewares"
+      - "middlewaretcps"
+      - "tlsoptions"
+      - "tlsstores"
+      - "traefikservices"
+      - "serverstransports"
+      - "serverstransporttcps"
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: traefik-internal
+  namespace: private
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: traefik-internal
+subjects:
+  - kind: ServiceAccount
+    name: traefik-internal
+    namespace: traefik

@@ -1,0 +1,55 @@
+# One port per Traefik instance (wixyvir/services#1, step 8): a wrong route on
+# one instance still has no network path to the other port. Enforced only with
+# a policy-aware CNI: up.sh starts minikube with Calico.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cvestream
+  namespace: apps
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: cvestream
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    # Feeds: only from the public Traefik.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: traefik
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - port: 8080
+          protocol: TCP
+    # Health and status: only from traefik-internal. Probes are exec, so the
+    # kubelet needs neither port.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: traefik
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik-internal
+      ports:
+        - port: 9090
+          protocol: TCP
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # The sources (EUVD, CISA KEV): HTTPS, directly. cvestream ignores proxy
+    # variables, so the cluster needs direct egress on 443.
+    - ports:
+        - port: 443
+          protocol: TCP

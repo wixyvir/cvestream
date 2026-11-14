@@ -1,0 +1,13 @@
+# The SQLite state. RWO on block storage (never NFS, SMB or CIFS); RWO also
+# keeps a second writer away. minikube's default class is a hostPath provisioner.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: cvestream-data
+  namespace: apps
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
