@@ -18,7 +18,7 @@ dependencies = [
     "sqlalchemy>=2.1.8",
     "starlette>=1.10.0",
     "structlog>=26.1.0",
-    "typer>=0.27.3",
+    "typer>=0.29.1",
     "uvicorn>=0.54.0",
 ]
 
