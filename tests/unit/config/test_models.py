@@ -62,6 +62,7 @@ def test_endpoint_defaults() -> None:
     assert endpoint.enabled is True
     assert endpoint.kev_only is False
     assert endpoint.min_cvss is None
+    assert endpoint.require_score is False
     assert endpoint.products == []
 
 
@@ -160,6 +161,11 @@ def test_match_description_maps_to_the_domain() -> None:
     assert [e.match_description for e in domain.products] == [False, True]
 
 
+def test_require_score_maps_to_the_domain() -> None:
+    domain = _only_endpoint(require_score=True).to_domain()
+    assert domain.rules == Rules(require_score=True)
+
+
 def test_repr_hides_token() -> None:
     endpoint = _only_endpoint()
     assert TOKEN_A not in repr(endpoint)
@@ -187,6 +193,8 @@ def test_repr_hides_token() -> None:
         (_document(_endpoint(min_cvss=-0.1)), "endpoints.0.min_cvss"),
         (_document(_endpoint(min_cvss=10.1)), "endpoints.0.min_cvss"),
         (_document(_endpoint(kev_only="yes")), "endpoints.0.kev_only"),
+        (_document(_endpoint(require_score="yes")), "endpoints.0.require_score"),
+        (_document(_endpoint(require_score=1)), "endpoints.0.require_score"),
         (_document(_endpoint(name="  ")), "endpoints.0.name"),
         (
             _document(_endpoint(products=[{"name": "a", "aliases": ["  "]}])),
@@ -241,6 +249,8 @@ def test_repr_hides_token() -> None:
         "cvss-negative",
         "cvss-above-10",
         "kev-string",
+        "require-score-string",
+        "require-score-int",
         "blank-endpoint-name",
         "blank-alias",
         "blank-exclude",

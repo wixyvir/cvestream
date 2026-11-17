@@ -122,7 +122,7 @@ One JSON object per line on stdout (`CVESTREAM_LOG__FORMAT=console` for humans).
 
 - `sources`: each source of the cycle, `ok` with `records` (what the adapter returned) and `skipped` (records the adapter dropped), or `failed` with `error_type`.
 - `published`: items published per enabled endpoint, `0` included. A permanent `0` for every endpoint is worth a look.
-- `score_unknown` and `versions_unknown`: published items let through because their score or their versions are unknown (recall over volume).
+- `score_unknown` and `versions_unknown`: published items let through because their score or their versions are unknown (recall over volume). Items held back by an endpoint's `require_score` are not published, so they are not counted.
 
 A fetch outcome, failed ones included, triggers a cycle: a failed source still reloads the configuration, slides the 14-day window and appears in the summary. The cvestream logs never contain a token or a feed path.
 

@@ -177,6 +177,13 @@ class EndpointConfig(BaseModel):
         default=False,
         description="Only vulnerabilities known to be exploited (CISA KEV).",
     )
+    require_score: bool = Field(
+        default=False,
+        description=(
+            "Drop vulnerabilities that no source has scored yet, except "
+            "known-exploited ones (CISA KEV or EU KEV)."
+        ),
+    )
     token: FeedToken = Field(
         repr=False,
         description=(
@@ -198,7 +205,11 @@ class EndpointConfig(BaseModel):
             id=self.id,
             name=self.name,
             products=tuple(_to_product(item) for item in self.products),
-            rules=Rules(min_cvss=self.min_cvss, kev_only=self.kev_only),
+            rules=Rules(
+                min_cvss=self.min_cvss,
+                kev_only=self.kev_only,
+                require_score=self.require_score,
+            ),
             enabled=self.enabled,
         )
 

@@ -36,6 +36,10 @@ endpoints:
     # Optional, default false. true keeps only vulnerabilities known to be
     # exploited (CISA KEV).
     kev_only: false
+    # Optional, default false. true holds back vulnerabilities that no source
+    # has scored yet (published once a source scores them); known-exploited
+    # ones (CISA KEV or EU KEV) are never held back.
+    require_score: false
     # Required. 32 to 128 characters from A-Z a-z 0-9 _ -, unique across
     # endpoints. This is a PLACEHOLDER: replace it with your own token.
     token: REPLACE-ME-with-secrets-token-urlsafe-32-team-php

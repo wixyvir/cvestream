@@ -462,7 +462,7 @@ So that I never edit Valkey keys by hand and can rotate a leaked feed URL in one
 **When** the operator runs `cvestream endpoint create|list|show|edit|delete`, `cvestream product add|remove|list` or `cvestream token rotate <endpoint>`
 **Then** the change is written through that provider (YAML file rewritten preserving validity, Valkey through the write protocol), validated before writing, and applied by the daemon at its next run (FR-22, FR-23)
 **And** `endpoint create` and `token rotate` generate the token with `secrets.token_urlsafe(32)` through an injectable function, and `endpoint show` prints the feed URL; after rotation the old URL returns `404` (FR-20)
-**And** options are kebab-case (`--min-cvss`, `--kev-only`), `list` commands support `--json`, user errors exit 2 with one line, unexpected errors exit 1 with a trace only under `--debug`
+**And** options are kebab-case (`--min-cvss`, `--kev-only`, `--require-score`), `list` commands support `--json`, user errors exit 2 with one line, unexpected errors exit 1 with a trace only under `--debug`
 **And** `cvestream config export|import` moves the whole configuration between YAML and the active provider
 **And** hand-editing `endpoints.yaml` keeps working
 **And** `docs/operations.md` covers token rotation and configuration backup
@@ -528,6 +528,14 @@ I want an optional endpoint rule to drop vulnerabilities without any score from 
 so that my busy endpoint does not receive many "severity unknown" items that I cannot triage yet, while still keeping exploited vulnerabilities even without a score.
 
 Added from GitHub issue wixyvir/cvestream#43. This addresses the real case: a BI platform endpoint with `min_cvss: 4.0` still gets every fresh OpenSSL record before EUVD scores it (e.g. EUVD-2026-126927, EUVD-2026-126928, EUVD-2026-126929, all "severity unknown" on the day they were published).
+
+**Acceptance criteria:**
+- Given an endpoint with `require_score: true`, when a vulnerability has no score from any source and is not known-exploited, then it is dropped.
+- Given an endpoint with `require_score: true` and `min_cvss: 7.0`, when a vulnerability has a score of 9.8, then it is published.
+- Given an endpoint with `require_score: true`, when a vulnerability is known-exploited (CISA KEV or EU KEV) with no score, then it is published.
+- Given an endpoint with `require_score: false` (default), when a vulnerability has no score, then it is published with "score_unknown" label if `min_cvss` is set.
+- Given an endpoint with `require_score: true`, when a vulnerability initially has no score and later receives a score, then it is published as new.
+- Given an endpoint with `require_score: true`, when a vulnerability initially has no score and later becomes known-exploited, then it is published as new.
 
 ### Story 4.2: Exact product matching
 

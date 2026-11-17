@@ -25,6 +25,8 @@ class ProductEntry:
 class Rules:
     min_cvss: float | None = None
     kev_only: bool = False
+    # Unscored means max_score() is None; known-exploited is exempt.
+    require_score: bool = False
 
 
 @dataclass(frozen=True, slots=True)

@@ -60,6 +60,7 @@ endpoints:
     enabled: true
     min_cvss: 7.0
     kev_only: false
+    require_score: false
     token: "<43-character token>"
     products:
       - php >= 8.2
@@ -79,8 +80,11 @@ endpoints:
 | `endpoints[].enabled` | no | default `true`; a disabled endpoint is kept but not served |
 | `endpoints[].min_cvss` | no | number from 0 to 10; omitted means no threshold |
 | `endpoints[].kev_only` | no | default `false`; keep only known-exploited vulnerabilities |
+| `endpoints[].require_score` | no | default false; drop vulnerabilities that no source has scored yet, except known-exploited ones |
 | `endpoints[].token` | yes | feed secret, `^[A-Za-z0-9_-]{32,128}$`, unique |
 | `endpoints[].products` | no | list of shorthand strings or entries (default empty: matches nothing) |
+
+**Score rules.** `min_cvss` compares the highest score any source gives. A vulnerability that no source has scored yet is never dropped by the threshold: it is published with "severity unknown" (recall over volume). Set `require_score: true` to hold such vulnerabilities back until a source scores them, with or without `min_cvss`. A known-exploited vulnerability (CISA KEV or EU KEV) is never held back for lack of a score. A held-back vulnerability is not lost: when a source scores it, it is published as new, if it reaches `min_cvss`. Trade-off: CERT-EU advisories carry no score, so an endpoint with `require_score` loses CERT-EU's early warning and waits for EUVD's score. Switching the rule off later does not bring back what it held back: such a vulnerability is published only when one of its records changes.
 
 A product entry has `name` (required), `aliases[]`, `exclude[]`, `min_version` and `match_description` (default `true`). Names, aliases and exclusion terms are stripped and must not be blank. `min_version` is a quoted version string. It is checked against the affected versions the source gives: an entry drops a vulnerability only when every row that names the product has a [version format the parser understands](sources.md#euvd-euvd) and none of them reaches the minimum. A row it cannot read never drops the item, which is labelled "versions unknown" when no other row reaches the minimum.
 
@@ -96,7 +100,7 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 
 The `REPLACE-ME-...` tokens of `endpoints.example.yaml` are valid tokens: nothing rejects them, and a copied example serves its feeds at URLs anyone can guess from this repository. Replace every one of them before you expose the daemon. Tokens are stored in plain text, so keep `endpoints.yaml` readable by the daemon's user only (`chmod 600 endpoints.yaml`).
 
-**YAML pitfalls.** PyYAML follows YAML 1.1: `8.10` is the number 8.1 (quote versions), `yes`/`no`/`on`/`off` are booleans, `2026-10-26` is a date, and an all-digit `id` is an integer (quote it). The contract is strict: `min_cvss: "7.0"` and `kev_only: "yes"` are rejected, a version must be quoted, and unknown or duplicate keys are errors. Anchors, aliases and merge keys (`<<: *defaults`) work.
+**YAML pitfalls.** PyYAML follows YAML 1.1: `8.10` is the number 8.1 (quote versions), `yes`/`no`/`on`/`off` are booleans, `2026-10-26` is a date, and an all-digit `id` is an integer (quote it). The contract is strict: `min_cvss: "7.0"`, `kev_only: "yes"`, and `require_score: "yes"` are rejected, a version must be quoted, and unknown or duplicate keys are errors. Anchors, aliases and merge keys (`<<: *defaults`) work.
 
 ### Validate
 
