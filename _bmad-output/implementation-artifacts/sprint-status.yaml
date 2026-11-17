@@ -78,7 +78,7 @@
 #     previous stories than the default "create next after done" flow.
 
 generated: 2026-10-26
-last_updated: 2026-11-05
+last_updated: 2026-11-17
 project: cvestream
 project_key: NOKEY
 tracking_system: file-system
@@ -107,7 +107,7 @@ development_status:
   3-3-release-and-kubernetes-deployment: backlog
   epic-3-retrospective: optional
 
-  epic-4: backlog
-  4-1-require-score-endpoint-rule: backlog
+  epic-4: in-progress
+  4-1-require-score-endpoint-rule: ready-for-dev
   4-2-exact-product-matching: backlog
   epic-4-retrospective: optional
