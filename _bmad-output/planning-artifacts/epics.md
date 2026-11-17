@@ -97,9 +97,9 @@ None. cvestream has no user interface (architecture.md: "Frontend Architecture: 
 - FR-9: Epic 1 (Story 1.2) - provenance and unknown values
 - FR-10: Epic 1 (Story 1.3) - multiple endpoints
 - FR-11: Epic 1 (Stories 1.2, 1.3, 1.7) - product entries, `match_description`
-- FR-12: Epic 1 (Stories 1.2, 1.7) - whole-word matching, exclusions, description fallback precision
+- FR-12: Epic 1 (Stories 1.2, 1.7) - whole-word matching, exclusions, description fallback precision; Epic 4 (Story 4.2) - exact product matching
 - FR-13: Epic 1 (Stories 1.2, 1.8) - minimum version, "versions unknown", branch-wildcard and compound version ranges
-- FR-14: Epic 1 (Story 1.2) - CVSS threshold
+- FR-14: Epic 1 (Story 1.2) - CVSS threshold; Epic 4 (Story 4.1) - require_score opt-out
 - FR-15: Epic 1 (Story 1.2) - KEV-only
 - FR-16: Epic 1 (Story 1.5) - 7-day backfill
 - FR-17: Epic 1 (Story 1.6) - RSS 2.0 feed, 14-day window
@@ -110,7 +110,7 @@ None. cvestream has no user interface (architecture.md: "Frontend Architecture: 
 - FR-22: Epic 3 (Story 3.2) - CLI CRUD
 - FR-23: Epic 1 (Stories 1.3, 1.6) - hot reload, keep last valid; Epic 3 (Story 3.1) - for Valkey
 - FR-24: Epic 1 (Story 1.2) - highest score drives decisions
-- FR-25: Epic 1 (Story 1.2) - recall first
+- FR-25: Epic 1 (Story 1.2) - recall first; Epic 4 (Story 4.1) - require_score opt-out
 - FR-26: Epic 1 (Story 1.5) - late match published as new
 
 ## Epic List
@@ -129,6 +129,11 @@ Feeds also carry CERT-EU advisories, merged per CVE into the same vulnerabilitie
 
 Configuration moves to Valkey so other tools (BoM connectors, CD workers) can edit product lists; the operator manages endpoints, products and tokens from the CLI with either provider, and can inspect the store in an optional administration UI; versioned images and Kubernetes manifests are published.
 **FRs covered:** FR-20 (rotation), FR-21 (Valkey), FR-22, FR-23 (Valkey). NFR-2 (release, Kubernetes).
+
+### Epic 4: Matching and scoring enhancements
+
+Enhancements to the matching engine and scoring rules based on real-world usage: optional `require_score` rule to drop unscored vulnerabilities (except KEV) and optional `exact` product matching to avoid false positives from generic names.
+**FRs covered:** FR-12 (exact matching), FR-14 (scoring), FR-25 (recall with opt-out).
 
 ## Epic 1: Filtered vulnerability feed from EUVD and KEV
 
@@ -509,3 +514,25 @@ So that I can inspect and fix the configuration without typing `valkey-cli` comm
 **Then** the daemon applies it at the latest on its next forced reload, or rejects it with `config.rejected` and keeps the last valid configuration (FR-23), as already implemented; no daemon change
 **And** `docs/operations.md` ("Valkey administration UI") explains access (`http://127.0.0.1:<port>`, `kubectl port-forward`), recommends the CLI for writes and `INCR cvestream:v1:revision` after a UI edit, and how to add `cvestream-ui` to a production `users.acl` with its own hash; `docs/config-contract.md` lists the user; `compose.yml`'s header and `README.md` mention the UI
 **And** `architecture.md` and `project-context.md` are amended in the same PR (ACL users and rules, dev compose, Kubernetes component, project tree)
+
+---
+
+## Epic 4: Matching and scoring enhancements
+
+Enhancements to the matching engine and scoring rules based on real-world usage feedback from the trial.
+
+### Story 4.1: require_score endpoint rule
+
+As a channel subscriber,
+I want an optional endpoint rule to drop vulnerabilities without any score from any source,
+so that my busy endpoint does not receive many "severity unknown" items that I cannot triage yet, while still keeping exploited vulnerabilities even without a score.
+
+Added from GitHub issue wixyvir/cvestream#43. This addresses the real case: a BI platform endpoint with `min_cvss: 4.0` still gets every fresh OpenSSL record before EUVD scores it (e.g. EUVD-2026-126927, EUVD-2026-126928, EUVD-2026-126929, all "severity unknown" on the day they were published).
+
+### Story 4.2: Exact product matching
+
+As a channel subscriber,
+I want an optional product-entry field to require the whole affected-product name to match,
+so that short, generic names like `php` or `python` do not pull in many unrelated products whose names or vendors contain them.
+
+Added from GitHub issue wixyvir/cvestream#44. This addresses the measured problem: every EUVD record updated since 2026-08-01 that mentions `php` results in 75 matches with only 13 being actual PHP Group/PHP, and `python` results in 38 matches with only about 3 being CPython.
