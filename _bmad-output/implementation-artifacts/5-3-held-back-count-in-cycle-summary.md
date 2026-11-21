@@ -4,7 +4,7 @@ baseline_commit: 3c08cdd
 
 # Story 5.3: Held-back count in cycle.summary
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 <!-- Created from GitHub issue wixyvir/cvestream#47 (decision D3 in the review of wixyvir/cvestream#45, story 4.1 open question Q2). -->
@@ -73,15 +73,15 @@ Added from GitHub issue wixyvir/cvestream#47 (decision D3 in the review of wixyv
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Domain drop reason** (AC: 1, 2)
-  - [ ] 1.1 In `src/cvestream/domain/matcher.py`, add `class DropReason(StrEnum)` right after `PassThrough`, with a one-line docstring ("Why `match_outcome()` did not match a vulnerability.") and the four members of AC 1.
-  - [ ] 1.2 Rename the body of `match()` into `match_outcome()`, returning `DropReason.NO_PRODUCT`, `KEV_ONLY`, `REQUIRE_SCORE` and `MIN_CVSS` in place of the four `return None`. Keep the order of the checks, the single `max_score()` call and the label logic as they are.
-  - [ ] 1.3 Make `match()` a wrapper: `outcome = match_outcome(vulnerability, endpoint)` then `return outcome if isinstance(outcome, MatchResult) else None`. Keep its docstring and signature.
-  - [ ] 1.4 Module docstring: add one sentence saying that `match_outcome()` tells the caller why a vulnerability was dropped, so the pipeline can count what `require_score` held back. Do not reflow the existing paragraph (review feedback on wixyvir/cvestream#45).
-  - [ ] 1.5 Do not touch `_match_entry`, `affected_hits`, `ProductMatch`, `MatchResult` or `PassThrough`.
+- [x] **Task 1: Domain drop reason** (AC: 1, 2)
+  - [x] 1.1 In `src/cvestream/domain/matcher.py`, add `class DropReason(StrEnum)` right after `PassThrough`, with a one-line docstring ("Why `match_outcome()` did not match a vulnerability.") and the four members of AC 1.
+  - [x] 1.2 Rename the body of `match()` into `match_outcome()`, returning `DropReason.NO_PRODUCT`, `KEV_ONLY`, `REQUIRE_SCORE` and `MIN_CVSS` in place of the four `return None`. Keep the order of the checks, the single `max_score()` call and the label logic as they are.
+  - [x] 1.3 Make `match()` a wrapper: `outcome = match_outcome(vulnerability, endpoint)` then `return outcome if isinstance(outcome, MatchResult) else None`. Keep its docstring and signature.
+  - [x] 1.4 Module docstring: add one sentence saying that `match_outcome()` tells the caller why a vulnerability was dropped, so the pipeline can count what `require_score` held back. Do not reflow the existing paragraph (review feedback on wixyvir/cvestream#45).
+  - [x] 1.5 Do not touch `_match_entry`, `affected_hits`, `ProductMatch`, `MatchResult` or `PassThrough`.
 
-- [ ] **Task 2: Count in the pipeline and the summary** (AC: 3, 4)
-  - [ ] 2.1 `src/cvestream/pipeline/run.py`: import `DropReason` and `match_outcome` instead of `match`. Before the endpoint loop, `held_back = {e.id: 0 for e in endpoints if e.rules.require_score}`. In the candidate loop:
+- [x] **Task 2: Count in the pipeline and the summary** (AC: 3, 4)
+  - [x] 2.1 `src/cvestream/pipeline/run.py`: import `DropReason` and `match_outcome` instead of `match`. Before the endpoint loop, `held_back = {e.id: 0 for e in endpoints if e.rules.require_score}`. In the candidate loop:
     ```python
     outcome = match_outcome(vulnerability, endpoint)
     if isinstance(outcome, DropReason):
@@ -91,28 +91,28 @@ Added from GitHub issue wixyvir/cvestream#47 (decision D3 in the review of wixyv
     decision = decide(outcome, vulnerability, history.get(...))
     ```
     `isinstance` narrows `outcome` to `MatchResult` for `ty`. `REQUIRE_SCORE` is returned only when `rules.require_score` is true, so the key always exists.
-  - [ ] 2.2 `RunResult`: add `held_back: Mapping[str, int]` after `feeds` with a comment, for example `# Per enabled endpoint with require_score: vulnerabilities it held back.`. Build it with `MappingProxyType(held_back)`. No default value: update the two constructors (Task 3).
-  - [ ] 2.3 `src/cvestream/pipeline/summary.py`: add `held_back: Mapping[str, int]` to `CycleSummary` after `versions_unknown`, with a comment. `summarize()` passes `held_back=result.held_back`. `log_summary()` adds `held_back=dict(summary.held_back)` after `versions_unknown=`. Update the module docstring: it also counts what an endpoint's `require_score` held back.
-  - [ ] 2.4 Leave `pipeline.completed` and `publish.*` events unchanged. Do not add a per-item log (Open questions Q3).
+  - [x] 2.2 `RunResult`: add `held_back: Mapping[str, int]` after `feeds` with a comment, for example `# Per enabled endpoint with require_score: vulnerabilities it held back.`. Build it with `MappingProxyType(held_back)`. No default value: update the two constructors (Task 3).
+  - [x] 2.3 `src/cvestream/pipeline/summary.py`: add `held_back: Mapping[str, int]` to `CycleSummary` after `versions_unknown`, with a comment. `summarize()` passes `held_back=result.held_back`. `log_summary()` adds `held_back=dict(summary.held_back)` after `versions_unknown=`. Update the module docstring: it also counts what an endpoint's `require_score` held back.
+  - [x] 2.4 Leave `pipeline.completed` and `publish.*` events unchanged. Do not add a per-item log (Open questions Q3).
 
-- [ ] **Task 3: Tests** (AC: 1 to 7)
-  - [ ] 3.1 `tests/unit/domain/test_matcher.py`: import `DropReason` and `match_outcome` at module level. Add a `# --- drop reasons (NFR-4, story 5.3) ---` section after the `require_score` section (cases under "Testing requirements").
-  - [ ] 3.2 `tests/unit/pipeline/test_run.py`: add the pipeline tests under "Testing requirements". In the two existing `require_score` tests, add `assert result.held_back == {"team-php": 1}` after run 2: this only adds asserts and keeps the tests' flow.
-  - [ ] 3.3 `tests/unit/pipeline/test_summary.py`: add a `held_back` keyword to `_result()` (default `MappingProxyType({})`) and pass it to `RunResult`. Add `held_back={"a": 3}` to the `CycleSummary(...)` of `test_log_summary_writes_only_the_fields_that_apply` and assert `entry["held_back"] == {"a": 3}`. Add `test_held_back_is_copied_from_the_run` (`summarize()` with `_result(held_back=MappingProxyType({"a": 2}))` gives `summary.held_back == {"a": 2}`) and an empty case (`{}` logged when the run has no key).
-  - [ ] 3.4 `tests/unit/pipeline/test_cycle.py`: add a `require_score: bool = False` keyword to `_yaml()` (writes `    require_score: true` when set). Add `test_held_back_is_counted_in_the_summary`: an endpoint with `require_score: true` and the default unscored `_ok(fake_clock)` gives `summary["held_back"] == {"team-php": 1}`, `summary["published"] == {"team-php": 0}` and `summary["count"] == 0`. In `test_a_cycle_logs_exactly_one_summary_with_a_failed_source`, add `assert summary["held_back"] == {}`.
-  - [ ] 3.5 Keep every other existing test unchanged (AC 2 and 7 are regression guards). `test_restart_no_repost.py` must stay green.
+- [x] **Task 3: Tests** (AC: 1 to 7)
+  - [x] 3.1 `tests/unit/domain/test_matcher.py`: import `DropReason` and `match_outcome` at module level. Add a `# --- drop reasons (NFR-4, story 5.3) ---` section after the `require_score` section (cases under "Testing requirements").
+  - [x] 3.2 `tests/unit/pipeline/test_run.py`: add the pipeline tests under "Testing requirements". In the two existing `require_score` tests, add `assert result.held_back == {"team-php": 1}` after run 2: this only adds asserts and keeps the tests' flow.
+  - [x] 3.3 `tests/unit/pipeline/test_summary.py`: add a `held_back` keyword to `_result()` (default `MappingProxyType({})`) and pass it to `RunResult`. Add `held_back={"a": 3}` to the `CycleSummary(...)` of `test_log_summary_writes_only_the_fields_that_apply` and assert `entry["held_back"] == {"a": 3}`. Add `test_held_back_is_copied_from_the_run` (`summarize()` with `_result(held_back=MappingProxyType({"a": 2}))` gives `summary.held_back == {"a": 2}`) and an empty case (`{}` logged when the run has no key).
+  - [x] 3.4 `tests/unit/pipeline/test_cycle.py`: add a `require_score: bool = False` keyword to `_yaml()` (writes `    require_score: true` when set). Add `test_held_back_is_counted_in_the_summary`: an endpoint with `require_score: true` and the default unscored `_ok(fake_clock)` gives `summary["held_back"] == {"team-php": 1}`, `summary["published"] == {"team-php": 0}` and `summary["count"] == 0`. In `test_a_cycle_logs_exactly_one_summary_with_a_failed_source`, add `assert summary["held_back"] == {}`.
+  - [x] 3.5 Keep every other existing test unchanged (AC 2 and 7 are regression guards). `test_restart_no_repost.py` must stay green.
 
-- [ ] **Task 4: Documentation** (AC: 8)
-  - [ ] 4.1 `docs/operations.md`: the `cycle.summary` sample and bullets (wording under Dev Notes).
-  - [ ] 4.2 `docs/configuration.md`: append the sentence to the "Score rules" paragraph (line ~91).
-  - [ ] 4.3 `CHANGELOG.md`: the `### Added` entry under `## [Unreleased]`, after the two existing entries.
-  - [ ] 4.4 `README.md`: check; no change expected.
-  - [ ] 4.5 `_bmad-output/planning-artifacts/architecture.md` line ~560 (source tree): `matcher.py  # match(vulnerability, endpoint) → MatchResult | None` → `# match_outcome(vulnerability, endpoint) → MatchResult | DropReason; match() → MatchResult | None`. Keep the column alignment of the tree.
-  - [ ] 4.6 `_bmad-output/project-context.md` ("Recall over volume (FR-25)"): "Pass-throughs on unknown data are counted in `cycle.summary`." → "Pass-throughs on unknown data are counted in `cycle.summary`, and so are the items an endpoint's `require_score` held back (`held_back`, from `match_outcome()`'s `DropReason`)."
+- [x] **Task 4: Documentation** (AC: 8)
+  - [x] 4.1 `docs/operations.md`: the `cycle.summary` sample and bullets (wording under Dev Notes).
+  - [x] 4.2 `docs/configuration.md`: append the sentence to the "Score rules" paragraph (line ~91).
+  - [x] 4.3 `CHANGELOG.md`: the `### Added` entry under `## [Unreleased]`, after the two existing entries.
+  - [x] 4.4 `README.md`: check; no change expected.
+  - [x] 4.5 `_bmad-output/planning-artifacts/architecture.md` line ~560 (source tree): `matcher.py  # match(vulnerability, endpoint) → MatchResult | None` → `# match_outcome(vulnerability, endpoint) → MatchResult | DropReason; match() → MatchResult | None`. Keep the column alignment of the tree.
+  - [x] 4.6 `_bmad-output/project-context.md` ("Recall over volume (FR-25)"): "Pass-throughs on unknown data are counted in `cycle.summary`." → "Pass-throughs on unknown data are counted in `cycle.summary`, and so are the items an endpoint's `require_score` held back (`held_back`, from `match_outcome()`'s `DropReason`)."
 
-- [ ] **Task 5: Gates and bookkeeping**
-  - [ ] 5.1 Run every gate command from `AGENTS.md`: `uv sync --locked`, `uv run ruff check`, `uv run ruff format --check`, `uv run ty check`, `uv run lint-imports`, `uv run pytest`, `uv run cvestream config schema --check`, `uv run cvestream config validate endpoints.example.yaml`, `docker build --target runtime -t cvestream:local .`. The docker build can fail behind the local proxy (ghcr.io x509 or PyPI DNS). If it does, rely on CI and say so in the completion notes.
-  - [ ] 5.2 Fill the Dev Agent Record and the File List, then set this story and `sprint-status.yaml` to `review`.
+- [x] **Task 5: Gates and bookkeeping**
+  - [x] 5.1 Run every gate command from `AGENTS.md`: `uv sync --locked`, `uv run ruff check`, `uv run ruff format --check`, `uv run ty check`, `uv run lint-imports`, `uv run pytest`, `uv run cvestream config schema --check`, `uv run cvestream config validate endpoints.example.yaml`, `docker build --target runtime -t cvestream:local .`. The docker build can fail behind the local proxy (ghcr.io x509 or PyPI DNS). If it does, rely on CI and say so in the completion notes.
+  - [x] 5.2 Fill the Dev Agent Record and the File List, then set this story and `sprint-status.yaml` to `review`.
 
 ## Dev Notes
 
@@ -327,10 +327,40 @@ Nothing version-sensitive: the story uses stdlib `enum.StrEnum`, `types.MappingP
 
 ### Agent Model Used
 
+Mistral Vibe (vibe@mistral.ai), BMAD dev-story workflow, branch `story-5-3-held-back-count-in-cycle-summary` in its own worktree.
+
 ### Debug Log References
+
+- Red-green-refactor per task: matcher tests failed at collection (`DropReason`/`match_outcome` missing), then passed after the domain change (162 passed in `test_matcher.py`); pipeline/summary/cycle tests failed (18 failures, all `held_back` missing) then passed after `run.py`/`summary.py` (525 passed in `tests/unit/pipeline` + `tests/unit/domain`); full suite 1252 passed, 6 deselected (`live`).
+- `uv run ruff format` reformatted the two new test blocks in `tests/unit/domain/test_matcher.py` and `tests/unit/pipeline/test_run.py` (line-length joins only); no logic change.
 
 ### Completion Notes List
 
 - Ultimate context engine analysis completed - comprehensive developer guide created.
+- Task 1: `DropReason(StrEnum)` (`NO_PRODUCT`, `KEV_ONLY`, `REQUIRE_SCORE`, `MIN_CVSS`) added after `PassThrough` in `src/cvestream/domain/matcher.py`; the body of `match()` moved to `match_outcome()` returning the reason of the first failing check; `match()` is now a thin wrapper with unchanged signature/behaviour (all ~150 existing matcher tests and the contract tests pass unchanged). One sentence added to the module docstring without reflowing.
+- Task 2: `pipeline/run.py` calls `match_outcome()`, initialises `held_back = {e.id: 0 for e in endpoints if e.rules.require_score}` before the endpoint loop, counts `DropReason.REQUIRE_SCORE` per endpoint and silently skips the other reasons; `RunResult.held_back` is a `MappingProxyType`. `pipeline/summary.py`: `CycleSummary.held_back` after `versions_unknown`, copied from the run by `summarize()`, logged by `log_summary()` as `held_back=dict(...)` right after `versions_unknown` (always present, `{}` when no enabled endpoint uses the rule); `count` unchanged. `pipeline.completed` and `publish.*` untouched; no per-item log (Q3).
+- Task 3: 11 new drop-reason tests in `test_matcher.py` (incl. a parametrized `match()`/`match_outcome()` consistency test), 7 new pipeline tests in `test_run.py` (per-endpoint keys incl. disabled endpoint excluded, other product not counted, kev_only first, KEV exempt, below min_cvss not counted, per-cycle recount on backfill, no recount when untouched) plus `assert result.held_back == {"team-php": 1}` after run 2 in the two existing 4.1 tests; `test_summary.py` gained the `held_back` keyword on `_result()`, the `{"a": 3}` log assertion, a copy test and an empty case; `test_cycle.py` gained the `require_score` keyword on `_yaml()`, `test_held_back_is_counted_in_the_summary` and `assert summary["held_back"] == {}`. `test_restart_no_repost.py` stays green.
+- Task 4: `docs/operations.md` (`held_back` in the `cycle.summary` sample after `versions_unknown`, the new `held_back` bullet, the `score_unknown` bullet now points to it), `docs/configuration.md` (one sentence at the end of "Score rules"), `CHANGELOG.md` (`### Added` entry referencing wixyvir/cvestream#47), `architecture.md` source-tree `matcher.py` line names `match_outcome`, `project-context.md` FR-25 bullet names `held_back`. README.md checked: it does not describe `cycle.summary` fields, so no change, as expected.
+- Task 5: all AGENTS.md gates pass in the worktree: `uv sync --locked`, `ruff check`, `ruff format --check`, `ty check`, `lint-imports` (7 contracts kept), `pytest` (1252 passed, 6 deselected), `cvestream config schema --check`, `cvestream config validate endpoints.example.yaml` (valid, 2 endpoints), and `docker build --target runtime -t cvestream:local .` succeeded locally (no ghcr.io x509 error behind the proxy this time), so CI is expected to stay green.
+- No schema, config, state, Alembic, render or publication change; no new dependency; `uv.lock` untouched.
 
 ### File List
+
+- `src/cvestream/domain/matcher.py` (modified: `DropReason`, `match_outcome()`, `match()` wrapper, docstring sentence)
+- `src/cvestream/pipeline/run.py` (modified: `match_outcome()` call, `held_back` counter, `RunResult.held_back`)
+- `src/cvestream/pipeline/summary.py` (modified: `CycleSummary.held_back`, `summarize()`, `log_summary()`, docstring)
+- `tests/unit/domain/test_matcher.py` (modified: import, drop-reasons section, consistency test)
+- `tests/unit/pipeline/test_run.py` (modified: two asserts in the 4.1 tests, seven held_back tests)
+- `tests/unit/pipeline/test_summary.py` (modified: `_result()` keyword, log assertion, two new tests)
+- `tests/unit/pipeline/test_cycle.py` (modified: `_yaml()` keyword, `held_back` asserts, one new test)
+- `docs/operations.md` (modified: `cycle.summary` sample and bullets)
+- `docs/configuration.md` (modified: "Score rules" sentence)
+- `CHANGELOG.md` (modified: `### Added` entry under `[Unreleased]`)
+- `_bmad-output/planning-artifacts/architecture.md` (modified: source-tree `matcher.py` line)
+- `_bmad-output/project-context.md` (modified: FR-25 counting bullet)
+- `_bmad-output/implementation-artifacts/5-3-held-back-count-in-cycle-summary.md` (this file: checkboxes, Dev Agent Record, Status)
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` (5-3 entry set to `review`)
+
+### Change Log
+
+- 2026-11-21: implemented story 5.3 — `DropReason` + `match_outcome()` in the domain, per-endpoint `held_back` count in `RunResult` and `cycle.summary`, tests (matcher, run, summary, cycle) and docs (operations, configuration, CHANGELOG, architecture, project-context); all AGENTS.md gates green; status set to `review`.
