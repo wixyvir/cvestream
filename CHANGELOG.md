@@ -11,6 +11,7 @@ and cvestream adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 - `require_score` endpoint rule: holds back vulnerabilities that no source has scored yet, except known-exploited ones, until a source scores them (wixyvir/cvestream#43). Additive change to the v1 configuration contract.
 - `exact` product entries: match only an affected product whose whole name equals the name or an alias, ignoring vendor names and the description (wixyvir/cvestream#44). Additive change to the v1 configuration contract; `exact: true` together with an explicit `match_description: true` is now rejected, also by the published JSON Schema.
+- `held_back` in the `cycle.summary` log: per endpoint with `require_score`, the vulnerabilities the rule held back in the cycle (wixyvir/cvestream#47).
 
 ## [0.1.0] - 2026-11-14
 
