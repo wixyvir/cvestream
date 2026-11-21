@@ -421,7 +421,7 @@ Mistral Vibe (Mistral AI coding agent), session of 2026-11-21.
 
 ### Debug Log References
 
-- Gates: `uv sync --locked`, `ruff check`, `ruff format --check`, `ty check`, `lint-imports`, `pytest` (1221 passed, 6 deselected), `cvestream config schema --check`, `cvestream config validate endpoints.example.yaml` — all green. Local `docker build --target runtime` fails behind the corporate proxy (cannot pull the pinned base image from ghcr.io, x509); CI runs that gate.
+- Gates: `uv sync --locked`, `ruff check`, `ruff format --check`, `ty check`, `lint-imports`, `pytest` (1221 passed, 6 deselected), `cvestream config schema --check`, `cvestream config validate endpoints.example.yaml`, `docker build --target runtime -t cvestream:local .` plus a `docker run --rm cvestream:local --help` smoke test — all green. (A first local docker attempt failed on a transient base-image pull behind the corporate proxy; the retry succeeded, so CI is not needed for that gate.)
 - `ty` initially flagged the `json_schema_extra` literal (annotated `_EXACT_CONTRADICTION: dict[str, Any]`) and a `MatchResult | None` union in one test (assigned to a variable with an assert). Both fixed.
 
 ### Completion Notes List
