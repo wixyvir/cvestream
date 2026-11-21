@@ -174,8 +174,9 @@ Public record page: `https://euvd.enisa.europa.eu/vulnerability/{EUVD-ID}`.
   versions (for example "Netlogon (ZeroLogon)"). As structured products they would
   make every KEV item an unusable match for endpoints that have a minimum version.
   The description still feeds description matching, except for a name inside a file
-  name or path, which does not count. Entries with `match_description: false` ignore
-  it, so such a KEV-only vulnerability waits for EUVD product data.
+  name or path, which does not count. Entries with `match_description: false` or
+  `exact: true` ignore it, so such a KEV-only vulnerability waits for EUVD product
+  data.
 - **Not mapped.** `dueDate`, `requiredAction`, `notes`, `cwes` and `forensicTriage`
   are not required and `KevEntry` has no fields for them.
 - **Dates.** `dateAdded` is a calendar date, stored as midnight UTC (display only).
@@ -261,9 +262,11 @@ field); the feed items link to the advisory page and credit the source as
 - **Matching.** The entries are structured affected products, so they decide: a
   `gitlab` entry matches a GitLab advisory (2026-016, 2026-019) whose bullets omit
   the product name, and `match_description: false` does not hide a CERT-EU-only
-  item. Because the text is prose, it never names the title of an item: the title
-  uses the entry name until EUVD data names the product. The item body still lists
-  the CERT-EU text.
+  item. Because the text is prose, it never equals a product name, so an `exact`
+  entry never matches CERT-EU text and a CERT-EU-only item waits for EUVD data on
+  such an entry. The text is also prose for the title, so it never names the title
+  of an item: the title uses the entry name until EUVD data names the product. The
+  item body still lists the CERT-EU text.
 - **Cursor and revisions.**
   - The cursor is the newest RSS `pubDate` seen, as ISO 8601 UTC
     (`2026-10-23T14:36:26Z`), capped at the fetch time.

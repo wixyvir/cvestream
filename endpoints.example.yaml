@@ -77,3 +77,12 @@ endpoints:
         match_description: true
       - name: apache http server
         aliases: [httpd]
+      - # Optional, default false. true matches only an affected product whose
+        # whole name equals the name or an alias (case-insensitive): vendor
+        # names and the description are never used. Keeps generic names like
+        # php or python from matching php-sdk or python-pillow. Cannot be
+        # combined with match_description: true.
+        name: cpython
+        aliases: [python/cpython]
+        exact: true
+        min_version: "3.9"
