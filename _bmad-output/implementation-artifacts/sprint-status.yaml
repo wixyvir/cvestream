@@ -119,9 +119,9 @@ development_status:
   4-2-exact-product-matching: done
   epic-4-retrospective: optional
 
-  epic-5: backlog
+  epic-5: in-progress
   5-1-compact-item-body-and-title-markers: backlog
   5-2-group-bursts-by-product: backlog
-  5-3-held-back-count-in-cycle-summary: backlog
+  5-3-held-back-count-in-cycle-summary: ready-for-dev
   5-4-reject-duplicate-product-names: backlog
   epic-5-retrospective: optional
