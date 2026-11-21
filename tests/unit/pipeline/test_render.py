@@ -746,6 +746,26 @@ def test_the_affected_line_merges_sources_and_deduplicates_under_one_label() -> 
     assert line == "Affected: PHP Group PHP 8.5.* <8.5.12, 8.4.* <8.4.27"
 
 
+def test_the_affected_line_groups_labels_case_insensitively() -> None:
+    # D3 (wixyvir/cvestream#51): the grouping key is the case-folded label and
+    # the first-seen spelling is displayed; a row naming the vendor stays a
+    # separate label.
+    vulnerability = _with_affected(
+        AffectedProduct("apache tomcat", None, "<= 9.0.1"),
+        AffectedProduct("Apache Tomcat", None, "<= 9.0.2"),
+        AffectedProduct("Apache Tomcat", "Apache Software Foundation", "<= 9.0.3"),
+    )
+    line = next(
+        line_
+        for line_ in _lines(_entry(vulnerability=vulnerability))
+        if line_.startswith("Affected:")
+    )
+    assert line == (
+        "Affected: apache tomcat <= 9.0.1, <= 9.0.2;"
+        " Apache Software Foundation Apache Tomcat <= 9.0.3"
+    )
+
+
 def test_the_affected_line_says_versions_unknown_only_without_any_version_text() -> (
     None
 ):

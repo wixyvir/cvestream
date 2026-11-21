@@ -279,7 +279,8 @@ def _kev(vulnerability: Vulnerability) -> str:
 
 
 def _affected(vulnerability: Vulnerability) -> str:
-    """One label per product, its version texts verbatim, at most 3 (+N more)."""
+    """One label per product (grouped case-insensitively), its version texts
+    verbatim, at most 3 (+N more)."""
     labels: list[str] = []
     versions: dict[str, list[str]] = {}
     for sourced in vulnerability.affected:
@@ -287,15 +288,19 @@ def _affected(vulnerability: Vulnerability) -> str:
         # The title rule: the vendor is dropped when the product name already
         # contains it. The version text is source text, never parsed here.
         label = _product_label(affected.product, affected.vendor)
-        if label not in versions:
+        # Group on the case-folded label (review decision D3 of
+        # wixyvir/cvestream#51): `apache tomcat` and `Apache Tomcat` are one
+        # product; the first-seen spelling is the one displayed.
+        key = _one_line(label).casefold()
+        if key not in versions:
             labels.append(label)
-            versions[label] = []
+            versions[key] = []
         text = _one_line(affected.version_text or "")
-        if text and text not in versions[label]:
-            versions[label].append(text)
+        if text and text not in versions[key]:
+            versions[key].append(text)
     parts: list[str] = []
     for label in labels:
-        rows = versions[label]
+        rows = versions[_one_line(label).casefold()]
         if not rows:
             parts.append(f"{label} versions unknown")
         elif len(rows) > 3:
