@@ -437,9 +437,7 @@ def test_publications_since_round_trips_is_fresh(state: State) -> None:
             )
         )
         stored = {
-            p.guid: p
-            for ps in repo.publications_since(["e"], NOW).values()
-            for p in ps
+            p.guid: p for ps in repo.publications_since(["e"], NOW).values() for p in ps
         }
     assert stored["g-true"].is_fresh is True
     assert stored["g-false"].is_fresh is False

@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 
 from cvestream.domain.endpoint import ProductEntry
 from cvestream.domain.matcher import MatchResult, PassThrough, ProductMatch

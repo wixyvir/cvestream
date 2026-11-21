@@ -234,7 +234,9 @@ def test_the_feed_cache_migration_can_be_downgraded(tmp_path: Path) -> None:
     state.dispose()
 
 
-def test_the_is_fresh_migration_keeps_rows_and_can_be_downgraded(tmp_path: Path) -> None:
+def test_the_is_fresh_migration_keeps_rows_and_can_be_downgraded(
+    tmp_path: Path,
+) -> None:
     state = State(f"sqlite:///{tmp_path / 'fresh.db'}")
     _upgrade_to(state, "0002")
     assert state.current_revision() == "0002"

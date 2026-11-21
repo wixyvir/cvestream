@@ -62,6 +62,7 @@ def _euvd(
     product: str | None = "php",
     description: str = "A flaw",
     updated_ago: timedelta = timedelta(hours=1),
+    published_ago: timedelta | None = None,
 ) -> SourceRecord:
     now = clock.now()
     return SourceRecord(
@@ -73,6 +74,7 @@ def _euvd(
         description=Sourced(description, "euvd", now),
         scores=(Sourced(CvssScore(score) if score is not None else None, "euvd", now),),
         affected=((Sourced(AffectedProduct(product), "euvd", now),) if product else ()),
+        published_at=START - published_ago if published_ago is not None else None,
         updated_at=START - updated_ago,
     )
 
@@ -729,3 +731,61 @@ def test_an_unscored_vulnerability_held_back_by_require_score_is_new_once_exploi
             select(schema.publication).where(schema.publication.c.primary_id == CVE)
         ).one()
     assert row.guid == f"cvestream:team-php:{CVE}:new"
+
+
+def test_a_new_item_published_on_the_runs_day_is_stored_fresh(
+    state: State, fake_clock: FakeClock
+) -> None:
+    snapshot = _snapshot(_endpoint())
+    # published at START, the run's day: fresh
+    result = run(
+        state,
+        snapshot,
+        [_batch(_euvd(fake_clock, published_ago=timedelta(0)))],
+        fake_clock,
+    )
+    assert result.decisions[0].is_fresh is True
+    with state.transaction() as repo:
+        row = repo._connection.execute(select(schema.publication)).one()
+    assert row.is_fresh is True
+    item = ET.fromstring(result.feeds["team-php"].xml).find("channel/item")  # noqa: S314
+    assert item is not None
+    assert (item.findtext("title") or "").startswith("\N{SQUARED NEW} ")
+
+
+def test_a_new_item_published_the_day_before_is_not_fresh(
+    state: State, fake_clock: FakeClock
+) -> None:
+    result = run(
+        state,
+        _snapshot(_endpoint()),
+        [_batch(_euvd(fake_clock, published_ago=timedelta(days=1)))],
+        fake_clock,
+    )
+    assert result.decisions[0].is_fresh is False
+    with state.transaction() as repo:
+        row = repo._connection.execute(select(schema.publication)).one()
+    assert row.is_fresh is False
+    item = ET.fromstring(result.feeds["team-php"].xml).find("channel/item")  # noqa: S314
+    assert item is not None
+    assert not (item.findtext("title") or "").startswith("\N{SQUARED NEW}")
+
+
+def test_a_rerun_past_midnight_keeps_the_xml_the_etag_and_changed_at(
+    state: State, fake_clock: FakeClock
+) -> None:
+    # AC 7: render stays clock-free. Run at 23:50 UTC, advance past midnight,
+    # rerun with no new data: identical XML, ETag and changed_at.
+    fake_clock.set(datetime(2026, 1, 1, 23, 50, tzinfo=UTC))
+    snapshot = _snapshot(_endpoint())
+    batch = [_batch(_euvd(fake_clock, published_ago=timedelta(0)))]
+    first = run(state, snapshot, batch, fake_clock).feeds["team-php"]
+    fake_clock.advance(timedelta(minutes=20))  # 2026-01-02 00:10 UTC
+    again = run(state, snapshot, batch, fake_clock).feeds["team-php"]
+    assert again.xml == first.xml
+    assert again.etag == first.etag
+    assert again.changed_at == first.changed_at
+    with state.transaction() as repo:
+        stored = repo.feeds()["team-php"]
+    assert stored.xml.encode("utf-8") == first.xml
+    assert stored.changed_at == first.changed_at

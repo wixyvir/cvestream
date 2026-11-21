@@ -39,6 +39,10 @@ EUVD_URL = "https://euvd.enisa.europa.eu/vulnerability/EUVD-2026-41234"
 CISA_URL = "https://www.cisa.gov/known-exploited-vulnerabilities-catalog"
 FIXTURES = Path(__file__).parents[2] / "fixtures"
 DOT = " \N{MIDDLE DOT} "
+FIRE = "\N{FIRE}"
+RED_CIRCLE = "\N{LARGE RED CIRCLE}"
+TRIANGLE = "\N{UP-POINTING RED TRIANGLE}"
+SQUARED_NEW = "\N{SQUARED NEW}"
 
 
 def _sourced[T](value: T, source: str = "euvd") -> Sourced[T]:
@@ -281,17 +285,22 @@ def test_few_references_have_no_more_suffix() -> None:
     ("kind", "known", "title"),
     [
         ("new", False, "CVE-2026-1234 in php: severity high"),
-        ("new", True, "CVE-2026-1234 in php: severity high, EXPLOITED"),
+        ("new", True, f"{FIRE} CVE-2026-1234 in php: severity high, EXPLOITED"),
         (
             "kev",
             True,
-            "[UPDATE] CVE-2026-1234 in php: now EXPLOITED, severity high",
+            f"{FIRE} [UPDATE] CVE-2026-1234 in php: now EXPLOITED, severity high",
         ),
-        ("band-high", False, "[UPDATE] CVE-2026-1234 in php: severity raised to high"),
+        (
+            "band-high",
+            False,
+            f"{TRIANGLE} [UPDATE] CVE-2026-1234 in php: severity raised to high",
+        ),
         (
             "band-high",
             True,
-            "[UPDATE] CVE-2026-1234 in php: severity raised to high, EXPLOITED",
+            f"{FIRE}{TRIANGLE} [UPDATE] CVE-2026-1234 in php: severity raised to"
+            " high, EXPLOITED",
         ),
         ("future", False, "[UPDATE] CVE-2026-1234 in php: severity high"),
     ],
@@ -343,7 +352,7 @@ def test_the_title_names_the_matched_affected_product(
 ) -> None:
     entry = _entry(vulnerability=_with_affected(*products), is_known_exploited=True)
     assert _item(entry).findtext("title") == (
-        f"CVE-2026-1234 in {name}: severity high, EXPLOITED"
+        f"{FIRE} CVE-2026-1234 in {name}: severity high, EXPLOITED"
     )
 
 
@@ -849,3 +858,102 @@ async def test_the_tomcat_fixture_fits_the_slack_preview_window(
     assert "exploited: no" in preview
     assert "Matched: tomcat" in preview
     assert description[:40] in preview
+
+
+# --- story 5.1: title markers (AC 4, 5) ---
+
+
+def _title_of(entry: FeedEntry, endpoint: Endpoint = ENDPOINT) -> str:
+    item = _parse(render_feed(endpoint, [entry])).find("channel/item")
+    assert item is not None
+    title = item.findtext("title")
+    assert title is not None
+    return title
+
+
+def test_the_four_golden_titles() -> None:
+    tomcat_vulnerability = _with_affected(
+        AffectedProduct("Apache Tomcat", "Apache Software Foundation", "10.1.0-M1")
+    )
+    tomcat_endpoint = replace(ENDPOINT, products=(ProductEntry("tomcat"),))
+    assert _title_of(
+        _entry(
+            primary_id="CVE-2026-95517",
+            band=Band.CRITICAL,
+            is_known_exploited=True,
+            is_fresh=True,
+            products=("tomcat",),
+            vulnerability=tomcat_vulnerability,
+        ),
+        tomcat_endpoint,
+    ) == (
+        f"{FIRE}{RED_CIRCLE}{SQUARED_NEW} CVE-2026-95517"
+        " in Apache Software Foundation Apache Tomcat: severity critical, EXPLOITED"
+    )
+    openssl_endpoint = replace(ENDPOINT, products=(ProductEntry("openssl"),))
+    assert (
+        _title_of(
+            _entry(
+                primary_id="CVE-2026-107494",
+                band=Band.UNKNOWN,
+                is_fresh=True,
+                products=("openssl",),
+                vulnerability=_with_affected(AffectedProduct("OpenSSL")),
+            ),
+            openssl_endpoint,
+        )
+        == f"{SQUARED_NEW} CVE-2026-107494 in OpenSSL: severity unknown"
+    )
+    assert _title_of(
+        _entry(
+            primary_id="CVE-2026-118028",
+            kind="band-critical",
+            band=Band.CRITICAL,
+            is_fresh=False,
+            products=("tomcat",),
+            vulnerability=tomcat_vulnerability,
+        ),
+        tomcat_endpoint,
+    ) == (
+        f"{RED_CIRCLE}{TRIANGLE} [UPDATE] CVE-2026-118028"
+        " in Apache Software Foundation Apache Tomcat: severity raised to critical"
+    )
+    assert _title_of(
+        _entry(
+            kind="kev",
+            band=Band.HIGH,
+            is_known_exploited=True,
+            is_fresh=False,
+            vulnerability=_with_affected(AffectedProduct("PHP", "PHP Group")),
+        )
+    ) == (
+        f"{FIRE} [UPDATE] CVE-2026-1234 in PHP Group PHP: now EXPLOITED, severity high"
+    )
+
+
+def test_each_marker_alone() -> None:
+    # critical, not exploited, not fresh, new: only the red circle
+    assert _title_of(_entry(band=Band.CRITICAL)) == (
+        f"{RED_CIRCLE} CVE-2026-1234 in php: severity critical"
+    )
+    # fresh, unknown band, new, not exploited: only the squared new
+    assert _title_of(_entry(band=Band.UNKNOWN, is_fresh=True)) == (
+        f"{SQUARED_NEW} CVE-2026-1234 in php: severity unknown"
+    )
+
+
+def test_band_high_gets_the_triangle_but_not_the_red_circle() -> None:
+    assert _title_of(_entry(kind="band-high", band=Band.HIGH)).startswith(TRIANGLE)
+    assert RED_CIRCLE not in _title_of(_entry(kind="band-high", band=Band.HIGH))
+
+
+def test_band_critical_gets_both_marks_in_order() -> None:
+    title = _title_of(_entry(kind="band-critical", band=Band.CRITICAL))
+    assert title.startswith(f"{RED_CIRCLE}{TRIANGLE} ")
+
+
+def test_is_fresh_none_or_false_gives_no_marker_and_no_leading_space() -> None:
+    for fresh in (None, False):
+        title = _title_of(_entry(band=Band.UNKNOWN, is_fresh=fresh))
+        assert title == "CVE-2026-1234 in php: severity unknown"
+        assert not title.startswith(" ")

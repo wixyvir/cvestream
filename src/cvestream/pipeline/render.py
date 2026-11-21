@@ -11,7 +11,9 @@ are removed, otherwise no parser would accept the document.
 The title says what was published: the severity band and the known-exploited
 flag recorded at decision time, and the affected product the first matched
 entry names in the current merged data (the entry's own name when there is no
-such product). The body shows the current merged data of the vulnerability,
+such product), flagged with emoji markers built from those decision-time
+values only (fire, red circle, red triangle, squared new, in that order). The
+body shows the current merged data of the vulnerability,
 leading with what a reader sees first: Slack's RSS app shows only about the
 first `SLACK_PREVIEW_CHARS` plain-text characters of the description and keeps
 only the first block-level elements, so the first `<p>` holds the facts line,
@@ -77,6 +79,8 @@ class FeedEntry:
     published_at: datetime
     # Current merged data (it goes in the description).
     vulnerability: Vulnerability
+    # Decision-time freshness (`None` on rows from before the column).
+    is_fresh: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,17 +142,38 @@ def _title_product(entry: FeedEntry, endpoint: Endpoint) -> str:
     return _product_label(hits[0].product, hits[0].vendor)
 
 
+def _markers(entry: FeedEntry) -> str:
+    """The title's emoji, in order, all that apply: decision-time values only.
+
+    Escapes, not literal characters (ruff RUF001). They flag the item, they
+    never replace the words.
+    """
+    markers = ""
+    if entry.is_known_exploited:
+        markers += "\N{FIRE}"
+    if entry.band is Band.CRITICAL:
+        markers += "\N{LARGE RED CIRCLE}"
+    if entry.kind.startswith("band-"):
+        markers += "\N{UP-POINTING RED TRIANGLE}"
+    if entry.is_fresh is True:
+        markers += "\N{SQUARED NEW}"
+    return markers
+
+
 def _title(entry: FeedEntry, endpoint: Endpoint) -> str:
     head = f"{entry.primary_id} in {_title_product(entry, endpoint)}"
     band = entry.band.value
     exploited = f", {_EXPLOITED}" if entry.is_known_exploited else ""
     if entry.kind == NEW:
-        return f"{head}: severity {band}{exploited}"
-    if entry.kind == KEV:
-        return f"{_UPDATE_PREFIX}{head}: now {_EXPLOITED}, severity {band}"
-    if entry.kind.startswith("band-"):
-        return f"{_UPDATE_PREFIX}{head}: severity raised to {band}{exploited}"
-    return f"{_UPDATE_PREFIX}{head}: severity {band}{exploited}"
+        text = f"{head}: severity {band}{exploited}"
+    elif entry.kind == KEV:
+        text = f"{_UPDATE_PREFIX}{head}: now {_EXPLOITED}, severity {band}"
+    elif entry.kind.startswith("band-"):
+        text = f"{_UPDATE_PREFIX}{head}: severity raised to {band}{exploited}"
+    else:
+        text = f"{_UPDATE_PREFIX}{head}: severity {band}{exploited}"
+    markers = _markers(entry)
+    return f"{markers} {text}" if markers else text
 
 
 def _ordered_records(vulnerability: Vulnerability) -> list[RecordRef]:
