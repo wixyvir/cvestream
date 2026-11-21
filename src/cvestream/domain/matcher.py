@@ -12,8 +12,8 @@ or path (`loan_history_maintenance.php`, `/usr/lib/php/`) does not count. An ent
 with `match_description` false never uses the description, so a vulnerability
 known only from CISA KEV waits for EUVD product data. An entry with `exact`
 true matches only an affected product whose whole name equals its name or an
-alias: vendor names and the description are never used. Titles are never
-searched. Exclusion terms are looked for in both.
+alias: vendor names and the description are never used for matching. Titles are
+never searched. Exclusion terms are looked for in both.
 """
 
 import re

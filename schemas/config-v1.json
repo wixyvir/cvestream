@@ -102,7 +102,7 @@
       },
       "properties": {
         "name": {
-          "description": "Product name, matched as a whole word.",
+          "description": "Product name, matched as a whole word, or as a whole name when `exact` is true.",
           "maxLength": 200,
           "minLength": 1,
           "title": "Name",
@@ -151,7 +151,7 @@
         },
         "exact": {
           "default": false,
-          "description": "Match only an affected product whose whole name equals the name or an alias (case-insensitive); vendor names and the description are never used. Cannot be combined with match_description: true.",
+          "description": "Match only an affected product whose whole name equals the name or an alias (case-insensitive); vendor names and the description are never used for matching. Cannot be combined with match_description: true.",
           "title": "Exact",
           "type": "boolean"
         }

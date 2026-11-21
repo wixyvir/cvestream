@@ -107,7 +107,12 @@ _EXACT_CONTRADICTION: dict[str, Any] = {
 class ProductEntryConfig(BaseModel):
     model_config = ConfigDict(**_CONFIG, json_schema_extra=_EXACT_CONTRADICTION)
 
-    name: Term = Field(description="Product name, matched as a whole word.")
+    name: Term = Field(
+        description=(
+            "Product name, matched as a whole word, or as a whole name when "
+            "`exact` is true."
+        )
+    )
     aliases: list[Term] = Field(
         default=[], description="Other names the same product goes by."
     )
@@ -137,7 +142,8 @@ class ProductEntryConfig(BaseModel):
         description=(
             "Match only an affected product whose whole name equals the name or "
             "an alias (case-insensitive); vendor names and the description are "
-            "never used. Cannot be combined with match_description: true."
+            "never used for matching. Cannot be combined with "
+            "match_description: true."
         ),
     )
 
