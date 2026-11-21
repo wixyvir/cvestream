@@ -23,7 +23,11 @@ TOKEN_B = "b" * 43
 TOKEN_SECRET = "s3cr3t" + "x" * 37
 
 
-def _yaml(*endpoints: tuple[str, str, str], min_cvss: float | None = None) -> str:
+def _yaml(
+    *endpoints: tuple[str, str, str],
+    min_cvss: float | None = None,
+    require_score: bool = False,
+) -> str:
     lines = ["version: 1", "endpoints:"]
     for endpoint_id, token, product in endpoints:
         lines += [
@@ -33,6 +37,8 @@ def _yaml(*endpoints: tuple[str, str, str], min_cvss: float | None = None) -> st
         ]
         if min_cvss is not None:
             lines.append(f"    min_cvss: {min_cvss}")
+        if require_score:
+            lines.append("    require_score: true")
         lines += ["    products:", f"      - {product}"]
     return "\n".join(lines) + "\n"
 
@@ -199,6 +205,7 @@ def test_a_cycle_logs_exactly_one_summary_with_a_failed_source(
     assert summary["published"] == {"team-php": 1}
     assert summary["score_unknown"] == 0
     assert summary["versions_unknown"] == 0
+    assert summary["held_back"] == {}
     assert summary["count"] == 1
     assert isinstance(summary["duration_ms"], int)
     assert result.snapshot is snapshot
@@ -243,6 +250,22 @@ def test_pass_throughs_are_counted_in_the_summary(
     (summary,) = _events(logs, "cycle.summary")
     assert summary["score_unknown"] == 1
     assert summary["published"] == {"team-php": 1}
+
+
+def test_held_back_is_counted_in_the_summary(
+    state: State, fake_clock: FakeClock, tmp_path: Path
+) -> None:
+    path = tmp_path / "require-score.yaml"
+    path.write_text(
+        _yaml(("team-php", TOKEN_A, "php"), require_score=True), encoding="utf-8"
+    )
+    provider = YamlConfigProvider(path)
+    with capture_logs() as logs:
+        cycle(state, provider, provider.load(), [_ok(fake_clock)], fake_clock)
+    (summary,) = _events(logs, "cycle.summary")
+    assert summary["held_back"] == {"team-php": 1}
+    assert summary["published"] == {"team-php": 0}
+    assert summary["count"] == 0
 
 
 def test_a_reloaded_endpoint_applies_to_the_same_cycle(

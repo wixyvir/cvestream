@@ -637,6 +637,7 @@ def test_an_unscored_vulnerability_held_back_by_require_score_is_new_once_scored
         fake_clock,
     )
     assert result.decisions == ()
+    assert result.held_back == {"team-php": 1}
     # Run 3: the same record with a score is published as new
     fake_clock.advance(timedelta(minutes=15))
     result = run(
@@ -714,6 +715,7 @@ def test_an_unscored_vulnerability_held_back_by_require_score_is_new_once_exploi
         fake_clock,
     )
     assert result.decisions == ()
+    assert result.held_back == {"team-php": 1}
     # Run 3: the same vulnerability becomes KEV and is published as new
     fake_clock.advance(timedelta(minutes=15))
     result = run(
@@ -729,3 +731,128 @@ def test_an_unscored_vulnerability_held_back_by_require_score_is_new_once_exploi
             select(schema.publication).where(schema.publication.c.primary_id == CVE)
         ).one()
     assert row.guid == f"cvestream:team-php:{CVE}:new"
+
+
+# --- held back by require_score (NFR-4, story 5.3) --------------------------------
+
+
+def test_held_back_is_counted_per_endpoint_with_require_score(
+    state: State, fake_clock: FakeClock
+) -> None:
+    strict = replace(_endpoint("team-strict"), rules=Rules(require_score=True))
+    plain = _endpoint("team-plain")
+    off = replace(_endpoint("off", enabled=False), rules=Rules(require_score=True))
+    snapshot = _snapshot(strict, plain, off)
+    result = run(state, snapshot, [_batch(_euvd(fake_clock, score=None))], fake_clock)
+    assert result.held_back == {"team-strict": 1}
+    assert list(result.held_back) == ["team-strict"]
+    assert _kinds(result) == [("team-plain", "new")]
+
+
+def test_a_vulnerability_of_another_product_is_not_held_back(
+    state: State, fake_clock: FakeClock
+) -> None:
+    snapshot = _snapshot(replace(_endpoint(), rules=Rules(require_score=True)))
+    result = run(
+        state,
+        snapshot,
+        [_batch(_euvd(fake_clock, score=None, product="go"))],
+        fake_clock,
+    )
+    assert result.held_back == {"team-php": 0}
+    assert result.decisions == ()
+
+
+def test_kev_only_drops_before_require_score(
+    state: State, fake_clock: FakeClock
+) -> None:
+    rules = Rules(kev_only=True, require_score=True)
+    snapshot = _snapshot(replace(_endpoint(), rules=rules))
+    result = run(state, snapshot, [_batch(_euvd(fake_clock, score=None))], fake_clock)
+    assert result.held_back == {"team-php": 0}
+    assert result.decisions == ()
+
+
+def test_an_unscored_known_exploited_vulnerability_is_not_held_back(
+    state: State, fake_clock: FakeClock
+) -> None:
+    snapshot = _snapshot(replace(_endpoint(), rules=Rules(require_score=True)))
+    result = run(
+        state,
+        snapshot,
+        [_batch(_euvd(fake_clock, score=None), _kev(fake_clock))],
+        fake_clock,
+    )
+    assert result.held_back == {"team-php": 0}
+    assert _kinds(result) == [("team-php", "new")]
+
+
+def test_a_score_below_min_cvss_is_not_held_back(
+    state: State, fake_clock: FakeClock
+) -> None:
+    rules = Rules(require_score=True, min_cvss=7.0)
+    snapshot = _snapshot(replace(_endpoint(), rules=rules))
+    result = run(state, snapshot, [_batch(_euvd(fake_clock, score=5.0))], fake_clock)
+    assert result.held_back == {"team-php": 0}
+    assert result.decisions == ()
+
+
+def test_held_back_is_counted_again_while_an_endpoint_has_no_publication(
+    state: State, fake_clock: FakeClock
+) -> None:
+    snapshot = _snapshot(replace(_endpoint(), rules=Rules(require_score=True)))
+    first = run(state, snapshot, [_batch(_euvd(fake_clock, score=None))], fake_clock)
+    assert first.held_back == {"team-php": 1}
+    fake_clock.advance(timedelta(minutes=15))
+    second = run(state, snapshot, [_batch(_euvd(fake_clock, score=None))], fake_clock)
+    assert second.held_back == {"team-php": 1}
+
+
+def test_held_back_is_not_counted_again_for_an_untouched_vulnerability(
+    state: State, fake_clock: FakeClock
+) -> None:
+    snapshot = _snapshot(replace(_endpoint(), rules=Rules(require_score=True)))
+    # Run 1: a first, scored vulnerability is published as new (history exists)
+    first = run(
+        state,
+        snapshot,
+        [
+            _batch(
+                _euvd(
+                    fake_clock, record_id="EUVD-2026-0", cve="CVE-2026-1000", score=9.8
+                )
+            )
+        ],
+        fake_clock,
+    )
+    assert _kinds(first) == [("team-php", "new")]
+    # Run 2: an unscored vulnerability is held back
+    fake_clock.advance(timedelta(minutes=15))
+    second = run(
+        state,
+        snapshot,
+        [
+            _batch(
+                _euvd(
+                    fake_clock, record_id="EUVD-2026-1", cve="CVE-2026-1001", score=None
+                )
+            )
+        ],
+        fake_clock,
+    )
+    assert second.held_back == {"team-php": 1}
+    # Run 3: the same batch unchanged is not touched, so not re-evaluated
+    fake_clock.advance(timedelta(minutes=15))
+    third = run(
+        state,
+        snapshot,
+        [
+            _batch(
+                _euvd(
+                    fake_clock, record_id="EUVD-2026-1", cve="CVE-2026-1001", score=None
+                )
+            )
+        ],
+        fake_clock,
+    )
+    assert third.held_back == {"team-php": 0}
