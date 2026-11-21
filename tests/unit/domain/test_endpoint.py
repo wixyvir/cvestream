@@ -12,6 +12,7 @@ def test_product_entry_defaults() -> None:
     assert entry.exclude == ()
     assert entry.min_version is None
     assert entry.match_description is True
+    assert entry.exact is False
 
 
 def test_rules_default_to_no_filtering() -> None:

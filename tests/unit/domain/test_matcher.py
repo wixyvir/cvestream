@@ -4,7 +4,7 @@ import pytest
 from packaging.version import Version
 
 from cvestream.domain.endpoint import Endpoint, ProductEntry, Rules
-from cvestream.domain.matcher import MatchResult, PassThrough, match
+from cvestream.domain.matcher import MatchResult, PassThrough, affected_hits, match
 from cvestream.domain.model import KevCatalog, Vulnerability
 
 type VulnerabilityFactory = Callable[..., Vulnerability]
@@ -862,3 +862,196 @@ def test_result_identifies_endpoint_vulnerability_and_entries(
     assert result.endpoint_id == "team-a"
     assert result.vulnerability_id == "CVE-2026-4242"
     assert result.matches[0].entry is PHP
+
+
+# --- exact product matching (FR-12, wixyvir/cvestream#44) ----------------------
+
+
+PHP_EXACT = ProductEntry(name="php", exact=True)
+CPYTHON_EXACT = ProductEntry(name="cpython", aliases=("python/cpython",), exact=True)
+
+
+@pytest.mark.parametrize(
+    ("product", "vendor", "version_text"),
+    [
+        ("PHP", "PHP Group", "8.2.* <8.2.35"),
+        ("CPython", "Python Software Foundation", None),
+        ("python/cpython", None, None),
+        ("  PHP ", "PHP Group", None),
+    ],
+    ids=["php", "cpython", "alias", "whitespace"],
+)
+def test_exact_matches_the_whole_product_name(
+    make_vulnerability: VulnerabilityFactory,
+    product: str,
+    vendor: str | None,
+    version_text: str | None,
+) -> None:
+    entry = CPYTHON_EXACT if product in ("CPython", "python/cpython") else PHP_EXACT
+    vulnerability = make_vulnerability(products=[(product, vendor, version_text)])
+    result = match(vulnerability, _endpoint(entry))
+    assert result is not None
+    assert result.matches[0].structured is True
+
+
+def test_exact_collapses_whitespace_runs_in_the_name(
+    make_vulnerability: VulnerabilityFactory,
+) -> None:
+    entry = ProductEntry(name="apache http server", exact=True)
+    vulnerability = make_vulnerability(products=[("Apache  HTTP\nServer", "Apache")])
+    result = match(vulnerability, _endpoint(entry))
+    assert result is not None
+    assert result.matches[0].structured is True
+
+
+@pytest.mark.parametrize(
+    ("product", "vendor"),
+    [
+        ("php-travel-agency-system", "Acme"),
+        ("CloudClassroom-PHP-Project", "Acme"),
+        ("PHP Driver", "MongoDB"),
+        ("frankenphp", "PHP"),
+        ("Joomla extension", "php-web-design.com"),
+    ],
+    ids=[
+        "hyphenated-project",
+        "classroom-project",
+        "driver-vendor",
+        "vendor-only",
+        "vendor-domain",
+    ],
+)
+def test_exact_rejects_what_word_matching_lets_through(
+    make_vulnerability: VulnerabilityFactory, product: str, vendor: str | None
+) -> None:
+    vulnerability = make_vulnerability(products=[(product, vendor)])
+    assert match(vulnerability, _endpoint(PHP)) is not None
+    assert match(vulnerability, _endpoint(PHP_EXACT)) is None
+
+
+@pytest.mark.parametrize("kev", [False, True], ids=["euvd", "kev-only"])
+def test_exact_never_searches_the_description(
+    make_vulnerability: VulnerabilityFactory, kev: bool
+) -> None:
+    vulnerability = make_vulnerability(
+        description="A flaw in PHP 8.3 allows remote code execution", kev=kev
+    )
+    assert match(vulnerability, _endpoint(PHP)) is not None
+    assert match(vulnerability, _endpoint(PHP_EXACT)) is None
+    # The domain does not validate: the matcher must still ignore the description.
+    assert (
+        match(
+            vulnerability,
+            _endpoint(ProductEntry(name="php", exact=True, match_description=True)),
+        )
+        is None
+    )
+
+
+def test_exact_ignores_a_description_mention_when_products_exist(
+    make_vulnerability: VulnerabilityFactory,
+) -> None:
+    vulnerability = make_vulnerability(
+        products=[("WordPress plugin X", "Acme")],
+        description="A flaw in PHP 8.3 allows remote code execution",
+    )
+    assert match(vulnerability, _endpoint(PHP_EXACT)) is None
+
+
+def test_exact_with_min_version(make_vulnerability: VulnerabilityFactory) -> None:
+    entry = ProductEntry(name="php", min_version=Version("8.2"), exact=True)
+
+    reaching = make_vulnerability(products=[("PHP", "PHP Group", "8.2.* <8.2.35")])
+    result = match(reaching, _endpoint(entry))
+    assert result is not None
+    assert result.matches[0].versions_unknown is False
+    assert result.labels == frozenset()
+
+    below = make_vulnerability(products=[("PHP", "PHP Group", "7.4.0 <7.4.33")])
+    assert match(below, _endpoint(entry)) is None
+
+    unparsable = make_vulnerability(products=[("PHP", "PHP Group", "8.3.x")])
+    result = match(unparsable, _endpoint(entry))
+    assert result is not None
+    assert result.matches[0].versions_unknown is True
+    assert result.labels == frozenset({PassThrough.VERSIONS_UNKNOWN})
+
+    # The frankenphp row is not an exact hit, so it cannot turn the item into
+    # a "versions unknown" match; the non-exact entry does match it.
+    mixed = make_vulnerability(
+        products=[
+            ("PHP", "PHP Group", "7.4.0 <7.4.33"),
+            ("frankenphp", "PHP", "2.0.0a1, < 2.2.0"),
+        ]
+    )
+    assert match(mixed, _endpoint(entry)) is None
+    non_exact = match(mixed, _endpoint(PHP_8_2))
+    assert non_exact is not None
+    assert non_exact.matches[0].versions_unknown is True
+
+
+def test_exact_vendor_only_vulnerability_is_not_a_versions_unknown_match(
+    make_vulnerability: VulnerabilityFactory,
+) -> None:
+    vulnerability = make_vulnerability(products=[("frankenphp", "PHP", "a1b2c3d")])
+    result = match(vulnerability, _endpoint(PHP_8_2))
+    assert result is not None
+    assert result.matches[0].versions_unknown is True
+    entry = ProductEntry(name="php", min_version=Version("8.2"), exact=True)
+    assert match(vulnerability, _endpoint(entry)) is None
+
+
+def test_exclusions_still_apply_to_exact_entries(
+    make_vulnerability: VulnerabilityFactory,
+) -> None:
+    entry = ProductEntry(name="php", exclude=("wordpress",), exact=True)
+    in_product = make_vulnerability(
+        products=[("PHP", "PHP Group"), ("WordPress", "Automattic")]
+    )
+    assert match(in_product, _endpoint(entry)) is None
+    in_vendor = make_vulnerability(
+        products=[("PHP", "PHP Group"), ("Some Plugin", "WordPress")]
+    )
+    assert match(in_vendor, _endpoint(entry)) is None
+    in_description = make_vulnerability(
+        products=[("PHP", "PHP Group")], description="A flaw in a WordPress site"
+    )
+    assert match(in_description, _endpoint(entry)) is None
+
+
+def test_shorthand_style_entry_stays_word_matching(
+    make_vulnerability: VulnerabilityFactory,
+) -> None:
+    vulnerability = make_vulnerability(products=[("php-fpm", "PHP Group")])
+    assert match(vulnerability, _endpoint(ProductEntry(name="php"))) is not None
+
+
+def test_affected_hits_of_an_exact_entry(
+    make_vulnerability: VulnerabilityFactory,
+) -> None:
+    affected = [
+        a.value
+        for a in make_vulnerability(
+            products=[
+                ("Zend Engine", "PHP"),
+                ("php-fpm", "PHP Group"),
+                ("PHP", "PHP Group"),
+            ]
+        ).affected
+    ]
+    non_exact = affected_hits(PHP, affected)
+    assert [a.product for a in non_exact] == ["php-fpm", "PHP", "Zend Engine"]
+    exact = affected_hits(PHP_EXACT, affected)
+    assert [a.product for a in exact] == ["PHP"]
+
+
+def test_affected_hits_of_an_exact_entry_is_empty_without_an_exact_name(
+    make_vulnerability: VulnerabilityFactory,
+) -> None:
+    affected = [
+        a.value
+        for a in make_vulnerability(
+            products=[("php-fpm", "PHP Group"), ("Zend Engine", "PHP")]
+        ).affected
+    ]
+    assert affected_hits(PHP_EXACT, affected) == []

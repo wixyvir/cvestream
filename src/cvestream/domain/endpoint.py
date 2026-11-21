@@ -19,6 +19,9 @@ class ProductEntry:
     min_version: Version | None = None
     # False: structured affected-product data only, never the description.
     match_description: bool = True
+    # True: the whole affected-product name must equal the name or an alias;
+    # vendor names and the description are never used.
+    exact: bool = False
 
 
 @dataclass(frozen=True, slots=True)

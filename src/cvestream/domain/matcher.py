@@ -10,8 +10,10 @@ not make another product a PHP vulnerability. The descriptions are searched only
 when there is no affected-product data at all, and then a name inside a file name
 or path (`loan_history_maintenance.php`, `/usr/lib/php/`) does not count. An entry
 with `match_description` false never uses the description, so a vulnerability
-known only from CISA KEV waits for EUVD product data. Titles are never searched.
-Exclusion terms are looked for in both.
+known only from CISA KEV waits for EUVD product data. An entry with `exact`
+true matches only an affected product whose whole name equals its name or an
+alias: vendor names and the description are never used. Titles are never
+searched. Exclusion terms are looked for in both.
 """
 
 import re
@@ -85,6 +87,29 @@ def _hits(
     ]
 
 
+def _normalized(text: str) -> str:
+    return " ".join(text.split()).casefold()
+
+
+def _is_named(terms: tuple[str, ...], product: str) -> bool:
+    # Exact entries: the whole product name, not a word inside it.
+    name = _normalized(product)
+    return any(_normalized(term) == name for term in terms)
+
+
+def _names_product(entry: ProductEntry, terms: tuple[str, ...], product: str) -> bool:
+    return _is_named(terms, product) if entry.exact else _mentions(terms, product)
+
+
+def _entry_hits(
+    entry: ProductEntry, terms: tuple[str, ...], affected: list[AffectedProduct]
+) -> list[AffectedProduct]:
+    if entry.exact:
+        # Vendor names never count: vendor `PHP` ships `frankenphp`.
+        return [a for a in affected if _is_named(terms, a.product)]
+    return _hits(terms, affected)
+
+
 def affected_hits(
     entry: ProductEntry, affected: list[AffectedProduct]
 ) -> list[AffectedProduct]:
@@ -95,8 +120,8 @@ def affected_hits(
     (another product of the vendor) comes after every product-name hit.
     """
     terms = (entry.name, *entry.aliases)
-    hits = _hits(terms, affected)
-    return sorted(hits, key=lambda a: not _mentions(terms, a.product))
+    hits = _entry_hits(entry, terms, affected)
+    return sorted(hits, key=lambda a: not _names_product(entry, terms, a.product))
 
 
 def _match_entry(
@@ -110,12 +135,13 @@ def _match_entry(
     ):
         return None
     terms = (entry.name, *entry.aliases)
-    hits = _hits(terms, affected)
+    hits = _entry_hits(entry, terms, affected)
     if not hits:
         # Structured data wins: the description is only a fallback for a
         # vulnerability without any affected product, and an entry can opt out.
         if (
             affected
+            or entry.exact
             or not entry.match_description
             or not any(_mentioned_in_prose(terms, d) for d in descriptions)
         ):
@@ -126,7 +152,9 @@ def _match_entry(
         return ProductMatch(entry, structured=False, versions_unknown=True)
     # A vendor-only hit carries another product's versions: unusable here.
     ranges = [
-        parse_range(hit.version_text) if _mentions(terms, hit.product) else None
+        parse_range(hit.version_text)
+        if _names_product(entry, terms, hit.product)
+        else None
         for hit in hits
     ]
     if any(r is not None and r.reaches(entry.min_version) for r in ranges):
