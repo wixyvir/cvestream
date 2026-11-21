@@ -6,7 +6,14 @@ import pytest
 from packaging.version import Version
 
 from cvestream.domain.endpoint import Endpoint, ProductEntry, Rules
-from cvestream.domain.matcher import MatchResult, PassThrough, affected_hits, match
+from cvestream.domain.matcher import (
+    DropReason,
+    MatchResult,
+    PassThrough,
+    affected_hits,
+    match,
+    match_outcome,
+)
 from cvestream.domain.model import (
     AffectedProduct,
     KevCatalog,
@@ -824,6 +831,138 @@ def test_versions_label_still_set_with_require_score(
     result = match(vulnerability, _endpoint(PHP_8_2, require_score=True))
     assert result is not None
     assert result.labels == frozenset({PassThrough.VERSIONS_UNKNOWN})
+
+
+# --- drop reasons (NFR-4, story 5.3) ----------------------------------------------
+
+
+def test_no_product_match_is_no_product(
+    make_vulnerability: VulnerabilityFactory,
+) -> None:
+    assert (
+        match_outcome(make_vulnerability(description="redis flaw"), _endpoint(PHP))
+        is DropReason.NO_PRODUCT
+    )
+    assert (
+        match_outcome(make_vulnerability(description="PHP flaw"), _endpoint())
+        is DropReason.NO_PRODUCT
+    )
+
+
+def test_an_excluded_entry_is_no_product(
+    make_vulnerability: VulnerabilityFactory,
+) -> None:
+    entry = ProductEntry(name="php", exclude=("wordpress",))
+    vulnerability = make_vulnerability(description="A WordPress plugin for PHP")
+    assert match_outcome(vulnerability, _endpoint(entry)) is DropReason.NO_PRODUCT
+
+
+def test_kev_only_drop(make_vulnerability: VulnerabilityFactory) -> None:
+    vulnerability = make_vulnerability(description="PHP flaw", scores=[9.8])
+    assert (
+        match_outcome(vulnerability, _endpoint(PHP, kev_only=True))
+        is DropReason.KEV_ONLY
+    )
+
+
+def test_kev_only_wins_over_require_score(
+    make_vulnerability: VulnerabilityFactory,
+) -> None:
+    vulnerability = make_vulnerability(description="PHP flaw", scores=[])
+    endpoint = _endpoint(PHP, kev_only=True, require_score=True)
+    assert match_outcome(vulnerability, endpoint) is DropReason.KEV_ONLY
+
+
+@pytest.mark.parametrize("scores", [[], [None]], ids=["empty", "none"])
+def test_require_score_drop(
+    make_vulnerability: VulnerabilityFactory, scores: list[float | None]
+) -> None:
+    vulnerability = make_vulnerability(description="PHP flaw", scores=scores)
+    assert (
+        match_outcome(vulnerability, _endpoint(PHP, require_score=True))
+        is DropReason.REQUIRE_SCORE
+    )
+
+
+def test_require_score_drop_with_threshold(
+    make_vulnerability: VulnerabilityFactory,
+) -> None:
+    vulnerability = make_vulnerability(description="PHP flaw", scores=[None])
+    endpoint = _endpoint(PHP, require_score=True, min_cvss=7.0)
+    assert match_outcome(vulnerability, endpoint) is DropReason.REQUIRE_SCORE
+
+
+def test_kev_is_exempt_from_require_score(
+    make_vulnerability: VulnerabilityFactory,
+) -> None:
+    vulnerability = make_vulnerability(description="PHP flaw", scores=[], kev=True)
+    outcome = match_outcome(vulnerability, _endpoint(PHP, require_score=True))
+    assert isinstance(outcome, MatchResult)
+
+
+@pytest.mark.parametrize(
+    "require_score", [False, True], ids=["plain", "with-require-score"]
+)
+def test_below_min_cvss_drop(
+    make_vulnerability: VulnerabilityFactory, require_score: bool
+) -> None:
+    vulnerability = make_vulnerability(description="PHP flaw", scores=[5.0])
+    endpoint = _endpoint(PHP, min_cvss=7.0, require_score=require_score)
+    assert match_outcome(vulnerability, endpoint) is DropReason.MIN_CVSS
+
+
+def test_a_match_is_the_same_match_result(
+    make_vulnerability: VulnerabilityFactory,
+) -> None:
+    vulnerability = make_vulnerability(description="PHP flaw")
+    endpoint = _endpoint(PHP_8_2, min_cvss=7.0)
+    outcome = match_outcome(vulnerability, endpoint)
+    assert isinstance(outcome, MatchResult)
+    assert outcome == match(vulnerability, endpoint)
+    assert outcome.labels == frozenset(
+        {PassThrough.VERSIONS_UNKNOWN, PassThrough.SCORE_UNKNOWN}
+    )
+
+
+@pytest.mark.parametrize(
+    ("min_cvss", "kev_only", "require_score", "scores", "kev", "description"),
+    [
+        (None, False, False, [9.8], False, "PHP flaw"),
+        (None, False, False, [9.8], False, "redis flaw"),
+        (None, True, False, [9.8], False, "PHP flaw"),
+        (None, True, True, [], False, "PHP flaw"),
+        (None, False, True, [None], False, "PHP flaw"),
+        (7.0, False, False, [5.0], False, "PHP flaw"),
+        (None, False, True, [], True, "PHP flaw"),
+    ],
+    ids=[
+        "matched",
+        "no-product",
+        "kev-only",
+        "kev-only-wins",
+        "require-score",
+        "min-cvss",
+        "kev-exempt",
+    ],
+)
+def test_match_agrees_with_match_outcome(
+    make_vulnerability: VulnerabilityFactory,
+    min_cvss: float | None,
+    kev_only: bool,
+    require_score: bool,
+    scores: list[float | None],
+    kev: bool,
+    description: str,
+) -> None:
+    endpoint = _endpoint(
+        PHP, min_cvss=min_cvss, kev_only=kev_only, require_score=require_score
+    )
+    vulnerability = make_vulnerability(description=description, scores=scores, kev=kev)
+    outcome = match_outcome(vulnerability, endpoint)
+    if isinstance(outcome, DropReason):
+        assert match(vulnerability, endpoint) is None
+    else:
+        assert match(vulnerability, endpoint) == outcome
 
 
 # --- KEV only (FR-15) --------------------------------------------------------------
