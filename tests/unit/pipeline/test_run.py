@@ -8,7 +8,7 @@ from sqlalchemy import Table, select
 from structlog.testing import capture_logs
 
 from cvestream.config.provider import ConfigSnapshot
-from cvestream.domain.endpoint import Endpoint, ProductEntry
+from cvestream.domain.endpoint import Endpoint, ProductEntry, Rules
 from cvestream.domain.model import (
     AffectedProduct,
     CvssScore,
@@ -606,17 +606,10 @@ def test_the_feeds_of_a_disabled_endpoint_are_not_rendered_again(
 def test_an_unscored_vulnerability_held_back_by_require_score_is_new_once_scored(
     state: State, fake_clock: FakeClock
 ) -> None:
-    from cvestream.domain.endpoint import Rules
-
-    require_score_endpoint = Endpoint(
-        id="team-php",
-        name="PHP team",
-        products=(ProductEntry(name="php"),),
-        rules=Rules(require_score=True, min_cvss=7.0),
-    )
-    snapshot = _snapshot(require_score_endpoint)
+    rules = Rules(require_score=True, min_cvss=7.0)
+    snapshot = _snapshot(replace(_endpoint(), rules=rules))
     # Run 1: a first, scored vulnerability is published as new
-    run(
+    first = run(
         state,
         snapshot,
         [
@@ -628,6 +621,7 @@ def test_an_unscored_vulnerability_held_back_by_require_score_is_new_once_scored
         ],
         fake_clock,
     )
+    assert _kinds(first) == [("team-php", "new")]
     # Run 2: an unscored vulnerability is held back
     fake_clock.advance(timedelta(minutes=15))
     result = run(
@@ -659,42 +653,40 @@ def test_an_unscored_vulnerability_held_back_by_require_score_is_new_once_scored
     )
     assert _kinds(result) == [("team-php", "new")]
     assert result.decisions[0].primary_id == "CVE-2026-1001"
-    # Run 4: rerunning the same batch decides nothing
+    with state.transaction() as repo:
+        row = repo._connection.execute(
+            select(schema.publication).where(schema.publication.c.primary_id == CVE)
+        ).one()
+    assert row.guid == f"cvestream:team-php:{CVE}:new"
+    # Run 4: a changed record is re-matched; decide() returns nothing
     fake_clock.advance(timedelta(minutes=15))
-    assert (
-        run(
-            state,
-            snapshot,
-            [
-                _batch(
-                    _euvd(
-                        fake_clock,
-                        record_id="EUVD-2026-1",
-                        cve="CVE-2026-1001",
-                        score=9.8,
-                    )
+    result = run(
+        state,
+        snapshot,
+        [
+            _batch(
+                _euvd(
+                    fake_clock,
+                    record_id="EUVD-2026-1",
+                    cve="CVE-2026-1001",
+                    score=9.8,
+                    description="A flaw, updated",
                 )
-            ],
-            fake_clock,
-        ).decisions
-        == ()
+            )
+        ],
+        fake_clock,
     )
+    assert result.changed == 1
+    assert result.decisions == ()
 
 
 def test_an_unscored_vulnerability_held_back_by_require_score_is_new_once_exploited(
     state: State, fake_clock: FakeClock
 ) -> None:
-    from cvestream.domain.endpoint import Rules
-
-    require_score_endpoint = Endpoint(
-        id="team-php",
-        name="PHP team",
-        products=(ProductEntry(name="php"),),
-        rules=Rules(require_score=True, min_cvss=7.0),
-    )
-    snapshot = _snapshot(require_score_endpoint)
+    rules = Rules(require_score=True, min_cvss=7.0)
+    snapshot = _snapshot(replace(_endpoint(), rules=rules))
     # Run 1: a first, scored vulnerability is published as new
-    run(
+    first = run(
         state,
         snapshot,
         [
@@ -706,6 +698,7 @@ def test_an_unscored_vulnerability_held_back_by_require_score_is_new_once_exploi
         ],
         fake_clock,
     )
+    assert _kinds(first) == [("team-php", "new")]
     # Run 2: an unscored vulnerability is held back
     fake_clock.advance(timedelta(minutes=15))
     result = run(
@@ -731,3 +724,8 @@ def test_an_unscored_vulnerability_held_back_by_require_score_is_new_once_exploi
     )
     assert _kinds(result) == [("team-php", "new")]
     assert result.decisions[0].primary_id == "CVE-2026-1001"
+    with state.transaction() as repo:
+        row = repo._connection.execute(
+            select(schema.publication).where(schema.publication.c.primary_id == CVE)
+        ).one()
+    assert row.guid == f"cvestream:team-php:{CVE}:new"

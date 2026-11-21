@@ -5,7 +5,7 @@ from packaging.version import Version
 
 from cvestream.domain.endpoint import Endpoint, ProductEntry, Rules
 from cvestream.domain.matcher import MatchResult, PassThrough, match
-from cvestream.domain.model import Vulnerability
+from cvestream.domain.model import KevCatalog, Vulnerability
 
 type VulnerabilityFactory = Callable[..., Vulnerability]
 
@@ -745,8 +745,6 @@ def test_unscored_cisa_kev_kept_with_require_score_no_threshold(
 def test_unscored_eu_kev_kept_with_require_score(
     make_vulnerability: VulnerabilityFactory,
 ) -> None:
-    from cvestream.domain.model import KevCatalog
-
     vulnerability = make_vulnerability(
         description="PHP flaw", scores=[], kev=True, kev_catalog=KevCatalog.EU_KEV
     )
@@ -794,8 +792,9 @@ def test_default_off_keeps_unscored(
     make_vulnerability: VulnerabilityFactory,
 ) -> None:
     vulnerability = make_vulnerability(description="PHP flaw")
-    result = match(vulnerability, _endpoint(PHP, require_score=False))
+    result = match(vulnerability, _endpoint(PHP, min_cvss=7.0))
     assert result is not None
+    assert result.labels == frozenset({PassThrough.SCORE_UNKNOWN})
 
 
 def test_with_kev_only_and_require_score(
@@ -814,9 +813,7 @@ def test_with_kev_only_and_require_score(
 def test_versions_label_still_set_with_require_score(
     make_vulnerability: VulnerabilityFactory,
 ) -> None:
-    vulnerability = make_vulnerability(
-        description="PHP flaw", scores=[9.8], products=[("PHP", "PHP Group")]
-    )
+    vulnerability = make_vulnerability(description="PHP flaw", scores=[9.8])
     result = match(vulnerability, _endpoint(PHP_8_2, require_score=True))
     assert result is not None
     assert result.labels == frozenset({PassThrough.VERSIONS_UNKNOWN})
