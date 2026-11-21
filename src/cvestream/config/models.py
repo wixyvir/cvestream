@@ -182,6 +182,16 @@ ProductItem = Annotated[
 ]
 
 
+def _normalized_name(name: str) -> str:
+    # The matcher's equality for exact entries (`domain/matcher.py`): case and
+    # whitespace runs never make two names different.
+    return " ".join(name.split()).casefold()
+
+
+def _item_name(item: str | ProductEntryConfig) -> str:
+    return _split_shorthand(item)[0] if isinstance(item, str) else item.name
+
+
 def _to_product(item: str | ProductEntryConfig) -> ProductEntry:
     if isinstance(item, str):
         name, version = _split_shorthand(item)
@@ -237,9 +247,28 @@ class EndpointConfig(BaseModel):
         default=[],
         description=(
             "Products to watch: a shorthand string or a full entry. "
+            "Names must be unique within the endpoint (case-insensitive). "
             "An endpoint without products matches nothing."
         ),
     )
+
+    @model_validator(mode="after")
+    def _unique_product_names(self) -> EndpointConfig:
+        # The item title and story 5.2's groups find an entry by its name.
+        # The message carries the path: a model-level error is located at the
+        # endpoint only.
+        seen: dict[str, int] = {}
+        for index, item in enumerate(self.products):
+            name = _item_name(item)
+            key = _normalized_name(name)
+            if key in seen:
+                msg = (
+                    f"products[{index}]: duplicate product name {name!r} "
+                    f"(same as products[{seen[key]}])"
+                )
+                raise ValueError(msg)
+            seen[key] = index
+        return self
 
     def to_domain(self) -> Endpoint:
         """The domain object; the token stays out of it."""

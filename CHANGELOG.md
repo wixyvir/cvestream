@@ -12,6 +12,10 @@ and cvestream adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - `require_score` endpoint rule: holds back vulnerabilities that no source has scored yet, except known-exploited ones, until a source scores them (wixyvir/cvestream#43). Additive change to the v1 configuration contract.
 - `exact` product entries: match only an affected product whose whole name equals the name or an alias, ignoring vendor names and the description (wixyvir/cvestream#44). Additive change to the v1 configuration contract; `exact: true` together with an explicit `match_description: true` is now rejected, also by the published JSON Schema.
 
+### Changed
+
+- Product entry names must be unique within an endpoint, ignoring case and whitespace runs; a shorthand counts by its name, so `php` and `php >= 8.2` collide (wixyvir/cvestream#48). This tightens the v1 configuration contract: a file with duplicate names loaded before and is now rejected. `cvestream config validate` exits 2, the daemon refuses to start with it, and a reload keeps the last valid configuration (`config.rejected`). Before upgrading, rename the second entry (an alias of the first works) and run `cvestream config validate`.
+
 ## [0.1.0] - 2026-11-14
 
 First pre-release. The API and configuration format may still change before 1.0.
