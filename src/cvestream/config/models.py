@@ -10,7 +10,7 @@ Validation happens here, at the boundary: the domain trusts what it receives.
 """
 
 import re
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import (
     AfterValidator,
@@ -91,9 +91,21 @@ MinVersion = Annotated[str, AfterValidator(_check_version)]
 
 _CONFIG = ConfigDict(extra="forbid", strict=True)
 
+# JSON Schema twin of `_exact_contradiction`: exact and an explicit
+# match_description true cannot both be present.
+_EXACT_CONTRADICTION: dict[str, Any] = {
+    "not": {
+        "required": ["exact", "match_description"],
+        "properties": {
+            "exact": {"const": True},
+            "match_description": {"const": True},
+        },
+    }
+}
+
 
 class ProductEntryConfig(BaseModel):
-    model_config = _CONFIG
+    model_config = ConfigDict(**_CONFIG, json_schema_extra=_EXACT_CONTRADICTION)
 
     name: Term = Field(description="Product name, matched as a whole word.")
     aliases: list[Term] = Field(
@@ -120,6 +132,14 @@ class ProductEntryConfig(BaseModel):
             "product; false matches on affected-product data only."
         ),
     )
+    exact: bool = Field(
+        default=False,
+        description=(
+            "Match only an affected product whose whole name equals the name or "
+            "an alias (case-insensitive); vendor names and the description are "
+            "never used. Cannot be combined with match_description: true."
+        ),
+    )
 
     @field_validator("min_version", mode="before")
     @classmethod
@@ -128,6 +148,21 @@ class ProductEntryConfig(BaseModel):
             msg = "must be a quoted string (YAML reads 8.10 as the number 8.1)"
             raise ValueError(msg)
         return value
+
+    @model_validator(mode="after")
+    def _exact_contradiction(self) -> ProductEntryConfig:
+        # Only an explicit `match_description: true`: its default is true too.
+        if (
+            self.exact
+            and self.match_description
+            and "match_description" in self.model_fields_set
+        ):
+            msg = (
+                "exact: true contradicts match_description: true; "
+                "omit match_description or set it to false"
+            )
+            raise ValueError(msg)
+        return self
 
 
 def _product_kind(value: object) -> str:
@@ -153,6 +188,7 @@ def _to_product(item: str | ProductEntryConfig) -> ProductEntry:
         exclude=tuple(item.exclude),
         min_version=parse_version(item.min_version) if item.min_version else None,
         match_description=item.match_description,
+        exact=item.exact,
     )
 
 

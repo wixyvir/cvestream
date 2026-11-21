@@ -130,6 +130,20 @@ def test_shorthand_error_path() -> None:
     )
 
 
+def test_exact_contradiction_error_path() -> None:
+    errors = _errors(
+        _data(
+            _endpoint(
+                products=[{"name": "a", "exact": True, "match_description": True}]
+            )
+        )
+    )
+    assert errors == (
+        "endpoints[0].products[0]: exact: true contradicts match_description: true; "
+        "omit match_description or set it to false",
+    )
+
+
 def test_value_error_prefix_is_stripped() -> None:
     errors = _errors(_data(_endpoint(products=[{"name": "x", "min_version": "8.x"}])))
     assert errors == ("endpoints[0].products[0].min_version: invalid version '8.x'",)

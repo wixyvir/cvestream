@@ -86,6 +86,20 @@
     },
     "ProductEntryConfig": {
       "additionalProperties": false,
+      "not": {
+        "properties": {
+          "exact": {
+            "const": true
+          },
+          "match_description": {
+            "const": true
+          }
+        },
+        "required": [
+          "exact",
+          "match_description"
+        ]
+      },
       "properties": {
         "name": {
           "description": "Product name, matched as a whole word.",
@@ -133,6 +147,12 @@
           "default": true,
           "description": "Search the description when a vulnerability lists no affected product; false matches on affected-product data only.",
           "title": "Match Description",
+          "type": "boolean"
+        },
+        "exact": {
+          "default": false,
+          "description": "Match only an affected product whose whole name equals the name or an alias (case-insensitive); vendor names and the description are never used. Cannot be combined with match_description: true.",
+          "title": "Exact",
           "type": "boolean"
         }
       },
