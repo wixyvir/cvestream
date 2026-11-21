@@ -59,10 +59,11 @@ endpoints:
     token: REPLACE-ME-with-secrets-token-urlsafe-32-team-platform
     products:
       # Full entry. Only `name` is required.
-      - # Product name, matched as a whole word, case-insensitive, against the
-        # affected products (product or vendor), or against the description
-        # when a vulnerability lists no affected product. In the description,
-        # a name inside a file name or path (`x/maintenance.php`) does not count.
+      - # Product name, matched as a whole word (as a whole name with `exact`),
+        # case-insensitive, against the affected products (product or vendor),
+        # or against the description when a vulnerability lists no affected
+        # product. In the description, a name inside a file name or path
+        # (`x/maintenance.php`) does not count.
         name: gitlab
         # Optional. Other names the same product goes by.
         aliases: [gitlab-ce, gitlab-ee]
@@ -77,3 +78,12 @@ endpoints:
         match_description: true
       - name: apache http server
         aliases: [httpd]
+      - name: cpython
+        aliases: [python/cpython]
+        # Optional, default false. true matches only an affected product whose
+        # whole name equals the name or an alias (case-insensitive): vendor
+        # names and the description are never used for matching. Keeps generic
+        # names like php or python from matching php-sdk or python-pillow.
+        # Cannot be combined with match_description: true.
+        exact: true
+        min_version: "3.9"

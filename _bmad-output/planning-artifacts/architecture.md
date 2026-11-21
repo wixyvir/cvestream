@@ -38,7 +38,7 @@ _This document builds collaboratively through step-by-step discovery. Sections a
 |---|---|---|
 | F1 Source ingestion | FR-1, 2, 3, 4, 6 (2b, 5 deferred) | One adapter per source (EUVD, CERT-EU, CISA KEV). Each has its own schedule and its own failure isolation. Incremental polling (EUVD `fromUpdatedDate`) needs a cursor per source that survives restarts. Deferred after v1: a CERT-FR alerte adapter (FR-2b) and generic RSS/JSON adapters (FR-5) would be further adapters. |
 | F2 Correlation and identity | FR-7, 8, 9, 24 | A canonical vulnerability, keyed by CVE/EUVD/advisory ID aliases and never by URL. Every value records which source supplied it. "Unknown" is a value in its own right. The highest score wins for decisions, but every source's score is kept. |
-| F3 Endpoints and filtering | FR-10 to 16, 25 | A matching engine: case-insensitive whole-word matching on structured product data, the description only as a fallback for a vulnerability without affected-product data (ignoring names inside file names and paths, and skipped for entries with `match_description: false`), aliases, exclusion terms, minimum versions parsed from free text, and fail-open labels ("versions unknown"). Filters: CVSS threshold, KEV-only and an opt-in `require_score` (drops unscored vulnerabilities except known-exploited ones). Recall wins over volume by default. A new endpoint is backfilled with 7 days of matches. |
+| F3 Endpoints and filtering | FR-10 to 16, 25 | A matching engine: case-insensitive whole-word matching on structured product data, the description only as a fallback for a vulnerability without affected-product data (ignoring names inside file names and paths, and skipped for entries with `match_description: false`); an entry with `exact: true` instead matches the whole affected-product name only (no vendor, no description). Aliases, exclusion terms, minimum versions parsed from free text, and fail-open labels ("versions unknown"). Filters: CVSS threshold, KEV-only and an opt-in `require_score` (drops unscored vulnerabilities except known-exploited ones). Recall wins over volume by default. A new endpoint is backfilled with 7 days of matches. |
 | F4 RSS output | FR-17 to 20, 26 | A publication engine that decides new, update (`[UPDATE]` with its own GUID) or nothing, per vulnerability and endpoint. It needs history: last severity band and last KEV state. An RSS 2.0 renderer with a 14-day window and no Slack-specific markup. Feed URLs carry a token that can be rotated. |
 | F5 Configuration | FR-21, 22, 23 | Pluggable providers (Valkey or YAML). A CLI that performs create/list/edit/delete through the active provider. Changes apply at the next poll. Invalid configuration means keeping the last valid one and logging the error. |
 
@@ -183,7 +183,7 @@ cvestream:v1:schema                   "1"
 cvestream:v1:revision                 integer, INCR by every writer
 cvestream:v1:endpoints                SET of endpoint ids
 cvestream:v1:endpoint:{id}            JSON {name, enabled, min_cvss, kev_only, require_score}
-cvestream:v1:endpoint:{id}:products   JSON [{name, aliases[], exclude[], min_version}]
+cvestream:v1:endpoint:{id}:products   JSON [{name, aliases[], exclude[], min_version, match_description, exact}]
 cvestream:v1:token:{id}               feed token (plaintext; own namespace so connector ACLs do not cover it)
 ```
 

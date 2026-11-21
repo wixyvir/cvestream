@@ -152,6 +152,38 @@ def test_product_entry_config_to_domain_defaults() -> None:
     assert entry.exclude == []
     assert entry.min_version is None
     assert entry.match_description is True
+    assert entry.exact is False
+
+
+def test_exact_maps_to_the_domain() -> None:
+    domain = _only_endpoint(
+        products=[{"name": "php", "exact": True}, {"name": "gitlab"}, "nodejs >= 20"]
+    ).to_domain()
+    assert [e.exact for e in domain.products] == [True, False, False]
+
+
+def test_exact_accepts_match_description_omitted_or_false() -> None:
+    omitted = (
+        _only_endpoint(products=[{"name": "php", "exact": True}])
+        .to_domain()
+        .products[0]
+    )
+    assert omitted == ProductEntry(name="php", exact=True)
+    explicit = (
+        _only_endpoint(
+            products=[{"name": "php", "exact": True, "match_description": False}]
+        )
+        .to_domain()
+        .products[0]
+    )
+    assert explicit == ProductEntry(name="php", exact=True, match_description=False)
+
+
+def test_exact_contradiction_message() -> None:
+    data = _document(
+        _endpoint(products=[{"name": "a", "exact": True, "match_description": True}])
+    )
+    assert "exact: true contradicts match_description: true" in _message(data)
 
 
 def test_match_description_maps_to_the_domain() -> None:
@@ -217,6 +249,18 @@ def test_repr_hides_token() -> None:
             "endpoints.0.products.0.entry.match_description",
         ),
         (
+            _document(_endpoint(products=[{"name": "a", "exact": "yes"}])),
+            "endpoints.0.products.0.entry.exact",
+        ),
+        (
+            _document(
+                _endpoint(
+                    products=[{"name": "a", "exact": True, "match_description": True}]
+                )
+            ),
+            "endpoints.0.products.0.entry",
+        ),
+        (
             _document(_endpoint(products=["php > 8.2"])),
             "endpoints.0.products.0.shorthand",
         ),
@@ -257,6 +301,8 @@ def test_repr_hides_token() -> None:
         "blank-product-name",
         "bad-min-version",
         "match-description-string",
+        "exact-string",
+        "exact-with-match-description",
         "shorthand-gt",
         "shorthand-no-name",
         "shorthand-bad-version",

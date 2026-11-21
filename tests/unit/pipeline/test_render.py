@@ -359,6 +359,23 @@ def test_the_title_uses_the_aliases_of_the_configured_entry() -> None:
     )
 
 
+def test_the_title_of_an_exact_entry_names_the_exact_product() -> None:
+    vulnerability = _with_affected(
+        AffectedProduct("php-fpm", "PHP Group"), AffectedProduct("PHP", "PHP Group")
+    )
+    exact = replace(ENDPOINT, products=(ProductEntry("php", exact=True),))
+    entry = _entry(vulnerability=vulnerability, products=("php",))
+    item = _parse(render_feed(exact, [entry])).find("channel/item")
+    assert item is not None
+    assert item.findtext("title") == "CVE-2026-1234 in PHP Group PHP: severity high"
+    word = replace(ENDPOINT, products=(ProductEntry("php"),))
+    item = _parse(render_feed(word, [entry])).find("channel/item")
+    assert item is not None
+    assert item.findtext("title") == (
+        "CVE-2026-1234 in PHP Group php-fpm: severity high"
+    )
+
+
 def test_a_removed_entry_still_names_its_affected_product() -> None:
     vulnerability = _with_affected(AffectedProduct("Redis", "Redis Ltd"))
     entry = _entry(vulnerability=vulnerability, products=("redis",))

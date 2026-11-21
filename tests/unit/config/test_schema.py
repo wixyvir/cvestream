@@ -46,3 +46,17 @@ def test_every_property_has_a_description() -> None:
 
 def test_schema_path_is_relative() -> None:
     assert SCHEMA_PATH == Path("schemas/config-v1.json")
+
+
+def test_exact_contradiction_is_published() -> None:
+    schema = config_schema()
+    clause = schema["$defs"]["ProductEntryConfig"]["not"]
+    assert clause == {
+        "required": ["exact", "match_description"],
+        "properties": {
+            "exact": {"const": True},
+            "match_description": {"const": True},
+        },
+    }
+    exact = schema["$defs"]["ProductEntryConfig"]["properties"]["exact"]
+    assert exact["default"] is False

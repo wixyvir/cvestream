@@ -31,8 +31,8 @@ This document provides the complete epic and story breakdown for cvestream, deco
 - FR-8: Identify a vulnerability by CVE, EUVD or advisory ID, never by URL.
 - FR-9: Record which source supplied each value (score, CVSS version, affected products). Missing score or version data is *unknown*, never zero or low.
 - FR-10: Support multiple endpoints, each with its own product list and rules.
-- FR-11: A product entry is a name, optional minimum version (`php >= 8.2`), optional aliases and exclusion terms, and can opt out of the description fallback.
-- FR-12: Match on structured affected-product data, and on the description only when there is none, never the title alone; case-insensitive whole-word matching; in the description, a name inside a file name or path does not count; an exclusion term prevents the match.
+- FR-11: A product entry is a name, optional minimum version (`php >= 8.2`), optional aliases and exclusion terms, can opt out of the description fallback, or require the whole product name (`exact`).
+- FR-12: Match on structured affected-product data, and on the description only when there is none, never the title alone; case-insensitive whole-word matching; an exact entry matches the whole product name only (no vendor, no description); in the description, a name inside a file name or path does not count; an exclusion term prevents the match.
 - FR-13: With a minimum version, match only if affected versions reach it; unusable version data matches anyway, labelled "versions unknown".
 - FR-14: Per-endpoint minimum CVSS score; unscored vulnerabilities are never dropped by it.
 - FR-15: Per-endpoint "known-exploited only" option.
