@@ -4,7 +4,7 @@ baseline_commit: 3b6702591590aa442203f3ff96bf2e11cc56c78b
 
 # Story 4.2: Exact product matching
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 <!-- Created from GitHub issue wixyvir/cvestream#44. -->
@@ -71,36 +71,36 @@ The only workaround today is a growing `exclude` list, which is whack-a-mole.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Branch (AC: all)**
-  - [ ] 1.1 Work on `story-4-2-exact-product-matching` (created from `main` at `3b67025` with this story file). If the PR that carries this story file is already merged, recreate the branch from up-to-date `main` with the same name. No `/` in the branch name. It is not stacked on 4.1 (see "Parallel work with story 4.1").
+- [x] **Task 1: Branch (AC: all)**
+  - [x] 1.1 Work on `story-4-2-exact-product-matching` (created from `main` at `3b67025` with this story file). If the PR that carries this story file is already merged, recreate the branch from up-to-date `main` with the same name. No `/` in the branch name. It is not stacked on 4.1 (see "Parallel work with story 4.1").
 
-- [ ] **Task 2: Domain field and matcher (AC: 1, 2, 3, 4, 5, 9)**
-  - [ ] 2.1 `src/cvestream/domain/endpoint.py`: add `exact: bool = False` as the last field of `ProductEntry`, with a one-line comment (see "Domain entry").
-  - [ ] 2.2 `src/cvestream/domain/matcher.py`: add the private name-equality helper and the entry-aware helpers described in "Matcher design". Route `_match_entry()` (hits, description fallback guard, version check) and `affected_hits()` through them. Keep `_pattern()`, `_description_pattern()`, `_mentions()`, `_mentioned_in_prose()` and `_hits()` unchanged. Exclusions keep using `_hits(entry.exclude, affected)` and `_mentions(entry.exclude, d)`.
-  - [ ] 2.3 Update the module docstring (see "Documentation edits").
-  - [ ] 2.4 Tests in `tests/unit/domain/test_matcher.py` and `tests/unit/domain/test_endpoint.py` (see "Testing requirements").
-  - [ ] 2.5 Add one title test in `tests/unit/pipeline/test_render.py` (see "Testing requirements"). Render code is unchanged.
-  - [ ] 2.6 Commit: `feat(story-4.2): match a product entry on the exact product name`.
+- [x] **Task 2: Domain field and matcher (AC: 1, 2, 3, 4, 5, 9)**
+  - [x] 2.1 `src/cvestream/domain/endpoint.py`: add `exact: bool = False` as the last field of `ProductEntry`, with a one-line comment (see "Domain entry").
+  - [x] 2.2 `src/cvestream/domain/matcher.py`: add the private name-equality helper and the entry-aware helpers described in "Matcher design". Route `_match_entry()` (hits, description fallback guard, version check) and `affected_hits()` through them. Keep `_pattern()`, `_description_pattern()`, `_mentions()`, `_mentioned_in_prose()` and `_hits()` unchanged. Exclusions keep using `_hits(entry.exclude, affected)` and `_mentions(entry.exclude, d)`.
+  - [x] 2.3 Update the module docstring (see "Documentation edits").
+  - [x] 2.4 Tests in `tests/unit/domain/test_matcher.py` and `tests/unit/domain/test_endpoint.py` (see "Testing requirements").
+  - [x] 2.5 Add one title test in `tests/unit/pipeline/test_render.py` (see "Testing requirements"). Render code is unchanged.
+  - [x] 2.6 Commit: `feat(story-4.2): match a product entry on the exact product name`.
 
-- [ ] **Task 3: Config contract and schema (AC: 6, 7, 8)**
-  - [ ] 3.1 `src/cvestream/config/models.py`: add the `exact` field, the `model_validator`, the `json_schema_extra` `not` clause and the `_to_product()` mapping (see "Config contract").
-  - [ ] 3.2 `uv run cvestream config schema`. Check that the diff of `schemas/config-v1.json` only adds `exact` and the `not` clause.
-  - [ ] 3.3 Tests in `tests/unit/config/test_models.py`, `tests/unit/config/test_provider.py` and `tests/unit/config/test_schema.py` (see "Testing requirements").
-  - [ ] 3.4 One commit with models, schema and tests: `feat(story-4.2): add exact to product entries in the v1 contract`.
+- [x] **Task 3: Config contract and schema (AC: 6, 7, 8)**
+  - [x] 3.1 `src/cvestream/config/models.py`: add the `exact` field, the `model_validator`, the `json_schema_extra` `not` clause and the `_to_product()` mapping (see "Config contract").
+  - [x] 3.2 `uv run cvestream config schema`. Check that the diff of `schemas/config-v1.json` only adds `exact` and the `not` clause.
+  - [x] 3.3 Tests in `tests/unit/config/test_models.py`, `tests/unit/config/test_provider.py` and `tests/unit/config/test_schema.py` (see "Testing requirements").
+  - [x] 3.4 One commit with models, schema and tests: `feat(story-4.2): add exact to product entries in the v1 contract`.
 
-- [ ] **Task 4: User documentation (AC: 10)**
-  - [ ] 4.1 `docs/configuration.md`, `docs/sources.md`, `endpoints.example.yaml` and `CHANGELOG.md` (exact edits in "Documentation edits").
-  - [ ] 4.2 Check `README.md` and `AGENTS.md`. Neither describes the matching rule today (`grep -n -i "whole word\|match_description\|vendor" README.md AGENTS.md` finds nothing), so no change is expected. Confirm it.
-  - [ ] 4.3 `uv run cvestream config validate endpoints.example.yaml` must pass.
-  - [ ] 4.4 Commit: `docs(story-4.2): document exact product matching`.
+- [x] **Task 4: User documentation (AC: 10)**
+  - [x] 4.1 `docs/configuration.md`, `docs/sources.md`, `endpoints.example.yaml` and `CHANGELOG.md` (exact edits in "Documentation edits").
+  - [x] 4.2 Check `README.md` and `AGENTS.md`. Neither describes the matching rule today (`grep -n -i "whole word\|match_description\|vendor" README.md AGENTS.md` finds nothing), so no change is expected. Confirm it.
+  - [x] 4.3 `uv run cvestream config validate endpoints.example.yaml` must pass.
+  - [x] 4.4 Commit: `docs(story-4.2): document exact product matching`.
 
-- [ ] **Task 5: Planning docs (AC: 11)**
-  - [ ] 5.1 Amend `architecture.md`, `project-context.md`, the PRD and `epics.md` (exact edits in "Planning doc amendments").
-  - [ ] 5.2 Commit: `docs(story-4.2): amend the matching rule in the planning docs`.
+- [x] **Task 5: Planning docs (AC: 11)**
+  - [x] 5.1 Amend `architecture.md`, `project-context.md`, the PRD and `epics.md` (exact edits in "Planning doc amendments").
+  - [x] 5.2 Commit: `docs(story-4.2): amend the matching rule in the planning docs`.
 
-- [ ] **Task 6: Gates and delivery (AC: 13)**
-  - [ ] 6.1 Run every gate command of `AGENTS.md`. Behind the corporate proxy, the local `docker build` fails on `ghcr.io` (x509): rely on CI for that gate and say so in the PR.
-  - [ ] 6.2 Story file: tick the tasks, fill the Dev Agent Record and set Status to `review`. In `sprint-status.yaml`, set `4-2-exact-product-matching: review`. Commit: `chore(story-4.2): mark story ready for review`.
+- [x] **Task 6: Gates and delivery (AC: 13)**
+  - [x] 6.1 Run every gate command of `AGENTS.md`. Behind the corporate proxy, the local `docker build` fails on `ghcr.io` (x509): rely on CI for that gate and say so in the PR.
+  - [x] 6.2 Story file: tick the tasks, fill the Dev Agent Record and set Status to `review`. In `sprint-status.yaml`, set `4-2-exact-product-matching: review`. Commit: `chore(story-4.2): mark story ready for review`.
   - [ ] 6.3 Push over SSH (`git@github.com:wixyvir/cvestream.git`) and open the PR to `main` (`SSL_CERT_FILE=$HOME/ca.pem gh pr create ...`). Title: `feat(story-4.2): exact product matching`. The body links this story file, contains `Closes wixyvir/cvestream#44`, lists the open questions below with the decision taken, and ends with the attribution line.
 
 ## Dev Notes
@@ -417,10 +417,41 @@ No external API or library change is involved. The pydantic features used were c
 
 ### Agent Model Used
 
+Mistral Vibe (Mistral AI coding agent), session of 2026-11-21.
+
 ### Debug Log References
+
+- Gates: `uv sync --locked`, `ruff check`, `ruff format --check`, `ty check`, `lint-imports`, `pytest` (1221 passed, 6 deselected), `cvestream config schema --check`, `cvestream config validate endpoints.example.yaml` — all green. Local `docker build --target runtime` fails behind the corporate proxy (cannot pull the pinned base image from ghcr.io, x509); CI runs that gate.
+- `ty` initially flagged the `json_schema_extra` literal (annotated `_EXACT_CONTRADICTION: dict[str, Any]`) and a `MatchResult | None` union in one test (assigned to a variable with an assert). Both fixed.
 
 ### Completion Notes List
 
 - Story context created by the create-story workflow (2026-11-17): complete developer guide built from wixyvir/cvestream#44, the stub story, epics, architecture, project context and the current code.
+- Task 2 (commit e440d50): `ProductEntry.exact: bool = False` as the last field; matcher helpers `_normalized`/`_is_named`/`_names_product`/`_entry_hits` decide "this affected product names the entry" in one place, used by hits, title ordering and the version check; description fallback closed for exact entries; exclusions unchanged; docstring updated. 20 new tests (matcher, endpoint, one render title test); all 176 pre-existing matcher/endpoint/render tests pass unchanged (AC 4).
+- Task 3 (commit 84b588d): `exact` field after `match_description` in `ProductEntryConfig`, `model_validator(mode="after")` reading `model_fields_set` rejects only an explicit `match_description: true`, `json_schema_extra` publishes the same rule as a `not` clause, `_to_product()` maps `exact`, schema regenerated in the same commit (diff = `exact` property + `not` clause only, AC 8), contract stays v1. Config/provider/schema tests added.
+- Task 4 (commit 24af5bb): `docs/configuration.md` (field list, "Exact entries" paragraph, YAML example), `docs/sources.md` (CISA KEV and CERT-EU bullets), `endpoints.example.yaml` (commented cpython exact entry), `CHANGELOG.md` ([Unreleased] Added). README.md and AGENTS.md confirmed free of matching-rule wording. `config validate endpoints.example.yaml` passes.
+- Task 5 (commit f0d444d): `architecture.md` F3 row + Valkey products key layout, `project-context.md` Matching (FR-12), PRD FR-11/FR-12, `epics.md` requirements inventory amended.
+- Open questions: (1) CERT-EU-only and KEV-only items do not match an exact entry — accepted, documented, pinned by `test_exact_never_searches_the_description`; (2) contradiction detected via `model_fields_set` (explicit `match_description: true` only) and published as a JSON Schema `not` clause — taken; (3) normalization is case + whitespace runs only — taken; (4) Epic 4 started while Epic 3 is backlog — noted, not resolved; (5) no retraction/backfill of already-published items — unchanged.
 
 ### File List
+
+- `src/cvestream/domain/endpoint.py` (modified: `exact` field)
+- `src/cvestream/domain/matcher.py` (modified: exact helpers, routing, docstring)
+- `src/cvestream/config/models.py` (modified: `exact` field, validator, `not` clause, `_to_product`)
+- `schemas/config-v1.json` (regenerated)
+- `tests/unit/domain/test_matcher.py` (modified: exact matching section)
+- `tests/unit/domain/test_endpoint.py` (modified: `exact` default assertion)
+- `tests/unit/pipeline/test_render.py` (modified: exact title test)
+- `tests/unit/config/test_models.py` (modified: exact mapping, rejection rows, message)
+- `tests/unit/config/test_provider.py` (modified: contradiction error path)
+- `tests/unit/config/test_schema.py` (modified: published `not` clause)
+- `docs/configuration.md` (modified)
+- `docs/sources.md` (modified)
+- `endpoints.example.yaml` (modified)
+- `CHANGELOG.md` (modified)
+- `_bmad-output/planning-artifacts/architecture.md` (modified)
+- `_bmad-output/project-context.md` (modified)
+- `_bmad-output/planning-artifacts/prds/prd-cvestream-2026-10-26/prd.md` (modified)
+- `_bmad-output/planning-artifacts/epics.md` (modified)
+- `_bmad-output/implementation-artifacts/4-2-exact-product-matching.md` (this file)
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` (status -> review)
