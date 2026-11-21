@@ -12,13 +12,16 @@ The title says what was published: the severity band and the known-exploited
 flag recorded at decision time, and the affected product the first matched
 entry names in the current merged data (the entry's own name when there is no
 such product), flagged with emoji markers built from those decision-time
-values only (fire, red circle, red triangle, squared new, in that order). The
+values only (fire, red circle, red triangle — only for a rise to `medium` or
+above — squared new, in that order). The
 body shows the current merged data of the vulnerability,
 leading with what a reader sees first: Slack's RSS app shows only about the
-first `SLACK_PREVIEW_CHARS` plain-text characters of the description and keeps
-only the first block-level elements, so the first `<p>` holds the facts line,
-the matched products and the full description. Unknown is `unknown`, never
-`0`, `n/a` or an empty string.
+first `SLACK_PREVIEW_CHARS` plain-text characters of the description and appears
+to keep only the first block-level elements (consistent with the paragraph and
+line hypotheses, inferred from a local replay and the ~208-character posts of
+2026-11-19, not measured against Slack), so the first `<p>` holds the facts
+line, the matched products and the full description. Unknown is `unknown`,
+never `0`, `n/a` or an empty string.
 """
 
 import hashlib
@@ -381,9 +384,11 @@ def _description(entry: FeedEntry, records: Sequence[RecordRef]) -> str:
     """The item body: an HTML fragment, one fact per line.
 
     The first `<p>` holds what a reader must see even when the description is
-    cut (Slack's RSS app keeps only the first block-level elements and shows
-    about the first `SLACK_PREVIEW_CHARS` plain-text characters): the facts
-    line, the matched products and the full description, never cut here.
+    cut (Slack's RSS app shows about the first `SLACK_PREVIEW_CHARS` plain-text
+    characters and appears to keep only the first block-level elements —
+    consistent with H1/H2, inferred from a local replay and the ~208-character
+    2026-11-19 posts, not measured against Slack): the facts line, the matched
+    products and the full description, never cut here.
     """
     vulnerability = entry.vulnerability
     ids_lines = [

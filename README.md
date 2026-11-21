@@ -9,7 +9,7 @@ advisories) into small, filtered RSS 2.0 feeds. Each team gets a feed that
 matches its own stack, so a Slack RSS integration only posts what is relevant
 to them — with CVSS score, known-exploited status, and affected versions in
 each item, and an emoji-flagged title (🔥 exploited, 🔴 critical, 🔺 severity
-raised, 🆕 published today) so the ones that matter stand out while scrolling.
+raised, 🆕 new that day) so the ones that matter stand out while scrolling.
 
 **Status:** v0.x — early development. The API and configuration format may
 change between releases.

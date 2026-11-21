@@ -608,7 +608,7 @@ so that I can triage a message without opening it and spot the ones that matter 
 **Then** it starts with these Unicode emoji, in this order, all that apply, followed by one space:
 - 🔥 when the stored `is_known_exploited` is true;
 - 🔴 when the stored band is `critical`;
-- 🔺 when the kind is `band-<band>`;
+- 🔺 when the kind is `band-<band>` and the band is `medium` or above (review decision D1 of wixyvir/cvestream#51);
 - 🆕 when the stored `is_fresh` is true.
 
 Every other band and the unknown state get no emoji, and there is no "safe" marker. The existing words (`EXPLOITED`, `[UPDATE]`, `severity critical`) stay. No Slack shortcode (`:fire:`) is used.
