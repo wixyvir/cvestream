@@ -13,7 +13,9 @@ with `match_description` false never uses the description, so a vulnerability
 known only from CISA KEV waits for EUVD product data. An entry with `exact`
 true matches only an affected product whose whole name equals its name or an
 alias: vendor names and the description are never used for matching. Titles are
-never searched. Exclusion terms are looked for in both.
+never searched. Exclusion terms are looked for in both. `match_outcome()` tells
+the caller why a vulnerability was dropped, so the pipeline can count what
+`require_score` held back.
 """
 
 import re
@@ -32,6 +34,15 @@ class PassThrough(StrEnum):
 
     VERSIONS_UNKNOWN = "versions_unknown"
     SCORE_UNKNOWN = "score_unknown"
+
+
+class DropReason(StrEnum):
+    """Why `match_outcome()` did not match a vulnerability."""
+
+    NO_PRODUCT = "no_product"
+    KEV_ONLY = "kev_only"
+    REQUIRE_SCORE = "require_score"
+    MIN_CVSS = "min_cvss"
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,8 +177,10 @@ def _match_entry(
     return None
 
 
-def match(vulnerability: Vulnerability, endpoint: Endpoint) -> MatchResult | None:
-    """Match `vulnerability` against `endpoint`; `None` when it does not match."""
+def match_outcome(
+    vulnerability: Vulnerability, endpoint: Endpoint
+) -> MatchResult | DropReason:
+    """Match `vulnerability` against `endpoint`; a `DropReason` when it does not."""
     affected = [a.value for a in vulnerability.affected]
     descriptions = [d.value for d in vulnerability.descriptions]
     matches = tuple(
@@ -176,21 +189,21 @@ def match(vulnerability: Vulnerability, endpoint: Endpoint) -> MatchResult | Non
         if (m := _match_entry(entry, affected, descriptions)) is not None
     )
     if not matches:
-        return None
+        return DropReason.NO_PRODUCT
 
     rules = endpoint.rules
     if rules.kev_only and not vulnerability.is_known_exploited:
-        return None
+        return DropReason.KEV_ONLY
     score = max_score(vulnerability.scores)
     # Opt-out of FR-25 for scores: an exploited vulnerability is never silenced.
     if rules.require_score and score is None and not vulnerability.is_known_exploited:
-        return None
+        return DropReason.REQUIRE_SCORE
     labels: set[PassThrough] = set()
     if rules.min_cvss is not None:
         if score is None:
             labels.add(PassThrough.SCORE_UNKNOWN)
         elif score < rules.min_cvss:
-            return None
+            return DropReason.MIN_CVSS
     if all(m.versions_unknown for m in matches):
         labels.add(PassThrough.VERSIONS_UNKNOWN)
     return MatchResult(
@@ -199,3 +212,9 @@ def match(vulnerability: Vulnerability, endpoint: Endpoint) -> MatchResult | Non
         matches=matches,
         labels=frozenset(labels),
     )
+
+
+def match(vulnerability: Vulnerability, endpoint: Endpoint) -> MatchResult | None:
+    """Match `vulnerability` against `endpoint`; `None` when it does not match."""
+    outcome = match_outcome(vulnerability, endpoint)
+    return outcome if isinstance(outcome, MatchResult) else None

@@ -123,18 +123,19 @@ _Versions verified online on 2026-10-26 (architecture.md). Before adding any dep
 ### Critical Don't-Miss Rules
 
 **Publish once (NFR-3 / SM-4):**
-- GUID = `cvestream:{endpoint_id}:{primary_id}:{kind}` with `kind` = `new`, `kev` or `band-{band}`. It is computed **once** at decision time, stored in `publication.guid`, and **never recomputed**. The renderer reads stored GUIDs. A CVE ID arriving later changes the primary ID, not the GUID.
+- GUID = `cvestream:{endpoint_id}:{primary_id}:{kind}` with `kind` = `new`, `kev` or `band-{band}`; a group item's GUID is `cvestream:{endpoint_id}:group-{family}:{h}` (story 5.2). Both are computed **once** at decision time, in `domain/publication.py` only, stored (`publication.guid`, `publication.group_guid`), and **never recomputed**. The renderer reads stored GUIDs. A CVE ID arriving later changes the primary ID, not the GUID.
 - The publication decision and its row are written in the same transaction.
 - A GUID is unique across all endpoints and vulnerabilities. `pipeline/run.py` skips a decision whose GUID is already stored (`publish.skipped`, `reason=guid_collision`) rather than letting the unique index abort the run.
 - Re-publish **only** when the vulnerability becomes known-exploited or its severity band rises (including `unknown` → rated, `none` included). Nothing else re-publishes it: not a score change within the band, a new source, a description edit, or an advisory revision. An update is a new item with its own GUID and an `[UPDATE]` title prefix.
 - First match after late data arrives (FR-26) → published as `new`, not as an update. New endpoint → backfill of the last 7 days. Feed window: 14 days.
 - Only vulnerabilities active in the last 14 days are decided; an endpoint without any publication is backfilled with the last 7 days.
+- Title markers come from decision-time values only (🔥 🔴 🔺 🆕, in that order, beside the words); never derive a title from the clock or from current merged data. The body leads with the facts Slack's ~495-character window must show; source version text is shown verbatim, never reformatted.
 
 **Recall over volume (FR-25): when in doubt, let it through.**
 - No score → never dropped by `min_cvss`. Only the opt-in endpoint rule `require_score` drops an unscored vulnerability, and never a known-exploited one.
 - Unusable version data (missing, `n/a`, unparsable, or a match found only in the description of a vulnerability without affected-product data) → matches anyway, labelled "versions unknown".
 - The highest available score drives the threshold, the title severity and the re-publish triggers. Every source's score is kept (`Sourced`) and shown; `max_score()`/`band()` compute from them, never overwrite.
-- Pass-throughs on unknown data are counted in `cycle.summary`.
+- Pass-throughs on unknown data are counted in `cycle.summary`, and so are the items an endpoint's `require_score` held back (`held_back`, from `match_outcome()`'s `DropReason`).
 
 **Matching (FR-12):** case-insensitive and whole-word (`php` must not match `phpMyAdmin`). Structured affected-product data decides whenever a vulnerability has any; the description is searched only when it has none (so `php` does not match a WordPress plugin mentioning `Module.php`). In that fallback, a hit preceded by `.`, `/` or `\`, or followed by `/` or `\`, is part of a file name or path and does not count (`x/maintenance.php`, `/usr/lib/php/`); `php.ini`, `php.net` and "Node.js" still count. A product entry with `match_description: false` skips the fallback entirely. A product entry with `exact: true` matches only an affected product whose whole name equals its name or an alias (case-insensitive, whitespace collapsed): vendor names and the description are never used; `exact: true` with an explicit `match_description: true` is rejected. Structured data and exclusion terms keep plain whole-word matching. Never match on the title. Aliases count as names. An exclusion term found in the vulnerability → that entry does not match.
 

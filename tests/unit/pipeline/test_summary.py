@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from types import MappingProxyType
 
@@ -49,7 +50,9 @@ def _decision(
     )
 
 
-def _result(*decisions: PublicationDecision) -> RunResult:
+def _result(
+    *decisions: PublicationDecision, held_back: Mapping[str, int] = MappingProxyType({})
+) -> RunResult:
     return RunResult(
         decisions=decisions,
         records=0,
@@ -57,6 +60,7 @@ def _result(*decisions: PublicationDecision) -> RunResult:
         skipped=0,
         touched=0,
         feeds=MappingProxyType({}),
+        held_back=held_back,
     )
 
 
@@ -123,6 +127,7 @@ def test_log_summary_writes_only_the_fields_that_apply() -> None:
         published={"a": 0, "b": 2},
         score_unknown=1,
         versions_unknown=0,
+        held_back={"a": 3},
         duration_ms=7,
     )
     with capture_logs() as logs:
@@ -138,5 +143,22 @@ def test_log_summary_writes_only_the_fields_that_apply() -> None:
     assert entry["published"] == {"a": 0, "b": 2}
     assert entry["score_unknown"] == 1
     assert entry["versions_unknown"] == 0
+    assert entry["held_back"] == {"a": 3}
     assert entry["count"] == 2
     assert entry["duration_ms"] == 7
+
+
+def test_held_back_is_copied_from_the_run() -> None:
+    result = _result(held_back=MappingProxyType({"a": 2}))
+    summary = summarize([], _snapshot(), result, 0)
+    assert summary.held_back == {"a": 2}
+
+
+def test_held_back_is_empty_when_no_endpoint_uses_require_score() -> None:
+    summary = summarize([], _snapshot(_endpoint("a")), _result(), 0)
+    assert summary.held_back == {}
+    with capture_logs() as logs:
+        log_summary(summary)
+    (entry,) = logs
+    assert entry["event"] == "cycle.summary"
+    assert entry["held_back"] == {}
