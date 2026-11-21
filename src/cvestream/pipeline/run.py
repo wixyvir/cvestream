@@ -158,6 +158,7 @@ def run(
                     matched,
                     vulnerability,
                     history.get((endpoint.id, vulnerability_id), []),
+                    now,
                 )
                 if decision is None:
                     continue

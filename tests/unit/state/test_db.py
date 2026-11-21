@@ -31,8 +31,8 @@ def _raw(state: State, sql: str) -> list[tuple[object, ...]]:
 
 def test_migrate_creates_the_schema_at_head(tmp_path: Path) -> None:
     state = State(f"sqlite:///{tmp_path / 'a.db'}")
-    assert state.migrate() == "0002"
-    assert state.current_revision() == "0002"
+    assert state.migrate() == "0003"
+    assert state.current_revision() == "0003"
     with state.raw_sqlite_connection() as raw:
         names = {
             row[0]
@@ -43,8 +43,8 @@ def test_migrate_creates_the_schema_at_head(tmp_path: Path) -> None:
 
 
 def test_second_migrate_is_a_no_op(state: State) -> None:
-    assert state.migrate() == "0002"
-    assert state.current_revision() == "0002"
+    assert state.migrate() == "0003"
+    assert state.current_revision() == "0003"
 
 
 def test_migrate_creates_a_missing_parent_directory(tmp_path: Path) -> None:
@@ -208,8 +208,8 @@ def test_migrating_from_0001_keeps_the_existing_rows(tmp_path: Path) -> None:
     assert state.current_revision() == "0001"
     with state.transaction() as repository:
         repository.set_cursor("euvd", "c1", datetime(2026, 1, 1, tzinfo=UTC))
-    assert state.migrate() == "0002"
-    assert state.current_revision() == "0002"
+    assert state.migrate() == "0003"
+    assert state.current_revision() == "0003"
     with state.transaction() as repository:
         assert repository.cursors() == {"euvd": "c1"}
     assert _raw(state, "SELECT count(*) FROM feed_cache") == [(0,)]
@@ -231,4 +231,49 @@ def test_the_feed_cache_migration_can_be_downgraded(tmp_path: Path) -> None:
             for row in raw.execute("SELECT name FROM sqlite_master WHERE type='table'")
         }
     assert "feed_cache" not in names
+    state.dispose()
+
+
+def test_the_is_fresh_migration_keeps_rows_and_can_be_downgraded(tmp_path: Path) -> None:
+    state = State(f"sqlite:///{tmp_path / 'fresh.db'}")
+    _upgrade_to(state, "0002")
+    assert state.current_revision() == "0002"
+    # a row as written at revision 0002, before the column existed (raw insert:
+    # `add_publication` always writes `is_fresh` now)
+    with state.transaction() as repository:
+        vulnerability_id = repository.create_vulnerability(
+            datetime(2026, 1, 1, tzinfo=UTC)
+        )
+        repository._connection.execute(
+            insert(schema.publication).values(
+                endpoint_id="e",
+                vulnerability_id=vulnerability_id,
+                kind="new",
+                guid="cvestream:e:CVE-2026-1:new",
+                primary_id="CVE-2026-1",
+                band="high",
+                is_known_exploited=False,
+                products_json=["php"],
+                labels_json=[],
+                published_at=datetime(2026, 1, 1, tzinfo=UTC),
+            )
+        )
+    assert state.migrate() == "0003"
+    assert state.current_revision() == "0003"
+    # a row from before the column exists reads NULL, not False
+    with state.transaction() as repository:
+        rows = repository._connection.execute(
+            select(schema.publication.c.is_fresh)
+        ).all()
+    assert rows == [(None,)]
+    config = Config()
+    config.set_main_option("script_location", MIGRATIONS)
+    with state._get_engine().begin() as connection:
+        config.attributes["connection"] = connection
+        command.downgrade(config, "0002")
+    assert state.current_revision() == "0002"
+    with state.raw_sqlite_connection() as raw:
+        columns = {row[1] for row in raw.execute("PRAGMA table_info(publication)")}
+    assert "is_fresh" not in columns
+    assert _raw(state, "SELECT count(*) FROM publication") == [(1,)]
     state.dispose()

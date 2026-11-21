@@ -46,9 +46,11 @@ def make_vulnerability() -> VulnerabilityFactory:
         scores: Iterable[float | None] = (),
         kev: bool = False,
         kev_catalog: KevCatalog = KevCatalog.CISA_KEV,
+        published_at: datetime | None = None,
     ) -> Vulnerability:
         return Vulnerability(
             primary_id=primary_id,
+            published_at=published_at,
             aliases=frozenset({primary_id, *aliases}),
             titles=(
                 (Sourced(title, source="euvd", observed_at=OBSERVED_AT),)

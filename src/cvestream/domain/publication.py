@@ -6,12 +6,13 @@ again only when it becomes known-exploited (`kev`) or its severity band rises
 band, a new source, a description edit or a band drop.
 
 The GUID is built here, once, at decision time. The caller stores it and never
-recomputes it. Pure: no clock, no I/O, no logging.
+recomputes it. Pure: no clock, no I/O, no logging — the decision time is an
+input (`now`), the caller's `Clock` value.
 """
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 from cvestream.domain.matcher import MatchResult, PassThrough
 from cvestream.domain.model import Vulnerability
@@ -52,6 +53,9 @@ class PublicationDecision:
     # Matched entry names, `matches[0]` first.
     products: tuple[str, ...]
     labels: frozenset[PassThrough]
+    # True when a `new` decision happened on the vulnerability's first UTC
+    # publication day. Stored, never recomputed.
+    is_fresh: bool = False
 
 
 def _kind(
@@ -69,17 +73,29 @@ def _kind(
     return None
 
 
+def _is_fresh(vulnerability: Vulnerability, kind: str, now: datetime) -> bool:
+    # Sources give day-level dates: a calendar day, not "the last 24 hours".
+    published = vulnerability.published_at
+    return (
+        kind == NEW
+        and published is not None
+        and published.astimezone(UTC).date() == now.astimezone(UTC).date()
+    )
+
+
 def decide(
     match: MatchResult,
     vulnerability: Vulnerability,
     history: Sequence[PastPublication],
+    now: datetime,
 ) -> PublicationDecision | None:
     """Decide whether `vulnerability` is published on `match.endpoint_id` now.
 
     `history` holds the earlier publications of this vulnerability on this
-    endpoint. At most one decision per call: when the vulnerability becomes
-    known-exploited and its band rises together, `kev` wins and records the
-    current band, so the rise is not published again later.
+    endpoint. `now` is the decision time (the run's `Clock` value, also stored
+    as the row's `published_at`). At most one decision per call: when the
+    vulnerability becomes known-exploited and its band rises together, `kev`
+    wins and records the current band, so the rise is not published again later.
     """
     band = band_of(max_score(vulnerability.scores))
     kind = _kind(vulnerability, band, history)
@@ -98,4 +114,5 @@ def decide(
         is_known_exploited=vulnerability.is_known_exploited,
         products=tuple(m.entry.name for m in match.matches),
         labels=match.labels,
+        is_fresh=_is_fresh(vulnerability, kind, now),
     )
