@@ -24,7 +24,7 @@ from cvestream.config.provider import (
     ConfigUnavailableError,
     ConfigValidationError,
 )
-from cvestream.domain.matcher import match
+from cvestream.domain.matcher import DropReason, match_outcome
 from cvestream.domain.model import Vulnerability
 from cvestream.domain.publication import (
     BACKFILL_WINDOW,
@@ -69,6 +69,8 @@ class RunResult:
     touched: int
     # The feed of every enabled endpoint, rendered by this run.
     feeds: Mapping[str, RenderedFeed]
+    # Per enabled endpoint with require_score: vulnerabilities it held back.
+    held_back: Mapping[str, int]
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,6 +156,7 @@ def run(
         history = repository.publication_history(
             [e.id for e in endpoints], vulnerabilities.keys()
         )
+        held_back = {e.id: 0 for e in endpoints if e.rules.require_score}
         for endpoint in endpoints:
             candidates = recent if endpoint.id in with_history else backfill
             # Decide and check every candidate first, then write: grouping
@@ -163,11 +166,13 @@ def run(
             run_guids: set[str] = set()
             for vulnerability_id in sorted(candidates):
                 vulnerability = vulnerabilities[vulnerability_id]
-                matched = match(vulnerability, endpoint)
-                if matched is None:
+                outcome = match_outcome(vulnerability, endpoint)
+                if isinstance(outcome, DropReason):
+                    if outcome is DropReason.REQUIRE_SCORE:
+                        held_back[endpoint.id] += 1
                     continue
                 decision = decide(
-                    matched,
+                    outcome,
                     vulnerability,
                     history.get((endpoint.id, vulnerability_id), []),
                     now,
@@ -279,6 +284,7 @@ def run(
         skipped=correlation.skipped,
         touched=len(correlation.touched),
         feeds=MappingProxyType(feeds),
+        held_back=MappingProxyType(held_back),
     )
     log.info(
         "pipeline.completed",
