@@ -530,12 +530,34 @@ so that my busy endpoint does not receive many "severity unknown" items that I c
 Added from GitHub issue wixyvir/cvestream#43. This addresses the real case: a BI platform endpoint with `min_cvss: 4.0` still gets every fresh OpenSSL record before EUVD scores it (e.g. EUVD-2026-126927, EUVD-2026-126928, EUVD-2026-126929, all "severity unknown" on the day they were published).
 
 **Acceptance criteria:**
-- Given an endpoint with `require_score: true`, when a vulnerability has no score from any source and is not known-exploited, then it is dropped.
-- Given an endpoint with `require_score: true` and `min_cvss: 7.0`, when a vulnerability has a score of 9.8, then it is published.
-- Given an endpoint with `require_score: true`, when a vulnerability is known-exploited (CISA KEV or EU KEV) with no score, then it is published.
-- Given an endpoint with `require_score: false` (default), when a vulnerability has no score, then it is published with "score_unknown" label if `min_cvss` is set.
-- Given an endpoint with `require_score: true`, when a vulnerability initially has no score and later receives a score, then it is published as new.
-- Given an endpoint with `require_score: true`, when a vulnerability initially has no score and later becomes known-exploited, then it is published as new.
+
+**Given** `domain/endpoint.Rules` and the v1 config contract
+**When** the rule is added as `require_score: bool = False` after `kev_only`, and `EndpointConfig.require_score` is a strict `bool` defaulting to `False`
+**Then** `Rules().require_score is False` (`Rules()` still means "no filtering"), `to_domain()` passes the field through, `require_score: "yes"` or `1` is rejected with the path `endpoints.0.require_score`, and `schemas/config-v1.json` is regenerated with `SCHEMA_VERSION` staying `1`
+
+**Given** an endpoint with `require_score: true`
+**When** a vulnerability has no score from any source (`[]`, `[None]`) and is not known-exploited
+**Then** it is dropped, after product matching and `kev_only`, before `min_cvss`
+
+**Given** an endpoint with `require_score: true`
+**When** a vulnerability is known-exploited (CISA KEV or EU KEV) with no score
+**Then** it is published; with `min_cvss` set it keeps the `score_unknown` label
+
+**Given** an endpoint with `require_score: true`, with or without `min_cvss`
+**When** a vulnerability has a score (a real `0.0` counts; with `min_cvss: 7.0`, a score of 9.8)
+**Then** it is published
+
+**Given** an endpoint with `require_score: false` (the default)
+**When** a vulnerability has no score
+**Then** it is published with the `score_unknown` label if `min_cvss` is set (FR-25 regression)
+
+**Given** an endpoint with `require_score: true`
+**When** a vulnerability initially has no score and later receives a score at or above `min_cvss`
+**Then** it is published once, as `new` (GUID `cvestream:{endpoint_id}:{primary_id}:new`)
+
+**Given** an endpoint with `require_score: true`
+**When** a vulnerability initially has no score and later becomes known-exploited
+**Then** it is published as `new`
 
 ### Story 4.2: Exact product matching
 
