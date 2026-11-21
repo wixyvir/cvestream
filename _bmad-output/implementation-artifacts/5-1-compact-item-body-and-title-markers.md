@@ -4,7 +4,7 @@ baseline_commit: 3c08cdd37d8c7b53daab739dafae4349a6f9da51
 
 # Story 5.1: Compact item body and title markers
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 <!-- Created from the sprint change proposal 2026-11-21 (epic 5, readable bursts). -->
@@ -68,48 +68,48 @@ Built from the team's feedback canvas "CVEStream Retours" (canvas entries 3 and 
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Investigate the missing description on short items (AC: 8)**
-  - [ ] 1.1 Get the XML of a short PHP item posted on 2026-11-19 (it is still in the 14-day EUVD window on 2026-11-21): run `uv run cvestream poll --once` locally with a throwaway `endpoints.yaml` that has a `php` endpoint, and read the rendered feed from the local state (`feed_cache.xml`) or from `http://127.0.0.1:8080/feeds/<token>.xml`. Never commit that file, the data directory, or the token; never paste a token into logs, the story or the PR.
-  - [ ] 1.2 Compare it with the Slack message (ask Cyprien for the post text if needed; record that as a blocker in the Dev Agent Record if it is unavailable). Count the plain-text characters per `<p>` block with the AC 3 reduction.
-  - [ ] 1.3 Test the hypotheses in "Short items: investigation" below. Write the finding (evidence, conclusion) in the Dev Agent Record.
-  - [ ] 1.4 If the cause is the layout (H1 or H2), the Task 3 layout fixes it: say so and pin it with a test. If it cannot be determined or fixed in render, add an entry to `_bmad-output/implementation-artifacts/deferred-work.md` under `## Deferred from: story 5.1 (compact item body, 2026-11-21)` with the evidence and the trigger to revisit.
+- [x] **Task 1: Investigate the missing description on short items (AC: 8)**
+  - [x] 1.1 Get the XML of a short PHP item posted on 2026-11-19 (it is still in the 14-day EUVD window on 2026-11-21): run `uv run cvestream poll --once` locally with a throwaway `endpoints.yaml` that has a `php` endpoint, and read the rendered feed from the local state (`feed_cache.xml`) or from `http://127.0.0.1:8080/feeds/<token>.xml`. Never commit that file, the data directory, or the token; never paste a token into logs, the story or the PR.
+  - [x] 1.2 Compare it with the Slack message (ask Cyprien for the post text if needed; record that as a blocker in the Dev Agent Record if it is unavailable). Count the plain-text characters per `<p>` block with the AC 3 reduction.
+  - [x] 1.3 Test the hypotheses in "Short items: investigation" below. Write the finding (evidence, conclusion) in the Dev Agent Record.
+  - [x] 1.4 If the cause is the layout (H1 or H2), the Task 3 layout fixes it: say so and pin it with a test. If it cannot be determined or fixed in render, add an entry to `_bmad-output/implementation-artifacts/deferred-work.md` under `## Deferred from: story 5.1 (compact item body, 2026-11-21)` with the evidence and the trigger to revisit.
 
-- [ ] **Task 2: Freshness in the domain and the state (AC: 6, 9)**
-  - [ ] 2.1 `src/cvestream/domain/publication.py`: add `is_fresh: bool = False` as the **last** field of `PublicationDecision`; add a `now: datetime` parameter to `decide()` (required, after `history`); compute `is_fresh` with a private helper (see "Freshness design"). Update the module docstring (the decision time is an input; still no clock, no I/O).
-  - [ ] 2.2 `src/cvestream/pipeline/run.py`: pass `now` to `decide()`.
-  - [ ] 2.3 `src/cvestream/state/schema.py`: add `Column("is_fresh", Boolean, nullable=True)` to `publication`, after `is_known_exploited`, with a comment (`NULL` on rows older than the column).
-  - [ ] 2.4 New migration `src/cvestream/state/migrations/versions/0003_add_publication_is_fresh.py` (`revision = "0003"`, `down_revision = "0002"`): `op.batch_alter_table("publication")` + `add_column(sa.Column("is_fresh", sa.Boolean(), nullable=True))`; downgrade drops the column in batch mode. Copy the header style of `0002_add_feed_cache.py`.
-  - [ ] 2.5 `src/cvestream/state/repository.py`: `add_publication()` writes `is_fresh=decision.is_fresh`; `StoredPublication` gains `is_fresh: bool | None` (last field); `publications_since()` selects and maps it. `publication_history()` and `PastPublication` do not change.
-  - [ ] 2.6 Tests (see "Testing requirements"): `tests/unit/domain/test_publication.py` (every `decide()` call gets `now`; new freshness cases), `tests/unit/domain/conftest.py` (`make_vulnerability(published_at=...)`), `tests/unit/state/test_db.py` (head is `0003`; upgrade from `0002` keeps rows with `is_fresh` `NULL`; downgrade to `0002` drops the column), `tests/unit/state/test_repository.py` (round trip of `True`, `False` and a `NULL` row).
-  - [ ] 2.7 Commit: `feat(story-5.1): decide and store whether a new item is fresh`.
+- [x] **Task 2: Freshness in the domain and the state (AC: 6, 9)**
+  - [x] 2.1 `src/cvestream/domain/publication.py`: add `is_fresh: bool = False` as the **last** field of `PublicationDecision`; add a `now: datetime` parameter to `decide()` (required, after `history`); compute `is_fresh` with a private helper (see "Freshness design"). Update the module docstring (the decision time is an input; still no clock, no I/O).
+  - [x] 2.2 `src/cvestream/pipeline/run.py`: pass `now` to `decide()`.
+  - [x] 2.3 `src/cvestream/state/schema.py`: add `Column("is_fresh", Boolean, nullable=True)` to `publication`, after `is_known_exploited`, with a comment (`NULL` on rows older than the column).
+  - [x] 2.4 New migration `src/cvestream/state/migrations/versions/0003_add_publication_is_fresh.py` (`revision = "0003"`, `down_revision = "0002"`): `op.batch_alter_table("publication")` + `add_column(sa.Column("is_fresh", sa.Boolean(), nullable=True))`; downgrade drops the column in batch mode. Copy the header style of `0002_add_feed_cache.py`.
+  - [x] 2.5 `src/cvestream/state/repository.py`: `add_publication()` writes `is_fresh=decision.is_fresh`; `StoredPublication` gains `is_fresh: bool | None` (last field); `publications_since()` selects and maps it. `publication_history()` and `PastPublication` do not change.
+  - [x] 2.6 Tests (see "Testing requirements"): `tests/unit/domain/test_publication.py` (every `decide()` call gets `now`; new freshness cases), `tests/unit/domain/conftest.py` (`make_vulnerability(published_at=...)`), `tests/unit/state/test_db.py` (head is `0003`; upgrade from `0002` keeps rows with `is_fresh` `NULL`; downgrade to `0002` drops the column), `tests/unit/state/test_repository.py` (round trip of `True`, `False` and a `NULL` row).
+  - [x] 2.7 Commit: `feat(story-5.1): decide and store whether a new item is fresh`.
 
-- [ ] **Task 3: Body reorder and compact Affected line (AC: 1, 2, 3, 8, 9)**
-  - [ ] 3.1 Record the Tomcat fixture (see "Tomcat fixture") as `tests/fixtures/euvd/euvd_tomcat_five_affected_rows.json` and add its row to `tests/fixtures/README.md`.
-  - [ ] 3.2 `src/cvestream/pipeline/render.py`: add the budget constant, rewrite `_description()`, add `_facts()`, rewrite `_affected()`, drop the `Known exploited` line for vulnerabilities that are not known-exploited (see "Render design"). Keep `_h`, `_safe_url`, `_anchor`, `_sources`, `_references`, `_ordered_records`, `_link` unchanged.
-  - [ ] 3.3 Update the module docstring (order, budget, Slack window).
-  - [ ] 3.4 Tests in `tests/unit/pipeline/test_render.py`: rewrite the two golden body tests and the unknown-everywhere test for the new order; add the compact-Affected, facts-line, budget and full-description tests. Update `tests/integration/test_pipeline_end_to_end.py` (it asserts `<p><b>IDs:</b>` on line 0 and `<b>Published:</b>`).
-  - [ ] 3.5 Commit: `feat(story-5.1): lead the item body with the facts Slack shows`.
+- [x] **Task 3: Body reorder and compact Affected line (AC: 1, 2, 3, 8, 9)**
+  - [x] 3.1 Record the Tomcat fixture (see "Tomcat fixture") as `tests/fixtures/euvd/euvd_tomcat_five_affected_rows.json` and add its row to `tests/fixtures/README.md`.
+  - [x] 3.2 `src/cvestream/pipeline/render.py`: add the budget constant, rewrite `_description()`, add `_facts()`, rewrite `_affected()`, drop the `Known exploited` line for vulnerabilities that are not known-exploited (see "Render design"). Keep `_h`, `_safe_url`, `_anchor`, `_sources`, `_references`, `_ordered_records`, `_link` unchanged.
+  - [x] 3.3 Update the module docstring (order, budget, Slack window).
+  - [x] 3.4 Tests in `tests/unit/pipeline/test_render.py`: rewrite the two golden body tests and the unknown-everywhere test for the new order; add the compact-Affected, facts-line, budget and full-description tests. Update `tests/integration/test_pipeline_end_to_end.py` (it asserts `<p><b>IDs:</b>` on line 0 and `<b>Published:</b>`).
+  - [x] 3.5 Commit: `feat(story-5.1): lead the item body with the facts Slack shows`.
 
-- [ ] **Task 4: Title markers (AC: 4, 5, 7)**
-  - [ ] 4.1 `src/cvestream/pipeline/render.py`: `FeedEntry` gains `is_fresh: bool | None = None` as its last field; add `_markers(entry)` and prefix it in `_title()` (see "Render design").
-  - [ ] 4.2 `src/cvestream/pipeline/run.py`: build `FeedEntry(..., is_fresh=p.is_fresh)`.
-  - [ ] 4.3 Tests: the four golden titles, every marker alone and the order, `None`/`False` give no 🆕, no leading space without markers. In the existing `test_titles` cases, only the known-exploited ones change (they now start with `🔥 `); the others stay as they are. In `tests/unit/pipeline/test_run.py`: a vulnerability published on the run's day gets 🆕 in its title; a rerun after midnight keeps the XML, the ETag and `changed_at`. Check `tests/integration/test_cert_eu_php2shell.py` titles (its clock and CERT-EU publish dates may now give 🆕).
-  - [ ] 4.4 Commit: `feat(story-5.1): add emoji markers to item titles`.
+- [x] **Task 4: Title markers (AC: 4, 5, 7)**
+  - [x] 4.1 `src/cvestream/pipeline/render.py`: `FeedEntry` gains `is_fresh: bool | None = None` as its last field; add `_markers(entry)` and prefix it in `_title()` (see "Render design").
+  - [x] 4.2 `src/cvestream/pipeline/run.py`: build `FeedEntry(..., is_fresh=p.is_fresh)`.
+  - [x] 4.3 Tests: the four golden titles, every marker alone and the order, `None`/`False` give no 🆕, no leading space without markers. In the existing `test_titles` cases, only the known-exploited ones change (they now start with `🔥 `); the others stay as they are. In `tests/unit/pipeline/test_run.py`: a vulnerability published on the run's day gets 🆕 in its title; a rerun after midnight keeps the XML, the ETag and `changed_at`. Check `tests/integration/test_cert_eu_php2shell.py` titles (its clock and CERT-EU publish dates may now give 🆕).
+  - [x] 4.4 Commit: `feat(story-5.1): add emoji markers to item titles`.
 
-- [ ] **Task 5: User documentation (AC: 10)**
-  - [ ] 5.1 `docs/operations.md`, section "Feeds": rewrite the title bullet (markers, golden examples), the body bullet (new order, compact Affected, KEV detail only when exploited), the `pubDate` bullet (`under Published` becomes `in the facts line`), and add one bullet on the Slack window (about 495 plain-text characters, the constant's name, what is always in it). Add one golden plain-text example.
-  - [ ] 5.2 `README.md`: the intro says each item carries "CVSS score, known-exploited status, and affected versions": add the title emoji in one short clause. No other README change expected; confirm with `grep -n -i "title\|item" README.md`.
-  - [ ] 5.3 `CHANGELOG.md`, `[Unreleased]`: a `### Changed` entry (item body order, compact Affected line, title emoji markers; every feed's ETag changes once, no item is posted again) and the `publication.is_fresh` migration (applied at startup, existing items never get 🆕). Keep the existing `### Added` entries; 5.3 and 5.4 add theirs in parallel.
-  - [ ] 5.4 Check `AGENTS.md` (no item-format rule today, so no change expected) and `docs/configuration.md` (no change).
-  - [ ] 5.5 Commit: `docs(story-5.1): document the compact item format and title markers`.
+- [x] **Task 5: User documentation (AC: 10)**
+  - [x] 5.1 `docs/operations.md`, section "Feeds": rewrite the title bullet (markers, golden examples), the body bullet (new order, compact Affected, KEV detail only when exploited), the `pubDate` bullet (`under Published` becomes `in the facts line`), and add one bullet on the Slack window (about 495 plain-text characters, the constant's name, what is always in it). Add one golden plain-text example.
+  - [x] 5.2 `README.md`: the intro says each item carries "CVSS score, known-exploited status, and affected versions": add the title emoji in one short clause. No other README change expected; confirm with `grep -n -i "title\|item" README.md`.
+  - [x] 5.3 `CHANGELOG.md`, `[Unreleased]`: a `### Changed` entry (item body order, compact Affected line, title emoji markers; every feed's ETag changes once, no item is posted again) and the `publication.is_fresh` migration (applied at startup, existing items never get 🆕). Keep the existing `### Added` entries; 5.3 and 5.4 add theirs in parallel.
+  - [x] 5.4 Check `AGENTS.md` (no item-format rule today, so no change expected) and `docs/configuration.md` (no change).
+  - [x] 5.5 Commit: `docs(story-5.1): document the compact item format and title markers`.
 
-- [ ] **Task 6: Planning docs, only if needed (AC: 10)**
-  - [ ] 6.1 The epic commit `3c08cdd` already wrote the 5.1 rules into `architecture.md` (story 1.6 feed cache rules, story 1.5 publication rules, requirements mapping) and `project-context.md` ("Title markers come from decision-time values only"). Re-read them against the implementation. Amend them in the same PR only if something differs (for example, a rule about paragraphs found by Task 1, or the `decide()` signature if the architecture names it). Commit: `docs(story-5.1): amend the item format rules`.
+- [x] **Task 6: Planning docs, only if needed (AC: 10)**
+  - [x] 6.1 The epic commit `3c08cdd` already wrote the 5.1 rules into `architecture.md` (story 1.6 feed cache rules, story 1.5 publication rules, requirements mapping) and `project-context.md` ("Title markers come from decision-time values only"). Re-read them against the implementation. Amend them in the same PR only if something differs (for example, a rule about paragraphs found by Task 1, or the `decide()` signature if the architecture names it). Commit: `docs(story-5.1): amend the item format rules`.
 
-- [ ] **Task 7: Gates and delivery (AC: 11)**
-  - [ ] 7.1 Run every gate command of `AGENTS.md`. The local `docker build` may fail on a `ghcr.io` x509 error behind the corporate proxy; then rely on CI and say so in the Dev Agent Record.
-  - [ ] 7.2 Story file: tick the tasks, fill the Dev Agent Record, set Status to `review`; in `sprint-status.yaml`, set `5-1-compact-item-body-and-title-markers: review`. Commit: `chore(story-5.1): mark story ready for review`.
-  - [ ] 7.3 Push over SSH and mark the draft PR ready (`SSL_CERT_FILE=$HOME/ca.pem gh pr ready ...`). Update its body: the Task 1 finding, the open questions below with the decisions taken. GitHub references in full form (`wixyvir/cvestream#47`).
+- [x] **Task 7: Gates and delivery (AC: 11)**
+  - [x] 7.1 Run every gate command of `AGENTS.md`. The local `docker build` may fail on a `ghcr.io` x509 error behind the corporate proxy; then rely on CI and say so in the Dev Agent Record.
+  - [x] 7.2 Story file: tick the tasks, fill the Dev Agent Record, set Status to `review`; in `sprint-status.yaml`, set `5-1-compact-item-body-and-title-markers: review`. Commit: `chore(story-5.1): mark story ready for review`.
+  - [x] 7.3 Push over SSH and mark the draft PR ready (`SSL_CERT_FILE=$HOME/ca.pem gh pr ready ...`). Update its body: the Task 1 finding, the open questions below with the decisions taken. GitHub references in full form (`wixyvir/cvestream#47`).
 
 ## Dev Notes
 
@@ -353,10 +353,49 @@ No external API or library change is involved. The EUVD search endpoint and the 
 
 ### Agent Model Used
 
+- Mistral Vibe (vibe@mistral.ai), BMAD dev-story workflow, 2026-11-21, single session.
+
 ### Debug Log References
+
+- Task 1 replay: `CVESTREAM_DATA_DIR=/tmp/cv-task1/data CVESTREAM_ENDPOINTS_FILE=/tmp/cv-task1/endpoints.yaml CVESTREAM_SOURCES__CISA_KEV__ENABLED=false CVESTREAM_SOURCES__CERT_EU__ENABLED=false uv run cvestream poll --once` (throwaway php endpoint, EUVD only, 14-day window; scratch config and data never committed). 36 items rendered; per-`<p>` plain-text counts measured with the AC 3 reduction.
+- Tomcat fixture recorded live: `curl --cacert ~/ca.pem "https://euvdservices.enisa.europa.eu/api/search?text=CVE-2026-95517&size=10&page=0" | jq .` (200, total 1, EUVD-2026-130760, baseScore 9.1/3.1, 772-char description, 5 Apache Tomcat rows) — matches the story's analysis exactly.
 
 ### Completion Notes List
 
 - Story context created by the create-story workflow (2026-11-21): ultimate context engine analysis completed, comprehensive developer guide created from epic 5, the sprint change proposal of 2026-11-21, the architecture, the project context, the current code and a live check of the Tomcat EUVD record.
+- **Task 1 finding (AC 8):** H1 confirmed as the cause — Slack's RSS app keeps only the first block-level elements. Evidence from the local replay (2026-11-21): every one of the 36 php items carries a non-empty `Description:` in the **third** `<p>` block (H4 refuted: the description is in the feed; the shortest item, CVE-2026-128717, is 480 plain chars with blocks 38/155/177/13/11). Under H1 the app shows the first two blocks (429 chars) and **no** `Description:` line even though the whole body fits the ~495 budget — exactly the 2026-11-19 symptom. H3 (missing block) is refuted by the same XML; H2 (first N lines) is indistinguishable and fixed by the same layout. Fix: the Task 3 layout puts facts, `Matched:` and `Description:` in the first `<p>`, pinned by `test_the_first_paragraph_holds_facts_matched_and_description`. No `deferred-work.md` entry needed (cause determined and fixed in render). The Slack post text from Cyprien was not needed: the local replay was conclusive. Recorded in architecture.md / project-context.md (Task 6).
+- **Task 2:** `decide(match, vulnerability, history, now)` (required `now`, after `history`); `_is_fresh()` compares UTC calendar days; `PublicationDecision.is_fresh: bool = False` as last field; stored in nullable `publication.is_fresh` via Alembic `0003` (wave 13's only migration; upgrade/downgrade tested, old rows `NULL`). Commit `4c2f4cd`.
+- **Task 3:** body reorder + compact Affected + `SLACK_PREVIEW_CHARS = 495` + KEV detail only when exploited; Tomcat fixture `euvd_tomcat_five_affected_rows.json` recorded live and pinned in the budget test. Commit `9fb5b24`.
+- **Task 4:** `_markers()` (🔥 🔴 🔺 🆕, decision-time values only) prefixes `_title()`; `FeedEntry.is_fresh: bool | None = None`; four golden titles pinned; AC 7 midnight-rerun test keeps XML/ETag/`changed_at`. Commit `b15e283`.
+- **Task 5:** `docs/operations.md` Feeds section rewritten (markers + goldens, body order, compact Affected, KEV-only-when-exploited, Slack window bullet with golden plain-text example), README intro clause, CHANGELOG `[Unreleased]` `### Changed`. Commit `fbb8c79`.
+- **Task 6:** architecture.md / project-context.md amended with the Task 1 paragraph rule only; everything else matched. Commit `a8bcfcb`.
+- **Open questions, decisions taken:** (1) short items without a description → cause = first-two-blocks rule (H1), fixed by the first-`<p>` layout, pinned by test; (2) keep `CVSS unknown (no score; let through)` on the facts line; (3) `updated` left out when both days are unknown (rendered days equal); (4) a row without version text next to rows with one adds nothing — `versions unknown` only when no row of the label has one; (5) Affected grouping key = the exact `_product_label()` string; (6) facts line unlabelled, not bold; (7) noted, not resolved here.
+- **Gates (all run in the worktree, 2026-11-21):** `uv sync --locked` OK · `ruff check` OK · `ruff format --check` OK (129 files) · `ty check` OK · `lint-imports` 7 kept, 0 broken · `pytest` 1253 passed, 6 deselected · `cvestream config schema --check` OK · `cvestream config validate endpoints.example.yaml` valid · `docker build --target runtime -t cvestream:local .` **OK locally** (no ghcr.io x509 error this run; the corporate CA is in the system trust store), image `cvestream:local` built. CI remains the authoritative check.
+- No HALT condition was hit. Deviation from the story file: none in scope; `test_titles`' `band-high` cases now also carry 🔺 (AC 4 / testing requirements require 🔺 for every `band-*` kind, which the "only the known-exploited ones change" note did not mention).
 
 ### File List
+
+- `src/cvestream/domain/publication.py` — `decide(..., now)`, `_is_fresh()`, `PublicationDecision.is_fresh` (last field), docstring.
+- `src/cvestream/pipeline/run.py` — pass `now` to `decide()`; `FeedEntry(..., is_fresh=p.is_fresh)`.
+- `src/cvestream/pipeline/render.py` — `SLACK_PREVIEW_CHARS`, `_facts()`, rewritten `_affected()` (compact labels), `_kev()` without the `yes, ` prefix (only shown when exploited), rewritten `_description()` (first `<p>` = facts + Matched + Description), `FeedEntry.is_fresh`, `_markers()`, `_title()` prefix, docstring.
+- `src/cvestream/state/schema.py` — nullable `publication.is_fresh` after `is_known_exploited`.
+- `src/cvestream/state/repository.py` — `add_publication()` writes `is_fresh`; `StoredPublication.is_fresh: bool | None`; `publications_since()` selects/maps it.
+- `src/cvestream/state/migrations/versions/0003_add_publication_is_fresh.py` — new revision `0003` (batch add/drop column).
+- `tests/unit/domain/test_publication.py` — `NOW` passed to every `decide()`; 7 freshness cases.
+- `tests/unit/domain/conftest.py` — `make_vulnerability(published_at=...)`.
+- `tests/unit/state/test_db.py` — head `0003`; `test_the_is_fresh_migration_keeps_rows_and_can_be_downgraded`.
+- `tests/unit/state/test_repository.py` — `is_fresh` round trip (True / False / NULL).
+- `tests/unit/cli/test_db.py` — head revision assertions `0003`.
+- `tests/unit/pipeline/test_render.py` — rewritten golden body tests, facts-line/compact-Affected/KEV/first-`<p>`/budget tests, Tomcat fixture budget test, golden titles and marker tests.
+- `tests/unit/pipeline/test_run.py` — `_euvd(published_ago=...)`, stored `is_fresh`, 🆕 title, AC 7 midnight rerun; body assertion updated.
+- `tests/integration/test_pipeline_end_to_end.py` — first block = facts/Matched/Description, IDs block later, no KEV line when not exploited.
+- `tests/integration/test_cert_eu_php2shell.py` — 🔴🔺 on the band-critical update titles.
+- `tests/fixtures/euvd/euvd_tomcat_five_affected_rows.json` — new recorded fixture (2026-11-21).
+- `tests/fixtures/README.md` — fixture row.
+- `docs/operations.md`, `README.md`, `CHANGELOG.md` — item format and markers documented.
+- `_bmad-output/planning-artifacts/architecture.md`, `_bmad-output/project-context.md` — Task 1 paragraph rule.
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` — story 5-1 → review.
+
+## Change Log
+
+- 2026-11-21: implemented story 5.1 end to end (tasks 1-6), all gates green, status set to review. Commits: `4c2f4cd` (freshness domain+state), `9fb5b24` (body reorder + budget), `b15e283` (title markers), `fbb8c79` (user docs), `a8bcfcb` (planning-doc amendment).

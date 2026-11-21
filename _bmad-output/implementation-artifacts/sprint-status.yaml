@@ -120,7 +120,7 @@ development_status:
   epic-4-retrospective: optional
 
   epic-5: in-progress
-  5-1-compact-item-body-and-title-markers: ready-for-dev
+  5-1-compact-item-body-and-title-markers: review
   5-2-group-bursts-by-product: backlog
   5-3-held-back-count-in-cycle-summary: backlog
   5-4-reject-duplicate-product-names: backlog
