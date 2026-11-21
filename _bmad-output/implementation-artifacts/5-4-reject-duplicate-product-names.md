@@ -4,7 +4,7 @@ baseline_commit: 3c08cdd
 
 # Story 5.4: Reject duplicate product names within an endpoint
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 <!-- Created from GitHub issue wixyvir/cvestream#48 (decision D2 in the review of wixyvir/cvestream#46). -->
@@ -60,29 +60,29 @@ Added from GitHub issue wixyvir/cvestream#48, found during the review of wixyvir
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Branch (AC: all)**
-  - [ ] 1.1 Work on `story-5-4-reject-duplicate-product-names` (already holds this story file on top of `3c08cdd docs(epic-5): add epic 5 by course correction`, the base shared with 5.1 and 5.3). Do not amend or rebase `3c08cdd`. If the 5.1 or 5.3 PR merges first, rebase this branch on up-to-date `main` before pushing the implementation.
+- [x] **Task 1: Branch (AC: all)**
+  - [x] 1.1 Work on `story-5-4-reject-duplicate-product-names` (already holds this story file on top of `3c08cdd docs(epic-5): add epic 5 by course correction`, the base shared with 5.1 and 5.3). Do not amend or rebase `3c08cdd`. If the 5.1 or 5.3 PR merges first, rebase this branch on up-to-date `main` before pushing the implementation.
 
-- [ ] **Task 2: Validator, schema and tests (AC: 1, 2, 3, 5, 6)**
-  - [ ] 2.1 `src/cvestream/config/models.py`: add the private name helpers and the `EndpointConfig` `model_validator` (see "Config contract").
-  - [ ] 2.2 Extend the `products` `Field(description=...)` of `EndpointConfig` with the uniqueness sentence.
-  - [ ] 2.3 `uv run cvestream config schema`; check that the diff of `schemas/config-v1.json` is the `products` description only.
-  - [ ] 2.4 Tests in `tests/unit/config/test_models.py`, `tests/unit/config/test_provider.py`, `tests/unit/config/test_schema.py` and `tests/unit/cli/test_config.py` (see "Testing requirements").
-  - [ ] 2.5 One commit with models, schema and tests: `feat(story-5.4): reject duplicate product names within an endpoint`.
+- [x] **Task 2: Validator, schema and tests (AC: 1, 2, 3, 5, 6)**
+  - [x] 2.1 `src/cvestream/config/models.py`: add the private name helpers and the `EndpointConfig` `model_validator` (see "Config contract").
+  - [x] 2.2 Extend the `products` `Field(description=...)` of `EndpointConfig` with the uniqueness sentence.
+  - [x] 2.3 `uv run cvestream config schema`; check that the diff of `schemas/config-v1.json` is the `products` description only.
+  - [x] 2.4 Tests in `tests/unit/config/test_models.py`, `tests/unit/config/test_provider.py`, `tests/unit/config/test_schema.py` and `tests/unit/cli/test_config.py` (see "Testing requirements").
+  - [x] 2.5 One commit with models, schema and tests: `feat(story-5.4): reject duplicate product names within an endpoint`.
 
-- [ ] **Task 3: User documentation (AC: 7)**
-  - [ ] 3.1 `docs/configuration.md` and `CHANGELOG.md` (exact edits in "Documentation edits").
-  - [ ] 3.2 Confirm `README.md` and `AGENTS.md` need nothing: `grep -n -i "duplicate\|distinct\|products\[" README.md AGENTS.md`.
-  - [ ] 3.3 Commit: `docs(story-5.4): document unique product names per endpoint`.
+- [x] **Task 3: User documentation (AC: 7)**
+  - [x] 3.1 `docs/configuration.md` and `CHANGELOG.md` (exact edits in "Documentation edits").
+  - [x] 3.2 Confirm `README.md` and `AGENTS.md` need nothing: `grep -n -i "duplicate\|distinct\|products\[" README.md AGENTS.md`.
+  - [x] 3.3 Commit: `docs(story-5.4): document unique product names per endpoint`.
 
-- [ ] **Task 4: Planning docs (AC: 7)**
-  - [ ] 4.1 `_bmad-output/project-context.md` (exact edit in "Planning doc amendments"). `architecture.md` needs no change: check that the F3 row still reads "Product entry names are unique per endpoint (story 5.4)."
-  - [ ] 4.2 Commit: `docs(story-5.4): record the unique-name rule in the project context`.
+- [x] **Task 4: Planning docs (AC: 7)**
+  - [x] 4.1 `_bmad-output/project-context.md` (exact edit in "Planning doc amendments"). `architecture.md` needs no change: check that the F3 row still reads "Product entry names are unique per endpoint (story 5.4)."
+  - [x] 4.2 Commit: `docs(story-5.4): record the unique-name rule in the project context`.
 
-- [ ] **Task 5: Gates and delivery (AC: 8)**
-  - [ ] 5.1 Run every gate command of `AGENTS.md`. The local `docker build` may fail on a ghcr.io x509 error behind the corporate proxy; CI is then the gate for it (note it in the Dev Agent Record).
-  - [ ] 5.2 Story file: tick the tasks, fill the Dev Agent Record, set Status to `review`; `sprint-status.yaml`: `5-4-reject-duplicate-product-names: review`. Commit: `chore(story-5.4): mark story ready for review`.
-  - [ ] 5.3 Push over SSH (`git@github.com:wixyvir/cvestream.git`) and update the draft PR opened with this story (`feat(story-5.4): reject duplicate product names`): mark it ready for review, keep `Closes wixyvir/cvestream#48`, list the open questions below with the decision taken. GitHub references in full form.
+- [x] **Task 5: Gates and delivery (AC: 8)**
+  - [x] 5.1 Run every gate command of `AGENTS.md`. The local `docker build` may fail on a ghcr.io x509 error behind the corporate proxy; CI is then the gate for it (note it in the Dev Agent Record).
+  - [x] 5.2 Story file: tick the tasks, fill the Dev Agent Record, set Status to `review`; `sprint-status.yaml`: `5-4-reject-duplicate-product-names: review`. Commit: `chore(story-5.4): mark story ready for review`.
+  - [x] 5.3 Push over SSH (`git@github.com:wixyvir/cvestream.git`) and update the draft PR opened with this story (`feat(story-5.4): reject duplicate product names`): mark it ready for review, keep `Closes wixyvir/cvestream#48`, list the open questions below with the decision taken. GitHub references in full form.
 
 ## Dev Notes
 
@@ -297,10 +297,45 @@ No external API or library change. The behaviour the story relies on was checked
 
 ### Agent Model Used
 
+Mistral Vibe (vibe@mistral.ai), running the `bmad-dev-story` workflow on branch `story-5-4-reject-duplicate-product-names` (baseline_commit `3c08cdd`, preserved).
+
 ### Debug Log References
+
+- Red phase: the 12 new tests failed before the validator (`DID NOT RAISE ValidationError`, CLI exit 0, schema description without "unique"); green after the implementation commit.
+- pydantic 2.14.3 puts a `Value error, ` prefix on the `msg` of an after-model-validator; `config/provider.py` `_format_error` strips it, so the provider/CLI line is `endpoints[0]: products[1]: duplicate product name 'PHP' (same as products[0])`. The model tests assert the stripped message.
+- Manual CLI check (AC 2): a file with `php >= 8.2` plus `php` exits 2, prints nothing on stdout and exactly one stderr line `<file>: endpoints[0]: products[1]: duplicate product name 'php' (same as products[0])`.
+- `schemas/config-v1.json` regenerated with `uv run cvestream config schema`; the diff is the `products` description line only. `config schema --check` passes.
+- `origin/main` was still at `8d9590a` when the gates ran, so no rebase onto a newer main was needed (task 1.1).
+- Local `docker build --target runtime -t cvestream:local .` succeeded (exit 0); the ghcr.io x509 proxy error did not occur this run, so no CI fallback was needed.
 
 ### Completion Notes List
 
 - Story context created by the create-story workflow (2026-11-21): developer guide built from wixyvir/cvestream#48, epic 5, the sprint change proposal of 2026-11-21, architecture, project context, story 4.2 and the current code, with the error location prototyped against pydantic 2.14.3.
+- Implemented `_unique_product_names` (`model_validator(mode="after")`) on `EndpointConfig` in `src/cvestream/config/models.py`, with private helpers `_normalized_name` (`" ".join(name.split()).casefold()`, the matcher's exact-entry equality, duplicated deliberately instead of importing private `domain.matcher._normalized`) and `_item_name` (a shorthand counts by the first group of `_split_shorthand()`). Only the first collision is reported; the message carries the relative path because a model-level error is located at the endpoint only.
+- The `products` field description gained the uniqueness sentence; `schemas/config-v1.json` regenerated in the same commit (description-only diff). `SCHEMA_VERSION` stays `1` (tightening of v1, precedent story 4.2).
+- Tests added: `tests/unit/config/test_models.py` (5 parametrized rejection cases incl. case/whitespace/shorthand/third-collides, error location `("endpoints", 0)`/`("endpoints", 1)`, standalone `EndpointConfig` rejection, 3 accepted cases incl. the alias workaround, same name in two endpoints, disabled endpoint still checked), `tests/unit/config/test_provider.py` (exact error line `endpoints[0]: products[1]: ...` and the second-endpoint variant), `tests/unit/cli/test_config.py` (row `duplicate-product-name`: exit 2, empty stdout, one stderr line, no token), `tests/unit/config/test_schema.py` (`test_unique_product_names_are_described`). Full suite: 1240 passed, 6 deselected.
+- Docs: `docs/configuration.md` (uniqueness rule + shorthand + alias workaround in the product-entry paragraph, "Exact entries" last sentence replaced, unique product names listed among the checks the JSON Schema cannot make), `CHANGELOG.md` (`### Changed` under `[Unreleased]` with the upgrade note, wixyvir/cvestream#48), `_bmad-output/project-context.md` (one rule under "Configuration (Valkey / YAML)"). `README.md` and `AGENTS.md` checked with grep: nothing to change. `architecture.md` F3 row already reads "Product entry names are unique per endpoint (story 5.4)" — no change.
+- Out of scope respected: `pipeline/render.py`, `config/provider.py`, `config/yaml_provider.py`, `cli/config.py`, `app/`, `pipeline/`, `domain/` untouched; no new exception, log event, exit code, migration or dependency.
+- Gates (all of AGENTS.md, 2026-11-21): `uv sync --locked` OK; `ruff check` OK; `ruff format --check` OK; `ty check` OK; `lint-imports` 7 contracts kept, 0 broken; `pytest` 1240 passed; `cvestream config schema --check` OK; `cvestream config validate endpoints.example.yaml` OK; `docker build --target runtime -t cvestream:local .` OK (exit 0).
+- Open questions: all defaults taken as written in the story — (1) normalization also collapses inner whitespace runs, stricter than the AC wording, never looser; (2) error line keeps the two-colon form from the `EndpointConfig` validator; (3) one uniqueness sentence added to the `products` description and the schema regenerated; (4) `SCHEMA_VERSION` stays `1` with the CHANGELOG upgrade note; (5) a connector writing a duplicate to Valkey invalidates the snapshot until fixed (last valid config kept, `config.rejected`); (6) alias collisions are not rejected (the documented workaround needs an alias as a name); (7) renamed-entry title fallback is pre-existing behaviour, unchanged.
+- Delivered as PR wixyvir/cvestream#50 (draft marked ready), closes wixyvir/cvestream#48. Commits: `348843e` feat (validator + schema + tests), `b645241` docs (configuration.md + CHANGELOG.md), `5473ef4` docs (project-context.md), plus the review-marking chore commit.
 
 ### File List
+
+- `src/cvestream/config/models.py` — modified (validator, helpers, `products` description)
+- `schemas/config-v1.json` — regenerated (description-only diff)
+- `tests/unit/config/test_models.py` — modified (unique-name section)
+- `tests/unit/config/test_provider.py` — modified (two error-line tests)
+- `tests/unit/config/test_schema.py` — modified (description test)
+- `tests/unit/cli/test_config.py` — modified (`duplicate-product-name` row)
+- `docs/configuration.md` — modified (rule, exact-entries sentence, JSON Schema section)
+- `CHANGELOG.md` — modified (`### Changed` under `[Unreleased]`)
+- `_bmad-output/project-context.md` — modified (one configuration rule)
+- `_bmad-output/implementation-artifacts/5-4-reject-duplicate-product-names.md` — this file (tasks, Dev Agent Record, Status)
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` — `5-4-reject-duplicate-product-names: review`
+
+### Change Log
+
+- 2026-11-21: implemented the `EndpointConfig` unique-product-name validator, regenerated `schemas/config-v1.json`, added the unit/CLI/schema tests (commit `348843e`).
+- 2026-11-21: documented the rule in `docs/configuration.md` and `CHANGELOG.md` (commit `b645241`); recorded it in `_bmad-output/project-context.md` (commit `5473ef4`).
+- 2026-11-21: all AGENTS.md gates green (docker build included); story marked `review`, sprint-status updated, PR wixyvir/cvestream#50 marked ready.
