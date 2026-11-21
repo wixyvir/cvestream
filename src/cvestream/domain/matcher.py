@@ -39,9 +39,13 @@ class PassThrough(StrEnum):
 class DropReason(StrEnum):
     """Why `match_outcome()` did not match a vulnerability."""
 
+    # No product entry matched, exclusions and version bounds included.
     NO_PRODUCT = "no_product"
+    # `kev_only` is on and the vulnerability is not known-exploited.
     KEV_ONLY = "kev_only"
+    # `require_score` is on, no source has scored it, and it is not known-exploited.
     REQUIRE_SCORE = "require_score"
+    # Scored below the endpoint's `min_cvss`.
     MIN_CVSS = "min_cvss"
 
 
