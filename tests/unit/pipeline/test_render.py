@@ -952,6 +952,37 @@ def test_band_critical_gets_both_marks_in_order() -> None:
     assert title.startswith(f"{RED_CIRCLE}{TRIANGLE} ")
 
 
+def test_band_none_and_low_rises_get_no_triangle_but_medium_does() -> None:
+    # D1 (wixyvir/cvestream#51): 🔺 only for a rise to `medium` or above; the
+    # `[UPDATE] … severity raised to …` words stay either way.
+    for band in (Band.NONE, Band.LOW):
+        title = _title_of(_entry(kind=f"band-{band.value}", band=band))
+        assert title == (
+            f"[UPDATE] CVE-2026-1234 in php: severity raised to {band.value}"
+        )
+    title = _title_of(_entry(kind="band-medium", band=Band.MEDIUM))
+    assert title == (
+        f"{TRIANGLE} [UPDATE] CVE-2026-1234 in php: severity raised to medium"
+    )
+
+
+def test_all_four_markers_together_in_order() -> None:
+    # Not reachable in the domain (`kev` wins over `band-*` there), but the
+    # marker order is a render contract: pin it with a hand-built entry.
+    title = _title_of(
+        _entry(
+            kind="band-critical",
+            band=Band.CRITICAL,
+            is_known_exploited=True,
+            is_fresh=True,
+        )
+    )
+    assert title == (
+        f"{FIRE}{RED_CIRCLE}{TRIANGLE}{SQUARED_NEW} [UPDATE] CVE-2026-1234"
+        " in php: severity raised to critical, EXPLOITED"
+    )
+
+
 def test_is_fresh_none_or_false_gives_no_marker_and_no_leading_space() -> None:
     for fresh in (None, False):
         title = _title_of(_entry(band=Band.UNKNOWN, is_fresh=fresh))

@@ -153,7 +153,9 @@ def _markers(entry: FeedEntry) -> str:
         markers += "\N{FIRE}"
     if entry.band is Band.CRITICAL:
         markers += "\N{LARGE RED CIRCLE}"
-    if entry.kind.startswith("band-"):
+    # A rise to `none` or `low` keeps its words but gets no triangle (review
+    # decision D1 of wixyvir/cvestream#51).
+    if entry.kind.startswith("band-") and entry.band.rank >= Band.MEDIUM.rank:
         markers += "\N{UP-POINTING RED TRIANGLE}"
     if entry.is_fresh is True:
         markers += "\N{SQUARED NEW}"
