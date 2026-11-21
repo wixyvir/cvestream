@@ -4,7 +4,7 @@ baseline_commit: 3b6702591590aa442203f3ff96bf2e11cc56c78b
 
 # Story 4.2: Exact product matching
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 <!-- Created from GitHub issue wixyvir/cvestream#44. -->
@@ -99,9 +99,15 @@ The only workaround today is a growing `exclude` list, which is whack-a-mole.
   - [x] 5.2 Commit: `docs(story-4.2): amend the matching rule in the planning docs`.
 
 - [x] **Task 6: Gates and delivery (AC: 13)**
-  - [x] 6.1 Run every gate command of `AGENTS.md`. Behind the corporate proxy, the local `docker build` fails on `ghcr.io` (x509): rely on CI for that gate and say so in the PR.
+  - [x] 6.1 Run every gate command of `AGENTS.md`. All pass locally, `docker build` included (a first attempt failed on a transient base-image pull behind the corporate proxy; the retry succeeded).
   - [x] 6.2 Story file: tick the tasks, fill the Dev Agent Record and set Status to `review`. In `sprint-status.yaml`, set `4-2-exact-product-matching: review`. Commit: `chore(story-4.2): mark story ready for review`.
-  - [x] 6.3 Push over SSH (`git@github.com:wixyvir/cvestream.git`) and open the PR to `main` (`SSL_CERT_FILE=$HOME/ca.pem gh pr create ...`). Title: `feat(story-4.2): exact product matching`. The body links this story file, contains `Closes wixyvir/cvestream#44`, lists the open questions below with the decision taken, and ends with the attribution line.
+  - [x] 6.3 Push over SSH (`git@github.com:wixyvir/cvestream.git`) and open the PR to `main` (`SSL_CERT_FILE=$HOME/ca.pem gh pr create ...`). Title: `feat(story-4.2): exact product matching`. The body links this story file, contains `Closes wixyvir/cvestream#44`, lists the five open questions below with the decision taken, and ends with the attribution line.
+
+- [x] **Task 7: Review fixes (wixyvir/cvestream#46)**
+  - [x] 7.1 **D1, option 2:** a CERT-EU bullet that is exactly the product name matches an `exact` entry. Pinned by `test_exact_matches_a_bare_cert_eu_name_bullet`, `test_exact_ignores_cert_eu_prose` and `test_exact_cert_eu_bare_name_is_versions_unknown_with_min_version`; `docs/configuration.md` and `docs/sources.md` now say prose equals a product name only for such a bare-name bullet.
+  - [x] 7.2 **D2, option 1:** deferred as wixyvir/cvestream#48 (reject duplicate product names per endpoint); `docs/configuration.md` documents that entries of one endpoint need distinct `name`s.
+  - [x] 7.3 **Patches P1 to P5:** `name`/`exact` field wording in `config/models.py` with the schema regenerated, comment placement and wording in `endpoints.example.yaml`, the exact clause moved out of the description-fallback parenthetical in the F3 row of `architecture.md`, the KEV/CERT-EU reasons split in `docs/configuration.md`, the contract note in `CHANGELOG.md`, and the entry as a parameter of `test_exact_matches_the_whole_product_name`.
+  - [x] 7.4 **P6:** this record — real commit hashes, one docker-gate story, PR body lists all five open questions.
 
 ## Dev Notes
 
@@ -383,10 +389,10 @@ No external API or library change is involved. The pydantic features used were c
 
 ### Open questions (decided by default, to confirm in review)
 
-1. **CERT-EU-only and KEV-only vulnerabilities do not match an `exact` entry.**
-   - CERT-EU affected products are prose bullets (`PHP 8.5 versions prior to 8.5.12`, see `tests/fixtures/cert_eu/cert_eu_2026_018_multi_cve_revised.json`), so they never equal `php`. A CERT-EU pre-announcement (the PHP2Shell case of Epic 2) therefore does not reach an `exact` `php` entry until EUVD lists the product; it then publishes as `new` (FR-26).
-   - **Default taken:** accept, document and pin with a test, as for `match_description: false`.
-   - **Alternative:** word-match CERT-EU rows for exact entries. That needs the matcher to see each row's source (today it only gets `AffectedProduct` values) and would be a pattern change to agree first. Workaround for teams that want the early warning: a second, non-exact entry with `match_description: false` and suitable `exclude` terms.
+1. **CERT-EU-only and KEV-only vulnerabilities and `exact` entries.**
+   - A KEV-only vulnerability has no affected products and the description is never searched, so it never matches an `exact` entry; it publishes as `new` once EUVD lists the product (FR-26).
+   - CERT-EU affected products are prose bullets (`PHP 8.5 versions prior to 8.5.12`, see `tests/fixtures/cert_eu/cert_eu_2026_018_multi_cve_revised.json`), so they do not equal `php` — except a bullet that is exactly the name (`- PHP`).
+   - **Decided in review (wixyvir/cvestream#46, D1 option 2):** a bare-name CERT-EU bullet is accepted as a genuine exact match (early warning); it carries no version, so with `min_version` the item is published as "versions unknown". Documented in `docs/configuration.md` and `docs/sources.md`, pinned by three tests. A KEV-only or longer-prose CERT-EU-only item still waits for EUVD data. Workaround for teams that want only the EUVD-backed matches: a second, non-exact entry with `match_description: false` and a distinct `name` (see D2 / wixyvir/cvestream#48).
 2. **How the contradiction is detected.**
    - **Default taken:** reject only an **explicit** `match_description: true` (via `model_fields_set`), as the issue words it, and publish the rule as a JSON Schema `not` clause. `match_description` keeps its type and default.
    - **Alternative:** make `match_description` `bool | None`. It was rejected because it widens an existing field's schema for third-party tools.
@@ -427,12 +433,13 @@ Mistral Vibe (Mistral AI coding agent), session of 2026-11-21.
 ### Completion Notes List
 
 - Story context created by the create-story workflow (2026-11-17): complete developer guide built from wixyvir/cvestream#44, the stub story, epics, architecture, project context and the current code.
-- Task 2 (commit e440d50): `ProductEntry.exact: bool = False` as the last field; matcher helpers `_normalized`/`_is_named`/`_names_product`/`_entry_hits` decide "this affected product names the entry" in one place, used by hits, title ordering and the version check; description fallback closed for exact entries; exclusions unchanged; docstring updated. 20 new tests (matcher, endpoint, one render title test); all 176 pre-existing matcher/endpoint/render tests pass unchanged (AC 4).
-- Task 3 (commit 84b588d): `exact` field after `match_description` in `ProductEntryConfig`, `model_validator(mode="after")` reading `model_fields_set` rejects only an explicit `match_description: true`, `json_schema_extra` publishes the same rule as a `not` clause, `_to_product()` maps `exact`, schema regenerated in the same commit (diff = `exact` property + `not` clause only, AC 8), contract stays v1. Config/provider/schema tests added.
-- Task 4 (commit 24af5bb): `docs/configuration.md` (field list, "Exact entries" paragraph, YAML example), `docs/sources.md` (CISA KEV and CERT-EU bullets), `endpoints.example.yaml` (commented cpython exact entry), `CHANGELOG.md` ([Unreleased] Added). README.md and AGENTS.md confirmed free of matching-rule wording. `config validate endpoints.example.yaml` passes.
-- Task 5 (commit f0d444d): `architecture.md` F3 row + Valkey products key layout, `project-context.md` Matching (FR-12), PRD FR-11/FR-12, `epics.md` requirements inventory amended.
-- Open questions: (1) CERT-EU-only and KEV-only items do not match an exact entry — accepted, documented, pinned by `test_exact_never_searches_the_description`; (2) contradiction detected via `model_fields_set` (explicit `match_description: true` only) and published as a JSON Schema `not` clause — taken; (3) normalization is case + whitespace runs only — taken; (4) Epic 4 started while Epic 3 is backlog — noted, not resolved; (5) no retraction/backfill of already-published items — unchanged.
+- Task 2 (commit d822e30): `ProductEntry.exact: bool = False` as the last field; matcher helpers `_normalized`/`_is_named`/`_names_product`/`_entry_hits` decide "this affected product names the entry" in one place, used by hits, title ordering and the version check; description fallback closed for exact entries; exclusions unchanged; docstring updated. 20 new tests (matcher, endpoint, one render title test); all 176 pre-existing matcher/endpoint/render tests pass unchanged (AC 4).
+- Task 3 (commit 2f34f54): `exact` field after `match_description` in `ProductEntryConfig`, `model_validator(mode="after")` reading `model_fields_set` rejects only an explicit `match_description: true`, `json_schema_extra` publishes the same rule as a `not` clause, `_to_product()` maps `exact`, schema regenerated in the same commit (diff = `exact` property + `not` clause only, AC 8), contract stays v1. Config/provider/schema tests added.
+- Task 4 (commit 4b06e92): `docs/configuration.md` (field list, "Exact entries" paragraph, YAML example), `docs/sources.md` (CISA KEV and CERT-EU bullets), `endpoints.example.yaml` (commented cpython exact entry), `CHANGELOG.md` ([Unreleased] Added). README.md and AGENTS.md confirmed free of matching-rule wording. `config validate endpoints.example.yaml` passes.
+- Task 5 (commit 2667e10): `architecture.md` F3 row + Valkey products key layout, `project-context.md` Matching (FR-12), PRD FR-11/FR-12, `epics.md` requirements inventory amended.
+- Open questions: (1) decided in review wixyvir/cvestream#46 (D1 option 2): a bare-name CERT-EU bullet matches an exact entry (pinned by three tests), a KEV-only or longer-prose CERT-EU-only item does not — pinned by `test_exact_never_searches_the_description` and `test_exact_ignores_cert_eu_prose`; (2) contradiction detected via `model_fields_set` (explicit `match_description: true` only) and published as a JSON Schema `not` clause — taken; (3) normalization is case + whitespace runs only — taken; (4) Epic 4 started while Epic 3 is backlog — noted, not resolved; (5) no retraction/backfill of already-published items — unchanged.
 - Delivery: branch pushed over SSH, PR wixyvir/cvestream#46 opened to `main` ("feat(story-4.2): exact product matching", body links this story file, `Closes wixyvir/cvestream#44`, lists the open questions with the decisions taken).
+- Task 7 (review of wixyvir/cvestream#46): D1 option 2 and D2 option 1 applied (D2 deferred as wixyvir/cvestream#48, documented in `docs/configuration.md`); patches P1–P6 applied — field wording in `config/models.py` with the schema regenerated in the same commit, example-file comment placement, F3 row of `architecture.md`, KEV/CERT-EU reasons split in `docs/configuration.md`, CERT-EU "Matching" bullet in `docs/sources.md`, contract note in `CHANGELOG.md`, entry parameter in `test_exact_matches_the_whole_product_name`, and this record corrected (real commit hashes, one docker-gate story, PR body lists all five open questions). All gates re-run green after the fixes.
 
 ### File List
 
