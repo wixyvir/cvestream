@@ -557,7 +557,7 @@ cvestream/
 │   │   ├── severity.py               # Band enum, band_of(), max_score()
 │   │   ├── version.py                # VersionRange parsing and comparison (the only parser)
 │   │   ├── endpoint.py               # Endpoint, ProductEntry, Rules (domain objects)
-│   │   ├── matcher.py                # match(vulnerability, endpoint) → MatchResult | None
+│   │   ├── matcher.py                # match_outcome(vulnerability, endpoint) → MatchResult | DropReason; match() → MatchResult | None
 │   │   └── publication.py            # decide(...) → PublicationDecision; GUID construction
 │   ├── config/
 │   │   ├── __init__.py
