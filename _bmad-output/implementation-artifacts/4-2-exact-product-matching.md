@@ -101,7 +101,7 @@ The only workaround today is a growing `exclude` list, which is whack-a-mole.
 - [x] **Task 6: Gates and delivery (AC: 13)**
   - [x] 6.1 Run every gate command of `AGENTS.md`. Behind the corporate proxy, the local `docker build` fails on `ghcr.io` (x509): rely on CI for that gate and say so in the PR.
   - [x] 6.2 Story file: tick the tasks, fill the Dev Agent Record and set Status to `review`. In `sprint-status.yaml`, set `4-2-exact-product-matching: review`. Commit: `chore(story-4.2): mark story ready for review`.
-  - [ ] 6.3 Push over SSH (`git@github.com:wixyvir/cvestream.git`) and open the PR to `main` (`SSL_CERT_FILE=$HOME/ca.pem gh pr create ...`). Title: `feat(story-4.2): exact product matching`. The body links this story file, contains `Closes wixyvir/cvestream#44`, lists the open questions below with the decision taken, and ends with the attribution line.
+  - [x] 6.3 Push over SSH (`git@github.com:wixyvir/cvestream.git`) and open the PR to `main` (`SSL_CERT_FILE=$HOME/ca.pem gh pr create ...`). Title: `feat(story-4.2): exact product matching`. The body links this story file, contains `Closes wixyvir/cvestream#44`, lists the open questions below with the decision taken, and ends with the attribution line.
 
 ## Dev Notes
 
@@ -432,6 +432,7 @@ Mistral Vibe (Mistral AI coding agent), session of 2026-11-21.
 - Task 4 (commit 24af5bb): `docs/configuration.md` (field list, "Exact entries" paragraph, YAML example), `docs/sources.md` (CISA KEV and CERT-EU bullets), `endpoints.example.yaml` (commented cpython exact entry), `CHANGELOG.md` ([Unreleased] Added). README.md and AGENTS.md confirmed free of matching-rule wording. `config validate endpoints.example.yaml` passes.
 - Task 5 (commit f0d444d): `architecture.md` F3 row + Valkey products key layout, `project-context.md` Matching (FR-12), PRD FR-11/FR-12, `epics.md` requirements inventory amended.
 - Open questions: (1) CERT-EU-only and KEV-only items do not match an exact entry — accepted, documented, pinned by `test_exact_never_searches_the_description`; (2) contradiction detected via `model_fields_set` (explicit `match_description: true` only) and published as a JSON Schema `not` clause — taken; (3) normalization is case + whitespace runs only — taken; (4) Epic 4 started while Epic 3 is backlog — noted, not resolved; (5) no retraction/backfill of already-published items — unchanged.
+- Delivery: branch pushed over SSH, PR wixyvir/cvestream#46 opened to `main` ("feat(story-4.2): exact product matching", body links this story file, `Closes wixyvir/cvestream#44`, lists the open questions with the decisions taken).
 
 ### File List
 
