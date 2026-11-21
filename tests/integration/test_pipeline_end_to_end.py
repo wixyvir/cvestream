@@ -132,13 +132,19 @@ async def test_a_feed_goes_from_recorded_payloads_to_a_served_response(
         assert title.startswith(f"{CHROME_CVE} in Google Chrome: severity ")
         description = chrome.findtext("description") or ""
         lines = description.split("\n")
-        assert lines[0].startswith("<p><b>IDs:</b> ")
-        assert CHROME_CVE in lines[0]
+        # The first block leads with the facts line, Matched and Description.
+        first_block = description.split("</p>")[0]
+        assert first_block.startswith("<p>high · CVSS 8.8 · exploited: no · published ")
+        assert re.search(r"published \d{4}-\d{2}-\d{2}", first_block)
+        assert "<b>Matched:</b>" in first_block
+        assert "<b>Description:</b>" in first_block
+        # The IDs block comes later, with each source's score.
+        assert any(
+            line.startswith("<p><b>IDs:</b> ") and CHROME_CVE in line for line in lines
+        )
         assert any(line.startswith("<b>CVSS:</b> ") for line in lines)
-        # The recorded EUVD payload carries both dates.
-        assert re.search(r"<b>Published:</b> \d{4}-\d{2}-\d{2}<br/>", description)
-        assert re.search(r"<b>Updated:</b> \d{4}-\d{2}-\d{2}<br/>", description)
-        assert any(line.startswith("<b>Known exploited:</b> ") for line in lines)
+        # Not known-exploited: no KEV detail line at all.
+        assert not any(line.startswith("<b>Known exploited:</b> ") for line in lines)
         assert '<a href="https://euvd.enisa.europa.eu/vulnerability/' in description
         guid = chrome.find("guid")
         assert guid is not None

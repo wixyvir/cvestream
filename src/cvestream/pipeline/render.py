@@ -11,8 +11,12 @@ are removed, otherwise no parser would accept the document.
 The title says what was published: the severity band and the known-exploited
 flag recorded at decision time, and the affected product the first matched
 entry names in the current merged data (the entry's own name when there is no
-such product). The body shows the current merged data of the vulnerability.
-Unknown is `unknown`, never `0`, `n/a` or an empty string.
+such product). The body shows the current merged data of the vulnerability,
+leading with what a reader sees first: Slack's RSS app shows only about the
+first `SLACK_PREVIEW_CHARS` plain-text characters of the description and keeps
+only the first block-level elements, so the first `<p>` holds the facts line,
+the matched products and the full description. Unknown is `unknown`, never
+`0`, `n/a` or an empty string.
 """
 
 import hashlib
@@ -37,6 +41,11 @@ CHANNEL_LINK = "https://github.com/wixyvir/cvestream"
 MEDIA_TYPE = "application/rss+xml; charset=utf-8"
 
 UNKNOWN = "unknown"
+# Slack's RSS app cuts the item description with "..." after about this many
+# plain-text characters (measured 492 to 498 on three long posts, 2026-11-21;
+# not documented by Slack). The body leads with what must fit in this window;
+# a later change is a one-line fix here.
+SLACK_PREVIEW_CHARS = 495
 _MAX_REFERENCES = 10
 _LINK_SCHEMES = frozenset({"http", "https"})
 _UPDATE_PREFIX = "[UPDATE] "
@@ -169,17 +178,28 @@ def _matched(entry: FeedEntry) -> str:
     return f"{matched}{suffix}"
 
 
-def _severity(entry: FeedEntry) -> str:
-    score = max_score(entry.vulnerability.scores)
+def _facts(entry: FeedEntry) -> str:
+    """The facts line: band, highest CVSS, exploited, published, updated."""
+    vulnerability = entry.vulnerability
+    score = max_score(vulnerability.scores)
     band = band_of(score).value
     if score is None:
-        suffix = (
-            " (no score; let through)"
-            if PassThrough.SCORE_UNKNOWN in entry.labels
-            else ""
-        )
-        return f"{band}{suffix}"
-    return f"{band} (highest CVSS {score:.1f})"
+        cvss = f"CVSS {UNKNOWN}"
+        if PassThrough.SCORE_UNKNOWN in entry.labels:
+            cvss += " (no score; let through)"
+    else:
+        cvss = f"CVSS {score:.1f}"
+    # KEV presence is a fact, never unknown.
+    exploited = "yes" if vulnerability.is_known_exploited else "no"
+    dot = " \N{MIDDLE DOT} "
+    published = _day(vulnerability.published_at)
+    facts = f"{band}{dot}{cvss}{dot}exploited: {exploited}{dot}published {published}"
+    # Left out when it falls on the same UTC day as `published` (comparing the
+    # rendered days also drops `updated unknown` when both are unknown).
+    updated = _day(vulnerability.updated_at)
+    if updated != published:
+        facts += f"{dot}updated {updated}"
+    return facts
 
 
 def _cvss(vulnerability: Vulnerability) -> str:
@@ -221,27 +241,40 @@ def _kev(vulnerability: Vulnerability) -> str:
         ):
             added[entry.catalog] = entry.added_at
     if not by_catalog:
-        return "no"
+        return UNKNOWN
     parts = [
         f"{_KEV_NAMES[catalog]} (added {_day(added.get(catalog))},"
         f" ransomware use: {_ransomware(by_catalog[catalog])})"
         for catalog in _KEV_ORDER
         if catalog in by_catalog
     ]
-    return f"yes, {', '.join(parts)}"
+    return ", ".join(parts)
 
 
 def _affected(vulnerability: Vulnerability) -> str:
-    parts: list[str] = []
+    """One label per product, its version texts verbatim, at most 3 (+N more)."""
+    labels: list[str] = []
+    versions: dict[str, list[str]] = {}
     for sourced in vulnerability.affected:
         affected = sourced.value
-        name = _one_line(affected.product)
-        if affected.vendor:
-            name = f"{_one_line(affected.vendor)} {name}"
-        versions = _one_line(affected.version_text or "") or "versions unknown"
-        part = f"{name} {versions}"
-        if part not in parts:
-            parts.append(part)
+        # The title rule: the vendor is dropped when the product name already
+        # contains it. The version text is source text, never parsed here.
+        label = _product_label(affected.product, affected.vendor)
+        if label not in versions:
+            labels.append(label)
+            versions[label] = []
+        text = _one_line(affected.version_text or "")
+        if text and text not in versions[label]:
+            versions[label].append(text)
+    parts: list[str] = []
+    for label in labels:
+        rows = versions[label]
+        if not rows:
+            parts.append(f"{label} versions unknown")
+        elif len(rows) > 3:
+            parts.append(f"{label} {', '.join(rows[:3])} (+{len(rows) - 3} more)")
+        else:
+            parts.append(f"{label} {', '.join(rows)}")
     return "; ".join(parts) if parts else UNKNOWN
 
 
@@ -313,21 +346,34 @@ def _references(vulnerability: Vulnerability) -> str | None:
 
 
 def _description(entry: FeedEntry, records: Sequence[RecordRef]) -> str:
-    """The item body: an HTML fragment, one fact per line."""
+    """The item body: an HTML fragment, one fact per line.
+
+    The first `<p>` holds what a reader must see even when the description is
+    cut (Slack's RSS app keeps only the first block-level elements and shows
+    about the first `SLACK_PREVIEW_CHARS` plain-text characters): the facts
+    line, the matched products and the full description, never cut here.
+    """
     vulnerability = entry.vulnerability
-    facts = (
-        ("Published", _day(vulnerability.published_at)),
-        ("Updated", _day(vulnerability.updated_at)),
-        ("Matched", _matched(entry)),
-        ("Severity", _severity(entry)),
-        ("CVSS", _cvss(vulnerability)),
-        ("Known exploited", _kev(vulnerability)),
-        ("Affected", _affected(vulnerability)),
-    )
+    ids_lines = [
+        _field("IDs", _h(_ids(vulnerability))),
+        _field("CVSS", _h(_cvss(vulnerability))),
+    ]
+    # The facts line already says `exploited: yes`; the detail is only useful
+    # when the vulnerability is known-exploited.
+    if vulnerability.is_known_exploited:
+        ids_lines.append(_field("Known exploited", _h(_kev(vulnerability))))
     blocks = [
-        f"<p>{_field('IDs', _h(_ids(vulnerability)))}</p>",
-        "<p>" + "<br/>\n".join(_field(k, _h(v)) for k, v in facts) + "</p>",
-        f"<p>{_field('Description', _h(_summary(vulnerability)))}</p>",
+        "<p>"
+        + "<br/>\n".join(
+            [
+                _h(_facts(entry)),
+                _field("Matched", _h(_matched(entry))),
+                _field("Description", _h(_summary(vulnerability))),
+            ]
+        )
+        + "</p>",
+        f"<p>{_field('Affected', _h(_affected(vulnerability)))}</p>",
+        "<p>" + "<br/>\n".join(ids_lines) + "</p>",
         f"<p>{_field('Sources', _sources(records))}</p>",
     ]
     references = _references(vulnerability)

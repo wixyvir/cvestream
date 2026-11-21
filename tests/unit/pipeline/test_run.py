@@ -531,7 +531,7 @@ def test_the_body_follows_the_current_data_and_the_title_the_decision(
     item = ET.fromstring(feed.xml).find("channel/item")  # noqa: S314
     assert item is not None
     assert item.findtext("title") == f"{CVE} in php: severity high"
-    assert "highest CVSS 7.4" in (item.findtext("description") or "")
+    assert "CVSS 7.4" in (item.findtext("description") or "")
 
 
 def test_a_publication_older_than_fourteen_days_leaves_the_feed(
