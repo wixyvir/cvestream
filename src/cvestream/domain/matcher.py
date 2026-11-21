@@ -1,16 +1,17 @@
 """Match a vulnerability against an endpoint (FR-11 to FR-15, FR-24, FR-25).
 
 Recall over precision: unknown data lets the item through with a label, it never
-drops it silently. An endpoint can opt out for scores with `require_score`,
-and a known-exploited vulnerability is still let through. Matching is case-insensitive
-on whole words. Structured affected-product data decides when a vulnerability has
-any: a description that mentions `php` (`Module.php`, "PHP Object Injection" in a
-WordPress plugin) does not make another product a PHP vulnerability. The descriptions
-are searched only when there is no affected-product data at all, and then a name
-inside a file name or path (`loan_history_maintenance.php`, `/usr/lib/php/`) does
-not count. An entry with `match_description` false never uses the description, so
-a vulnerability known only from CISA KEV waits for EUVD product data. Titles are
-never searched. Exclusion terms are looked for in both.
+drops it silently, unless an endpoint opts out for scores with `require_score`;
+a known-exploited vulnerability is still let through. Matching is case-insensitive
+on whole words. Structured
+affected-product data decides when a vulnerability has any: a description that
+mentions `php` (`Module.php`, "PHP Object Injection" in a WordPress plugin) does
+not make another product a PHP vulnerability. The descriptions are searched only
+when there is no affected-product data at all, and then a name inside a file name
+or path (`loan_history_maintenance.php`, `/usr/lib/php/`) does not count. An entry
+with `match_description` false never uses the description, so a vulnerability
+known only from CISA KEV waits for EUVD product data. Titles are never searched.
+Exclusion terms are looked for in both.
 """
 
 import re
