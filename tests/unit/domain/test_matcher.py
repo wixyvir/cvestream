@@ -5,7 +5,7 @@ from packaging.version import Version
 
 from cvestream.domain.endpoint import Endpoint, ProductEntry, Rules
 from cvestream.domain.matcher import MatchResult, PassThrough, match
-from cvestream.domain.model import Vulnerability
+from cvestream.domain.model import KevCatalog, Vulnerability
 
 type VulnerabilityFactory = Callable[..., Vulnerability]
 
@@ -14,12 +14,13 @@ def _endpoint(
     *entries: ProductEntry,
     min_cvss: float | None = None,
     kev_only: bool = False,
+    require_score: bool = False,
 ) -> Endpoint:
     return Endpoint(
         id="team-a",
         name="Team A",
         products=entries,
-        rules=Rules(min_cvss=min_cvss, kev_only=kev_only),
+        rules=Rules(min_cvss=min_cvss, kev_only=kev_only, require_score=require_score),
     )
 
 
@@ -696,6 +697,126 @@ def test_labels_combine(make_vulnerability: VulnerabilityFactory) -> None:
     assert result.labels == frozenset(
         {PassThrough.VERSIONS_UNKNOWN, PassThrough.SCORE_UNKNOWN}
     )
+
+
+# --- require_score (FR-14, FR-25 opt-out) ----------------------------------------
+
+
+@pytest.mark.parametrize(
+    "scores", [[], [None], [None, None]], ids=["empty", "none", "nones"]
+)
+def test_unscored_dropped_with_require_score(
+    make_vulnerability: VulnerabilityFactory, scores: list[float | None]
+) -> None:
+    vulnerability = make_vulnerability(description="PHP flaw", scores=scores)
+    result = match(vulnerability, _endpoint(PHP, require_score=True))
+    assert result is None
+
+
+@pytest.mark.parametrize("scores", [[], [None]], ids=["empty", "none"])
+def test_unscored_dropped_with_require_score_and_threshold(
+    make_vulnerability: VulnerabilityFactory, scores: list[float | None]
+) -> None:
+    vulnerability = make_vulnerability(description="PHP flaw", scores=scores)
+    result = match(vulnerability, _endpoint(PHP, require_score=True, min_cvss=4.0))
+    assert result is None
+
+
+@pytest.mark.parametrize("scores", [[], [None]], ids=["empty", "none"])
+def test_unscored_cisa_kev_kept_with_require_score_and_threshold(
+    make_vulnerability: VulnerabilityFactory, scores: list[float | None]
+) -> None:
+    vulnerability = make_vulnerability(description="PHP flaw", scores=scores, kev=True)
+    result = match(vulnerability, _endpoint(PHP, require_score=True, min_cvss=4.0))
+    assert result is not None
+    assert result.labels == frozenset({PassThrough.SCORE_UNKNOWN})
+
+
+@pytest.mark.parametrize("scores", [[], [None]], ids=["empty", "none"])
+def test_unscored_cisa_kev_kept_with_require_score_no_threshold(
+    make_vulnerability: VulnerabilityFactory, scores: list[float | None]
+) -> None:
+    vulnerability = make_vulnerability(description="PHP flaw", scores=scores, kev=True)
+    result = match(vulnerability, _endpoint(PHP, require_score=True))
+    assert result is not None
+    assert result.labels == frozenset()
+
+
+def test_unscored_eu_kev_kept_with_require_score(
+    make_vulnerability: VulnerabilityFactory,
+) -> None:
+    vulnerability = make_vulnerability(
+        description="PHP flaw", scores=[], kev=True, kev_catalog=KevCatalog.EU_KEV
+    )
+    result = match(vulnerability, _endpoint(PHP, require_score=True))
+    assert result is not None
+    assert result.labels == frozenset()
+
+
+def test_one_source_scored_kept_with_require_score(
+    make_vulnerability: VulnerabilityFactory,
+) -> None:
+    vulnerability = make_vulnerability(description="PHP flaw", scores=[None, 9.8])
+    result = match(vulnerability, _endpoint(PHP, require_score=True, min_cvss=7.0))
+    assert result is not None
+    assert result.labels == frozenset()
+
+
+def test_real_zero_score_kept_with_require_score(
+    make_vulnerability: VulnerabilityFactory,
+) -> None:
+    vulnerability = make_vulnerability(description="PHP flaw", scores=[0.0])
+    result = match(vulnerability, _endpoint(PHP, require_score=True))
+    assert result is not None
+    assert result.labels == frozenset()
+
+
+def test_scored_below_threshold_dropped_with_require_score(
+    make_vulnerability: VulnerabilityFactory,
+) -> None:
+    vulnerability = make_vulnerability(description="PHP flaw", scores=[5.0])
+    result = match(vulnerability, _endpoint(PHP, require_score=True, min_cvss=7.0))
+    assert result is None
+
+
+def test_scored_no_threshold_kept_with_require_score(
+    make_vulnerability: VulnerabilityFactory,
+) -> None:
+    vulnerability = make_vulnerability(description="PHP flaw", scores=[5.0])
+    result = match(vulnerability, _endpoint(PHP, require_score=True))
+    assert result is not None
+    assert result.labels == frozenset()
+
+
+def test_default_off_keeps_unscored(
+    make_vulnerability: VulnerabilityFactory,
+) -> None:
+    vulnerability = make_vulnerability(description="PHP flaw")
+    result = match(vulnerability, _endpoint(PHP, min_cvss=7.0))
+    assert result is not None
+    assert result.labels == frozenset({PassThrough.SCORE_UNKNOWN})
+
+
+def test_with_kev_only_and_require_score(
+    make_vulnerability: VulnerabilityFactory,
+) -> None:
+    vulnerability = make_vulnerability(description="PHP flaw", kev=True)
+    result = match(vulnerability, _endpoint(PHP, require_score=True, kev_only=True))
+    assert result is not None
+    result = match(
+        make_vulnerability(description="PHP flaw", kev=False),
+        _endpoint(PHP, require_score=True, kev_only=True),
+    )
+    assert result is None
+
+
+def test_versions_label_still_set_with_require_score(
+    make_vulnerability: VulnerabilityFactory,
+) -> None:
+    vulnerability = make_vulnerability(description="PHP flaw", scores=[9.8])
+    result = match(vulnerability, _endpoint(PHP_8_2, require_score=True))
+    assert result is not None
+    assert result.labels == frozenset({PassThrough.VERSIONS_UNKNOWN})
 
 
 # --- KEV only (FR-15) --------------------------------------------------------------

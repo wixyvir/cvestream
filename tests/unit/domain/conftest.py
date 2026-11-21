@@ -45,6 +45,7 @@ def make_vulnerability() -> VulnerabilityFactory:
         products: Iterable[ProductSpec] = (),
         scores: Iterable[float | None] = (),
         kev: bool = False,
+        kev_catalog: KevCatalog = KevCatalog.CISA_KEV,
     ) -> Vulnerability:
         return Vulnerability(
             primary_id=primary_id,
@@ -71,8 +72,12 @@ def make_vulnerability() -> VulnerabilityFactory:
             kev=(
                 (
                     Sourced(
-                        KevEntry(catalog=KevCatalog.CISA_KEV),
-                        source="cisa_kev",
+                        KevEntry(catalog=kev_catalog),
+                        source=(
+                            "cisa_kev"
+                            if kev_catalog == KevCatalog.CISA_KEV
+                            else "eu_kev"
+                        ),
                         observed_at=OBSERVED_AT,
                     ),
                 )

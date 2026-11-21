@@ -44,6 +44,12 @@
           "title": "Kev Only",
           "type": "boolean"
         },
+        "require_score": {
+          "default": false,
+          "description": "Drop vulnerabilities that no source has scored yet, except known-exploited ones (CISA KEV or EU KEV).",
+          "title": "Require Score",
+          "type": "boolean"
+        },
         "token": {
           "description": "Secret that gives access to the feed, unique across endpoints: 32 to 128 URL-safe characters (A-Z a-z 0-9 _ -).",
           "pattern": "^[A-Za-z0-9_-]{32,128}$",

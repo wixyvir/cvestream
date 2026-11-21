@@ -18,6 +18,7 @@ def test_rules_default_to_no_filtering() -> None:
     rules = Rules()
     assert rules.min_cvss is None
     assert rules.kev_only is False
+    assert rules.require_score is False
 
 
 def test_endpoint_defaults_and_nesting() -> None:

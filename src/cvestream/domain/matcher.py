@@ -1,7 +1,9 @@
 """Match a vulnerability against an endpoint (FR-11 to FR-15, FR-24, FR-25).
 
 Recall over precision: unknown data lets the item through with a label, it never
-drops it silently. Matching is case-insensitive on whole words. Structured
+drops it silently, unless an endpoint opts out for scores with `require_score`;
+a known-exploited vulnerability is still let through. Matching is case-insensitive
+on whole words. Structured
 affected-product data decides when a vulnerability has any: a description that
 mentions `php` (`Module.php`, "PHP Object Injection" in a WordPress plugin) does
 not make another product a PHP vulnerability. The descriptions are searched only
@@ -151,9 +153,12 @@ def match(vulnerability: Vulnerability, endpoint: Endpoint) -> MatchResult | Non
     rules = endpoint.rules
     if rules.kev_only and not vulnerability.is_known_exploited:
         return None
+    score = max_score(vulnerability.scores)
+    # Opt-out of FR-25 for scores: an exploited vulnerability is never silenced.
+    if rules.require_score and score is None and not vulnerability.is_known_exploited:
+        return None
     labels: set[PassThrough] = set()
     if rules.min_cvss is not None:
-        score = max_score(vulnerability.scores)
         if score is None:
             labels.add(PassThrough.SCORE_UNKNOWN)
         elif score < rules.min_cvss:

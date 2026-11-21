@@ -131,7 +131,7 @@ _Versions verified online on 2026-10-26 (architecture.md). Before adding any dep
 - Only vulnerabilities active in the last 14 days are decided; an endpoint without any publication is backfilled with the last 7 days.
 
 **Recall over volume (FR-25): when in doubt, let it through.**
-- No score → never dropped by `min_cvss`.
+- No score → never dropped by `min_cvss`. Only the opt-in endpoint rule `require_score` drops an unscored vulnerability, and never a known-exploited one.
 - Unusable version data (missing, `n/a`, unparsable, or a match found only in the description of a vulnerability without affected-product data) → matches anyway, labelled "versions unknown".
 - The highest available score drives the threshold, the title severity and the re-publish triggers. Every source's score is kept (`Sourced`) and shown; `max_score()`/`band()` compute from them, never overwrite.
 - Pass-throughs on unknown data are counted in `cycle.summary`.
