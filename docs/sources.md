@@ -262,9 +262,12 @@ field); the feed items link to the advisory page and credit the source as
 - **Matching.** The entries are structured affected products, so they decide: a
   `gitlab` entry matches a GitLab advisory (2026-016, 2026-019) whose bullets omit
   the product name, and `match_description: false` does not hide a CERT-EU-only
-  item. Because the text is prose, it never equals a product name, so an `exact`
-  entry never matches CERT-EU text and a CERT-EU-only item waits for EUVD data on
-  such an entry. The text is also prose for the title, so it never names the title
+  item. Because the text is prose, it equals a product name only when a bullet is
+  exactly the name (`- PHP`); longer prose (`PHP 8.5 versions prior to 8.5.12`)
+  never does. An `exact` entry therefore matches CERT-EU text only for such a
+  bare-name bullet, which has no version, so `min_version` reports "versions
+  unknown"; any other CERT-EU-only item waits for EUVD data on such an entry. The
+  text is also prose for the title, so it never names the title
   of an item: the title uses the entry name until EUVD data names the product. The
   item body still lists the CERT-EU text.
 - **Cursor and revisions.**
