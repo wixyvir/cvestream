@@ -38,7 +38,7 @@ This document provides the complete epic and story breakdown for cvestream, deco
 - FR-15: Per-endpoint "known-exploited only" option.
 - FR-16: A new endpoint starts with the vulnerabilities it would have matched in the last 7 days.
 - FR-17: Serve each endpoint as a valid RSS 2.0 feed, no Slack-specific markup, 14-day item window.
-- FR-18: Item title names the matched product and severity; body shows CVE/EUVD IDs, first published and last updated dates, each source's CVSS score + version, KEV status with the date each list added it, affected versions, links to every source.
+- FR-18: Item title names the matched product and severity, with emoji markers (exploited, critical, severity raised, published today) beside the words; body shows CVE/EUVD IDs, first published and last updated dates, each source's CVSS score + version, KEV status with the date each list added it, affected versions, links to every source, leading with the facts a truncating reader must see.
 - FR-19: Publish once per endpoint; re-publish as `[UPDATE]` (new GUID) only when it becomes known-exploited or its severity band rises (including unknown → rated).
 - FR-20: Each feed URL contains an unguessable token; a token can be rotated, invalidating the old URL.
 - FR-21: Configuration comes from a key-value datastore (preferred) or a YAML file.
@@ -47,6 +47,7 @@ This document provides the complete epic and story breakdown for cvestream, deco
 - FR-24: When sources disagree on CVSS, the highest score drives threshold, title severity and re-publish triggers; the item shows each source's score.
 - FR-25: Recall wins over volume: rules let through what they cannot rule out.
 - FR-26: A vulnerability that first matches an endpoint after late data arrives is published as new on that endpoint.
+- FR-27: Opt-in per endpoint: a burst of 3 or more items of the same matched product and kind family in one cycle becomes one feed item (at most 5 members, most severe first); known-exploited vulnerabilities are never grouped.
 
 ### NonFunctional Requirements
 
@@ -103,7 +104,7 @@ None. cvestream has no user interface (architecture.md: "Frontend Architecture: 
 - FR-15: Epic 1 (Story 1.2) - KEV-only
 - FR-16: Epic 1 (Story 1.5) - 7-day backfill
 - FR-17: Epic 1 (Story 1.6) - RSS 2.0 feed, 14-day window
-- FR-18: Epic 1 (Story 1.6) - item title and body
+- FR-18: Epic 1 (Story 1.6) - item title and body; Epic 5 (Story 5.1) - title markers, compact body
 - FR-19: Epic 1 (Story 1.5) - publish once, `[UPDATE]` triggers
 - FR-20: Epic 1 (Stories 1.3, 1.6) - token in URL; Epic 3 (Story 3.2) - rotation by CLI
 - FR-21: Epic 1 (Story 1.3) - YAML provider; Epic 3 (Story 3.1) - Valkey provider
@@ -112,6 +113,7 @@ None. cvestream has no user interface (architecture.md: "Frontend Architecture: 
 - FR-24: Epic 1 (Story 1.2) - highest score drives decisions
 - FR-25: Epic 1 (Story 1.2) - recall first; Epic 4 (Story 4.1) - require_score opt-out
 - FR-26: Epic 1 (Story 1.5) - late match published as new
+- FR-27: Epic 5 (Story 5.2) - burst grouping
 
 ## Epic List
 
@@ -134,6 +136,11 @@ Configuration moves to Valkey so other tools (BoM connectors, CD workers) can ed
 
 Enhancements to the matching engine and scoring rules based on real-world usage: optional `require_score` rule to drop unscored vulnerabilities (except KEV) and optional `exact` product matching to avoid false positives from generic names.
 **FRs covered:** FR-12 (exact matching), FR-14 (scoring), FR-25 (recall with opt-out).
+
+### Epic 5: Readable bursts
+
+The team reads its channel faster: each Slack message shows the severity, the exploited status, the matched product and the start of the description before Slack cuts it; emoji in the title flag exploited, critical, raised and same-day vulnerabilities; an endpoint can group a burst of same-product items into one message; held-back items are counted; duplicate product names are rejected.
+**FRs covered:** FR-18 (amended), FR-27. NFR-4 (held-back count).
 
 ## Epic 1: Filtered vulnerability feed from EUVD and KEV
 
@@ -566,3 +573,149 @@ I want an optional product-entry field to require the whole affected-product nam
 so that short, generic names like `php` or `python` do not pull in many unrelated products whose names or vendors contain them.
 
 Added from GitHub issue wixyvir/cvestream#44. This addresses the measured problem: every EUVD record updated since 2026-08-01 that mentions `php` results in 75 matches with only 13 being actual PHP Group/PHP, and `python` results in 38 matches with only about 3 being CPython.
+
+## Epic 5: Readable bursts
+
+Built from the team's feedback canvas "CVEStream Retours" (sprint change proposal 2026-11-21, epic 5). Slack's RSS app shows about the first 495 characters of an item, as plain text, one message per item.
+
+### Story 5.1: Compact item body and title markers
+
+As a channel subscriber,
+I want each Slack message to show the severity, the exploited status, the dates, the matched product and the start of the description, and the title to flag what matters with an emoji,
+so that I can triage a message without opening it and spot the ones that matter while scrolling.
+
+**Acceptance criteria:**
+
+**Given** any feed item
+**When** its description is rendered
+**Then** the blocks come in this order:
+1. a facts line, `<severity band> · CVSS <highest score> · exploited: <yes|no> · published <day> · updated <day>`, where the `updated` part is left out when it falls on the same UTC day as `published`, and an unknown value reads `unknown`;
+2. the matched products line, `Matched: …`, with `(versions unknown)` when it applies;
+3. the full description, never cut on the server;
+4. the affected products;
+5. then the IDs line, each source's CVSS score with its version, the KEV detail (each list, the day it added the vulnerability, ransomware use) when it is known-exploited, the sources and the references.
+
+**Given** affected products from several sources, or several rows for one product
+**When** the Affected line is rendered
+**Then** each product label (vendor dropped when the product name already contains it) appears once, followed by its rows' version text **verbatim** (never parsed or rewritten), at most 3 per product, then `(+N more)`
+
+**Given** the Tomcat fixture (CVE-2026-95517: five affected rows, CVSS 9.1, not exploited)
+**When** the description is reduced to plain text (tags stripped, a line break counted as one character)
+**Then** its first 495 characters contain the severity band, `exploited: no`, the matched product and the first 40 characters of the description; the budget is one named constant
+
+**Given** an item's decision-time values
+**When** its title is rendered
+**Then** it starts with these Unicode emoji, in this order, all that apply, followed by one space:
+- 🔥 when the stored `is_known_exploited` is true;
+- 🔴 when the stored band is `critical`;
+- 🔺 when the kind is `band-<band>`;
+- 🆕 when the stored `is_fresh` is true.
+
+Every other band and the unknown state get no emoji, and there is no "safe" marker. The existing words (`EXPLOITED`, `[UPDATE]`, `severity critical`) stay. No Slack shortcode (`:fire:`) is used.
+
+**Given** a `new` decision
+**When** the vulnerability's earliest `published_at` falls on the same UTC calendar day as the decision time from the injected `Clock`
+**Then** `PublicationDecision.is_fresh` is true and stored in a new nullable `publication.is_fresh` column (Alembic migration); it is false when `published_at` is unknown or on another day, and false for every `kev` and `band-*` decision; existing rows are `NULL` and render without 🆕
+
+**Given** a feed rendered twice from the same state
+**When** the clock has moved past midnight in between
+**Then** the XML and the ETag are identical (render stays clock-free)
+
+**Given** short items whose body fits in the budget (the PHP posts of 2026-11-19 showed no `Description:` line in Slack)
+**When** the story starts
+**Then** the cause is investigated and either fixed or recorded in `deferred-work.md`
+
+Examples (golden):
+- `🔥🔴🆕 CVE-2026-95517 in Apache Software Foundation Apache Tomcat: severity critical, EXPLOITED`
+- `🆕 CVE-2026-107494 in OpenSSL: severity unknown`
+- `🔴🔺 [UPDATE] CVE-2026-118028 in Apache Software Foundation Apache Tomcat: severity raised to critical`
+- `🔥 [UPDATE] CVE-2026-1234 in PHP Group PHP: now EXPLOITED, severity high`
+
+Documentation: the story 1.6 rules in `architecture.md`, the item format in `docs/operations.md` (a golden example and the budget), README, CHANGELOG.
+
+### Story 5.2: Group bursts by product
+
+As a channel subscriber,
+I want a burst of items about the same product to arrive as one message,
+so that ten Tomcat CVEs published together do not fill my channel with ten tall messages.
+
+**Acceptance criteria:**
+
+**Given** the v1 config contract
+**When** `group_by_product: bool = False` is added to `domain/endpoint.Rules` and `EndpointConfig` (strict bool)
+**Then** `Rules()` keeps its "no filtering, no grouping" meaning, `group_by_product: "yes"` is rejected with the path `endpoints.0.group_by_product`, and `schemas/config-v1.json` is regenerated in the same commit with `SCHEMA_VERSION` staying `1`
+
+**Given** an endpoint with `group_by_product: true` and one pipeline run
+**When** at least 3 decisions share the matched entry name (`products[0]`) and the kind family (`new`, or `band-*`) and none of their vulnerabilities is known-exploited
+**Then** they are grouped: a pure function in `domain/publication.py`, called by `pipeline/run.py` after every `decide()` of the run and inside the run's transaction, returns the groups, ordered by band descending then by primary ID (natural CVE order)
+
+**Given** a group of more than 5 members
+**When** it is formed
+**Then** it is split in that order into items of at most 5 members (6 members → 5 + 1, and a chunk below 3 is still published as a group, because the burst reached the threshold)
+
+**Given** a group or chunk
+**When** it is recorded
+**Then** its GUID `cvestream:{endpoint_id}:group-{family}:{h}`, where `h` is the first 16 hex characters of the SHA-256 of its sorted member GUIDs, is built only in `domain/publication.py` and stored once. Each member keeps its own `publication` row and GUID and stores the group GUID in a new nullable `publication.group_guid` column (Alembic migration, upgrade and downgrade tested)
+
+**Given** a stored group
+**When** the feed is rendered
+**Then**:
+- **Item:** one item replaces its members, with the group GUID, the members' `pubDate`, and the link of the most severe member.
+- **Title:** `<emoji> <product label>: <n> new vulnerabilities, worst <band> (<count per band>)`, or `<emoji> [UPDATE] <product label>: <n> vulnerabilities raised (<count per new band>)`.
+  - The emoji: 🔴 when any member is critical, 🔺 for the `band-*` family, 🆕 when **any** member is fresh.
+  - A split group adds `, part <i> of <k>`.
+- **Body:** one story-5.1 one-liner per member, most severe first, `<CVE> · <band> <score> · exploited: no · <first affected version text> (+N more)`, each CVE linked.
+
+**Given** an endpoint with `group_by_product: false` (the default), 2 decisions of the same product, a mix of `new` and `band-*`, or a known-exploited member
+**When** the run is decided
+**Then** those decisions are published as single items exactly as today
+
+**Given** a member of a published group
+**When** it later becomes known-exploited or its band rises
+**Then** it is decided by `decide()` as today and published on its own (or in a new group of its run, if not known-exploited)
+
+**Given** a restart, or the same run replayed
+**When** the feed is rendered again
+**Then** no group or member is published twice, the group GUID is read from storage and never recomputed, and the GUID does not depend on the order of the input decisions
+
+Documentation: architecture (publication rules, GUID table, `publication` table), `docs/configuration.md`, `docs/operations.md`, `endpoints.example.yaml`, README, CHANGELOG.
+
+### Story 5.3: Held-back count in cycle.summary
+
+As the operator,
+I want the number of items an endpoint's `require_score` held back in each cycle,
+so that a rule that silently drops CERT-EU-only and freshly published items is visible.
+
+Added from GitHub issue wixyvir/cvestream#47 (decision D3 in the review of wixyvir/cvestream#45).
+
+**Acceptance criteria:**
+
+**Given** an endpoint with `require_score: true`
+**When** a cycle matches a vulnerability on products and `kev_only` but drops it because no source has scored it
+**Then** `cycle.summary` reports it in a per-endpoint `held_back` count next to `score_unknown` and `versions_unknown`; a vulnerability that does not match the products is not counted
+
+**Given** `match()`
+**When** it drops a vulnerability
+**Then** the caller can tell `require_score` from every other reason (a drop reason, or the rule evaluated by the pipeline), and `domain` stays pure
+
+Documentation: `docs/operations.md` (`cycle.summary` fields).
+
+### Story 5.4: Reject duplicate product names within an endpoint
+
+As the operator,
+I want the configuration to reject two product entries with the same name in one endpoint,
+so that the item title, and story 5.2's groups, never pick the wrong entry.
+
+Added from GitHub issue wixyvir/cvestream#48 (decision D2 in the review of wixyvir/cvestream#46).
+
+**Acceptance criteria:**
+
+**Given** an endpoint whose `products` contain two entries whose names are equal after stripping and case-folding
+**When** the configuration is validated (YAML now, Valkey later through the same `EndpointConfig`)
+**Then** it is rejected with the path of the second entry and a message naming the duplicate, and `cvestream config validate` exits non-zero
+
+**Given** distinct names, including an alias of one entry used as another entry's name
+**When** validated
+**Then** it is accepted (the workaround documented for exact entries keeps working)
+
+Documentation: `docs/configuration.md` (remove the "not rejected yet" note), CHANGELOG (a contract tightening: configs that load today can be rejected).

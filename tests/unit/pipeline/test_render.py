@@ -3,11 +3,13 @@ import re
 import xml.etree.ElementTree as ET
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
+import respx
 
 from cvestream.domain.endpoint import Endpoint, ProductEntry
-from cvestream.domain.matcher import PassThrough
+from cvestream.domain.matcher import PassThrough, match
 from cvestream.domain.model import (
     AffectedProduct,
     CvssScore,
@@ -17,18 +19,30 @@ from cvestream.domain.model import (
     Sourced,
     Vulnerability,
 )
-from cvestream.domain.severity import Band
+from cvestream.domain.severity import Band, band_of, max_score
+from cvestream.http import HttpClient
+from cvestream.pipeline.correlate import build_vulnerability
+from cvestream.pipeline.normalize import normalize
 from cvestream.pipeline.render import (
     CHANNEL_LINK,
+    SLACK_PREVIEW_CHARS,
     FeedEntry,
     etag_of,
     render_feed,
 )
+from cvestream.sources.euvd import BASE_URL, EuvdAdapter
+from tests.conftest import FakeClock
 
 NOW = datetime(2026, 10, 26, 20, 0, tzinfo=UTC)
 ENDPOINT = Endpoint(id="team-php", name="PHP team", products=(ProductEntry("php"),))
 EUVD_URL = "https://euvd.enisa.europa.eu/vulnerability/EUVD-2026-41234"
 CISA_URL = "https://www.cisa.gov/known-exploited-vulnerabilities-catalog"
+FIXTURES = Path(__file__).parents[2] / "fixtures"
+DOT = " \N{MIDDLE DOT} "
+FIRE = "\N{FIRE}"
+RED_CIRCLE = "\N{LARGE RED CIRCLE}"
+TRIANGLE = "\N{UP-POINTING RED TRIANGLE}"
+SQUARED_NEW = "\N{SQUARED NEW}"
 
 
 def _sourced[T](value: T, source: str = "euvd") -> Sourced[T]:
@@ -127,19 +141,24 @@ def _lines(entry: FeedEntry) -> list[str]:
     return [line for line in text.split("\n") if line]
 
 
+def _preview(entry: FeedEntry) -> str:
+    """What Slack's RSS app shows: the first `SLACK_PREVIEW_CHARS` plain chars."""
+    text = html.unescape(_TAG.sub("", _html(entry)))
+    return text[:SLACK_PREVIEW_CHARS]
+
+
 def test_the_full_description_one_fact_per_line() -> None:
     assert _lines(_entry(labels=frozenset({PassThrough.VERSIONS_UNKNOWN}))) == [
-        "IDs: CVE-2026-0999, CVE-2026-1234, EUVD-2026-41234",
-        "Published: 2026-10-20",
-        "Updated: 2026-10-26",
+        f"high{DOT}CVSS 8.1{DOT}exploited: yes{DOT}published 2026-10-20"
+        f"{DOT}updated 2026-10-26",
         "Matched: php, nodejs (versions unknown)",
-        "Severity: high (highest CVSS 8.1)",
-        "CVSS: 8.1 (CVSS 3.1, euvd); unknown (cisa_kev); 5.0 (CVSS unknown, other)",
-        "Known exploited: yes, CISA KEV (added 2026-10-24, ransomware use: known),"
-        " EU KEV (added unknown, ransomware use: unknown)",
+        "Description: First description with lines",
         "Affected: Google Chrome < 141.0.7390.122; vendor product versions unknown;"
         " lonely versions unknown",
-        "Description: First description with lines",
+        "IDs: CVE-2026-0999, CVE-2026-1234, EUVD-2026-41234",
+        "CVSS: 8.1 (CVSS 3.1, euvd); unknown (cisa_kev); 5.0 (CVSS unknown, other)",
+        "Known exploited: CISA KEV (added 2026-10-24, ransomware use: known),"
+        " EU KEV (added unknown, ransomware use: unknown)",
         "Sources: euvd, cisa_kev, custom X-1",
         "References:",
         *(f"https://example.test/ref/{i}" for i in range(10)),
@@ -150,19 +169,18 @@ def test_the_full_description_one_fact_per_line() -> None:
 def test_the_description_is_an_html_fragment() -> None:
     assert _html(_entry()) == "\n".join(
         [
-            "<p><b>IDs:</b> CVE-2026-0999, CVE-2026-1234, EUVD-2026-41234</p>",
-            "<p><b>Published:</b> 2026-10-20<br/>",
-            "<b>Updated:</b> 2026-10-26<br/>",
+            f"<p>high{DOT}CVSS 8.1{DOT}exploited: yes{DOT}published 2026-10-20"
+            f"{DOT}updated 2026-10-26<br/>",
             "<b>Matched:</b> php, nodejs<br/>",
-            "<b>Severity:</b> high (highest CVSS 8.1)<br/>",
+            "<b>Description:</b> First description with lines</p>",
+            "<p><b>Affected:</b> Google Chrome &lt; 141.0.7390.122;"
+            " vendor product versions unknown; lonely versions unknown</p>",
+            "<p><b>IDs:</b> CVE-2026-0999, CVE-2026-1234, EUVD-2026-41234<br/>",
             "<b>CVSS:</b> 8.1 (CVSS 3.1, euvd); unknown (cisa_kev);"
             " 5.0 (CVSS unknown, other)<br/>",
-            "<b>Known exploited:</b> yes, CISA KEV (added 2026-10-24,"
+            "<b>Known exploited:</b> CISA KEV (added 2026-10-24,"
             " ransomware use: known), EU KEV (added unknown,"
-            " ransomware use: unknown)<br/>",
-            "<b>Affected:</b> Google Chrome &lt; 141.0.7390.122;"
-            " vendor product versions unknown; lonely versions unknown</p>",
-            "<p><b>Description:</b> First description with lines</p>",
+            " ransomware use: unknown)</p>",
             f'<p><b>Sources:</b> <a href="{EUVD_URL}">euvd</a>,'
             f' <a href="{CISA_URL}">cisa_kev</a>, custom X-1</p>',
             "<p><b>References:</b></p>",
@@ -208,22 +226,22 @@ def test_only_http_urls_become_links() -> None:
 
 def test_unknown_everywhere_data_is_missing() -> None:
     assert _lines(_bare()) == [
-        "IDs: unknown",
-        "Published: unknown",
-        "Updated: unknown",
+        f"unknown{DOT}CVSS unknown{DOT}exploited: no{DOT}published unknown",
         "Matched: php, nodejs",
-        "Severity: unknown",
-        "CVSS: unknown",
-        "Known exploited: no",
-        "Affected: unknown",
         "Description: unknown",
+        "Affected: unknown",
+        "IDs: unknown",
+        "CVSS: unknown",
         "Sources: unknown",
     ]
 
 
 def test_unknown_score_that_was_let_through_is_said() -> None:
     lines = _lines(_bare(labels=frozenset({PassThrough.SCORE_UNKNOWN})))
-    assert "Severity: unknown (no score; let through)" in lines
+    assert (
+        f"unknown{DOT}CVSS unknown (no score; let through){DOT}exploited: no"
+        f"{DOT}published unknown" in lines
+    )
 
 
 def test_no_description_line_ever_shows_zero_or_empty_values() -> None:
@@ -235,7 +253,7 @@ def test_no_description_line_ever_shows_zero_or_empty_values() -> None:
 
 def test_the_severity_is_recomputed_from_current_scores() -> None:
     entry = _entry(band=Band.LOW)
-    assert "Severity: high (highest CVSS 8.1)" in _lines(entry)
+    assert f"high{DOT}CVSS 8.1{DOT}exploited: yes" in _lines(entry)[0]
     assert _item(entry).findtext("title") == ("CVE-2026-1234 in php: severity low")
 
 
@@ -244,7 +262,7 @@ def test_a_score_is_shown_with_one_decimal() -> None:
         _full_vulnerability(), scores=(_sourced(CvssScore(9.0, "4.0")),)
     )
     lines = _lines(_entry(vulnerability=vulnerability))
-    assert "Severity: critical (highest CVSS 9.0)" in lines
+    assert lines[0].startswith(f"critical{DOT}CVSS 9.0{DOT}")
     assert "CVSS: 9.0 (CVSS 4.0, euvd)" in lines
 
 
@@ -267,17 +285,22 @@ def test_few_references_have_no_more_suffix() -> None:
     ("kind", "known", "title"),
     [
         ("new", False, "CVE-2026-1234 in php: severity high"),
-        ("new", True, "CVE-2026-1234 in php: severity high, EXPLOITED"),
+        ("new", True, f"{FIRE} CVE-2026-1234 in php: severity high, EXPLOITED"),
         (
             "kev",
             True,
-            "[UPDATE] CVE-2026-1234 in php: now EXPLOITED, severity high",
+            f"{FIRE} [UPDATE] CVE-2026-1234 in php: now EXPLOITED, severity high",
         ),
-        ("band-high", False, "[UPDATE] CVE-2026-1234 in php: severity raised to high"),
+        (
+            "band-high",
+            False,
+            f"{TRIANGLE} [UPDATE] CVE-2026-1234 in php: severity raised to high",
+        ),
         (
             "band-high",
             True,
-            "[UPDATE] CVE-2026-1234 in php: severity raised to high, EXPLOITED",
+            f"{FIRE}{TRIANGLE} [UPDATE] CVE-2026-1234 in php: severity raised to"
+            " high, EXPLOITED",
         ),
         ("future", False, "[UPDATE] CVE-2026-1234 in php: severity high"),
     ],
@@ -329,7 +352,7 @@ def test_the_title_names_the_matched_affected_product(
 ) -> None:
     entry = _entry(vulnerability=_with_affected(*products), is_known_exploited=True)
     assert _item(entry).findtext("title") == (
-        f"CVE-2026-1234 in {name}: severity high, EXPLOITED"
+        f"{FIRE} CVE-2026-1234 in {name}: severity high, EXPLOITED"
     )
 
 
@@ -474,7 +497,7 @@ def test_markup_in_source_text_is_escaped_text() -> None:
     entry = _entry(vulnerability=vulnerability)
     # A reader parsing the HTML shows the source text literally.
     assert (
-        "<p><b>Description:</b> &lt;script&gt;alert(1)&lt;/script&gt;"
+        "<b>Description:</b> &lt;script&gt;alert(1)&lt;/script&gt;"
         " &amp; &lt;b&gt;more&lt;/b&gt;</p>"
     ) in _html(entry)
     assert "Description: <script>alert(1)</script> & <b>more</b>" in _lines(entry)
@@ -571,7 +594,7 @@ def test_a_kev_entry_of_one_catalog_is_listed_once() -> None:
     )
     # One part, the earliest addition and the recorded ransomware use.
     assert (
-        "Known exploited: yes, CISA KEV (added 2026-08-30, ransomware use: known)"
+        "Known exploited: CISA KEV (added 2026-08-30, ransomware use: known)"
     ) in _lines(_entry(vulnerability=vulnerability))
 
 
@@ -582,7 +605,7 @@ def test_a_ransomware_use_of_false_is_not_reported_as_known() -> None:
             _sourced(KevEntry(KevCatalog.EU_KEV, known_ransomware_use=False), "eu_kev"),
         ),
     )
-    assert "Known exploited: yes, EU KEV (added unknown, ransomware use: no)" in _lines(
+    assert "Known exploited: EU KEV (added unknown, ransomware use: no)" in _lines(
         _entry(vulnerability=vulnerability)
     )
 
@@ -639,3 +662,298 @@ def test_cert_eu_records_come_after_the_other_sources_in_the_body() -> None:
     html_body = _html(_entry(vulnerability=vulnerability))
     assert html_body.index("euvd") < html_body.index("cisa_kev")
     assert html_body.index("cisa_kev") < html_body.index("cert_eu")
+
+
+# --- story 5.1: facts line, compact Affected, first-block layout, budget ---
+
+
+def test_updated_is_left_out_on_the_same_utc_day() -> None:
+    vulnerability = replace(
+        _full_vulnerability(),
+        published_at=datetime(2026, 10, 20, 8, 0, tzinfo=UTC),
+        updated_at=datetime(2026, 10, 20, 23, 0, tzinfo=UTC),
+    )
+    facts = _lines(_entry(vulnerability=vulnerability))[0]
+    assert "published 2026-10-20" in facts
+    assert "updated" not in facts
+
+
+def test_a_non_utc_updated_at_on_the_same_utc_day_is_left_out() -> None:
+    # 2026-10-25 23:30 at UTC-2 is 2026-10-26 01:30 UTC: the same UTC day.
+    vulnerability = replace(
+        _full_vulnerability(),
+        published_at=datetime(2026, 10, 26, 1, 0, tzinfo=UTC),
+        updated_at=datetime(2026, 10, 25, 23, 30, tzinfo=timezone(timedelta(hours=-2))),
+    )
+    facts = _lines(_entry(vulnerability=vulnerability))[0]
+    assert "published 2026-10-26" in facts
+    assert "updated" not in facts
+
+
+def test_updated_on_another_day_is_kept() -> None:
+    facts = _lines(_entry())[0]
+    assert "published 2026-10-20" in facts
+    assert "updated 2026-10-26" in facts
+
+
+def test_the_affected_line_caps_at_three_versions_with_a_more_suffix() -> None:
+    versions = [f"<= {i}" for i in range(5)]
+    vulnerability = _with_affected(
+        *(AffectedProduct("Tomcat", "Apache Software Foundation", v) for v in versions)
+    )
+    line = next(
+        line_
+        for line_ in _lines(_entry(vulnerability=vulnerability))
+        if line_.startswith("Affected:")
+    )
+    assert line == (
+        "Affected: Apache Software Foundation Tomcat <= 0, <= 1, <= 2 (+2 more)"
+    )
+
+
+def test_the_affected_line_drops_a_vendor_the_product_already_names() -> None:
+    vulnerability = _with_affected(
+        AffectedProduct("Wild Apricot Login", "wild-apricot", "< 1.2")
+    )
+    line = next(
+        line_
+        for line_ in _lines(_entry(vulnerability=vulnerability))
+        if line_.startswith("Affected:")
+    )
+    assert line == "Affected: Wild Apricot Login < 1.2"
+
+
+def test_the_affected_line_merges_sources_and_deduplicates_under_one_label() -> None:
+    vulnerability = replace(
+        _full_vulnerability(),
+        affected=(
+            Sourced(AffectedProduct("PHP", "PHP Group", "8.5.* <8.5.12"), "euvd", NOW),
+            Sourced(
+                AffectedProduct("PHP", "PHP Group", "8.5.* <8.5.12"), "cert_eu", NOW
+            ),
+            Sourced(
+                AffectedProduct("PHP", "PHP Group", "8.4.* <8.4.27"), "cisa_kev", NOW
+            ),
+            Sourced(AffectedProduct("PHP", "PHP Group", None), "euvd", NOW),
+        ),
+    )
+    line = next(
+        line_
+        for line_ in _lines(_entry(vulnerability=vulnerability))
+        if line_.startswith("Affected:")
+    )
+    # one label, distinct version texts, the row without version text adds nothing
+    assert line == "Affected: PHP Group PHP 8.5.* <8.5.12, 8.4.* <8.4.27"
+
+
+def test_the_affected_line_says_versions_unknown_only_without_any_version_text() -> (
+    None
+):
+    vulnerability = _with_affected(AffectedProduct("lonely"))
+    line = next(
+        line_
+        for line_ in _lines(_entry(vulnerability=vulnerability))
+        if line_.startswith("Affected:")
+    )
+    assert line == "Affected: lonely versions unknown"
+
+
+def test_no_kev_line_when_not_known_exploited() -> None:
+    vulnerability = replace(_full_vulnerability(), kev=())
+    assert not any(
+        line_.startswith("Known exploited")
+        for line_ in _lines(_entry(vulnerability=vulnerability))
+    )
+
+
+def test_the_kev_detail_line_appears_when_known_exploited() -> None:
+    line = next(
+        line_ for line_ in _lines(_entry()) if line_.startswith("Known exploited")
+    )
+    assert line == (
+        "Known exploited: CISA KEV (added 2026-10-24, ransomware use: known),"
+        " EU KEV (added unknown, ransomware use: unknown)"
+    )
+
+
+def test_the_first_paragraph_holds_facts_matched_and_description() -> None:
+    # Slack's RSS app keeps only the first block-level elements (story 5.1,
+    # Task 1 finding): the description must live in the first <p>.
+    body = _html(_entry())
+    first_block = body.split("</p>")[0]
+    assert first_block.startswith("<p>")
+    assert "exploited:" in first_block
+    assert "<b>Matched:</b>" in first_block
+    assert "<b>Description:</b>" in first_block
+
+
+def test_a_description_longer_than_the_budget_appears_in_full() -> None:
+    long_text = "word " * 200  # 1000 chars, longer than SLACK_PREVIEW_CHARS
+    vulnerability = replace(_full_vulnerability(), descriptions=(_sourced(long_text),))
+    body = _html(_entry(vulnerability=vulnerability))
+    # `_summary` collapses whitespace: 200 words, all of them, never cut
+    assert " ".join(["word"] * 200) in html.unescape(_TAG.sub("", body))
+    assert len(_preview(_entry(vulnerability=vulnerability))) == SLACK_PREVIEW_CHARS
+
+
+async def _no_sleep(_delay: float) -> None:
+    return None
+
+
+@pytest.mark.anyio
+async def test_the_tomcat_fixture_fits_the_slack_preview_window(
+    respx_mock: respx.MockRouter,
+) -> None:
+    # Recorded 2026-11-21: CVE-2026-95517 / EUVD-2026-130760, five affected rows,
+    # CVSS 9.1, not exploited, a 772-character description.
+    respx_mock.get(f"{BASE_URL}/kev/dump").respond(
+        200, content=(FIXTURES / "euvd" / "euvd_kev_dump.json").read_bytes()
+    )
+    respx_mock.get(f"{BASE_URL}/search").respond(
+        200,
+        content=(
+            FIXTURES / "euvd" / "euvd_tomcat_five_affected_rows.json"
+        ).read_bytes(),
+    )
+    clock = FakeClock(datetime(2026, 11, 21, 12, 0, tzinfo=UTC))
+    async with HttpClient(sleep=_no_sleep, random=lambda: 0.0, max_attempts=2) as http:
+        result = await EuvdAdapter(http, clock, sleep=_no_sleep).fetch(None)
+    # Only the search record: `build_vulnerability` merges what it is given,
+    # the alias-based split happens in `correlate()`.
+    record = next(r for r in result.records if r.record_id == "EUVD-2026-130760")
+    normalized = normalize(record)
+    assert normalized is not None
+    vulnerability = build_vulnerability([normalized])
+    endpoint = Endpoint(
+        id="team-tomcat", name="Tomcat", products=(ProductEntry("tomcat"),)
+    )
+    outcome = match(vulnerability, endpoint)
+    assert outcome is not None
+    entry = FeedEntry(
+        guid=f"cvestream:team-tomcat:{vulnerability.primary_id}:new",
+        kind="new",
+        primary_id=vulnerability.primary_id,
+        band=band_of(max_score(vulnerability.scores)),
+        is_known_exploited=vulnerability.is_known_exploited,
+        products=tuple(m.entry.name for m in outcome.matches),
+        labels=outcome.labels,
+        published_at=clock.now(),
+        vulnerability=vulnerability,
+    )
+    lines = _lines(entry)
+    assert lines[0] == (
+        f"critical{DOT}CVSS 9.1{DOT}exploited: no{DOT}published 2026-11-19"
+        f"{DOT}updated 2026-11-20"
+    )
+    assert lines[1] == "Matched: tomcat"
+    assert next(line_ for line_ in lines if line_.startswith("Affected:")) == (
+        "Affected: Apache Software Foundation Apache Tomcat 10.1.0-M1 ≤10.1.61,"
+        " 11.0.0-M1 ≤11.0.27, 7.0.100 ≤7.0.109 (+2 more)"
+    )
+    # AC 3: the first SLACK_PREVIEW_CHARS plain-text characters hold the band,
+    # exploited: no, the matched product and the first 40 description chars.
+    preview = _preview(entry)
+    description = " ".join(vulnerability.descriptions[0].value.split())
+    assert "critical" in preview
+    assert "exploited: no" in preview
+    assert "Matched: tomcat" in preview
+    assert description[:40] in preview
+
+
+# --- story 5.1: title markers (AC 4, 5) ---
+
+
+def _title_of(entry: FeedEntry, endpoint: Endpoint = ENDPOINT) -> str:
+    item = _parse(render_feed(endpoint, [entry])).find("channel/item")
+    assert item is not None
+    title = item.findtext("title")
+    assert title is not None
+    return title
+
+
+def test_the_four_golden_titles() -> None:
+    tomcat_vulnerability = _with_affected(
+        AffectedProduct("Apache Tomcat", "Apache Software Foundation", "10.1.0-M1")
+    )
+    tomcat_endpoint = replace(ENDPOINT, products=(ProductEntry("tomcat"),))
+    assert _title_of(
+        _entry(
+            primary_id="CVE-2026-95517",
+            band=Band.CRITICAL,
+            is_known_exploited=True,
+            is_fresh=True,
+            products=("tomcat",),
+            vulnerability=tomcat_vulnerability,
+        ),
+        tomcat_endpoint,
+    ) == (
+        f"{FIRE}{RED_CIRCLE}{SQUARED_NEW} CVE-2026-95517"
+        " in Apache Software Foundation Apache Tomcat: severity critical, EXPLOITED"
+    )
+    openssl_endpoint = replace(ENDPOINT, products=(ProductEntry("openssl"),))
+    assert (
+        _title_of(
+            _entry(
+                primary_id="CVE-2026-107494",
+                band=Band.UNKNOWN,
+                is_fresh=True,
+                products=("openssl",),
+                vulnerability=_with_affected(AffectedProduct("OpenSSL")),
+            ),
+            openssl_endpoint,
+        )
+        == f"{SQUARED_NEW} CVE-2026-107494 in OpenSSL: severity unknown"
+    )
+    assert _title_of(
+        _entry(
+            primary_id="CVE-2026-118028",
+            kind="band-critical",
+            band=Band.CRITICAL,
+            is_fresh=False,
+            products=("tomcat",),
+            vulnerability=tomcat_vulnerability,
+        ),
+        tomcat_endpoint,
+    ) == (
+        f"{RED_CIRCLE}{TRIANGLE} [UPDATE] CVE-2026-118028"
+        " in Apache Software Foundation Apache Tomcat: severity raised to critical"
+    )
+    assert _title_of(
+        _entry(
+            kind="kev",
+            band=Band.HIGH,
+            is_known_exploited=True,
+            is_fresh=False,
+            vulnerability=_with_affected(AffectedProduct("PHP", "PHP Group")),
+        )
+    ) == (
+        f"{FIRE} [UPDATE] CVE-2026-1234 in PHP Group PHP: now EXPLOITED, severity high"
+    )
+
+
+def test_each_marker_alone() -> None:
+    # critical, not exploited, not fresh, new: only the red circle
+    assert _title_of(_entry(band=Band.CRITICAL)) == (
+        f"{RED_CIRCLE} CVE-2026-1234 in php: severity critical"
+    )
+    # fresh, unknown band, new, not exploited: only the squared new
+    assert _title_of(_entry(band=Band.UNKNOWN, is_fresh=True)) == (
+        f"{SQUARED_NEW} CVE-2026-1234 in php: severity unknown"
+    )
+
+
+def test_band_high_gets_the_triangle_but_not_the_red_circle() -> None:
+    assert _title_of(_entry(kind="band-high", band=Band.HIGH)).startswith(TRIANGLE)
+    assert RED_CIRCLE not in _title_of(_entry(kind="band-high", band=Band.HIGH))
+
+
+def test_band_critical_gets_both_marks_in_order() -> None:
+    title = _title_of(_entry(kind="band-critical", band=Band.CRITICAL))
+    assert title.startswith(f"{RED_CIRCLE}{TRIANGLE} ")
+
+
+def test_is_fresh_none_or_false_gives_no_marker_and_no_leading_space() -> None:
+    for fresh in (None, False):
+        title = _title_of(_entry(band=Band.UNKNOWN, is_fresh=fresh))
+        assert title == "CVE-2026-1234 in php: severity unknown"
+        assert not title.startswith(" ")

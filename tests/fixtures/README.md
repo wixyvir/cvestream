@@ -25,6 +25,7 @@ TLS-intercepting proxy, point `curl` at your CA bundle in your own shell only.
 | `euvd_php_branch_wildcard.json` | Recorded on 2026-11-03: `curl "$B/search?text=EUVD-2026-107260&size=10&page=0" \| jq .` (PHP2Shell, CVE-2026-109618; total 1): four `PHP` rows in the PHP CNA branch-wildcard format `8.2.* <8.2.35` … `8.5.* <8.5.12` (wixyvir/cvestream#11) |
 | `euvd_php2shell_second_cve.json` | Recorded on 2026-11-03: `curl "$B/search?text=EUVD-2026-107265&size=10&page=0" \| jq .` (PHP2Shell, CVE-2026-109619; total 1): the second CVE of CERT-EU 2026-018, replayed by `tests/integration/test_cert_eu_php2shell.py` |
 | `euvd_kev_dump.json` | `curl "$B/kev/dump" \| jq '[.[] \| select(.cveId=="CVE-2021-22555" or .cveId=="CVE-2023-3519" or .cveId=="CVE-2025-25231" or .cveId=="CVE-2026-67276" or .cveId=="CVE-2026-67277" or .cveId=="CVE-2020-1472")]'`: CISA-only (CVE-2021-22555), both lists (CVE-2023-3519, CVE-2020-1472, CVE-2026-67277), EU-only (CVE-2025-25231, CVE-2026-67276), two with `vulnerabilityName` |
+| `euvd_tomcat_five_affected_rows.json` | Recorded on 2026-11-21: `curl "$B/search?text=CVE-2026-95517&size=10&page=0" \| jq .` (total 1): EUVD-2026-130760, aliases CVE-2026-95517 and GHSA-mqvp-jwc5-xgv2, `baseScore` 9.1 (3.1), `datePublished` Nov 19 2026, `dateUpdated` Nov 20 2026, no `exploitedSince`, a 772-character description, and five `Apache Software Foundation / Apache Tomcat` rows (`10.1.0-M1 ≤10.1.61`, `11.0.0-M1 ≤11.0.27`, `7.0.100 ≤7.0.109`, `9.0.13 ≤9.0.123`, `8.5.38 ≤8.5.100`): the story 5.1 budget fixture |
 
 ## `cisa_kev/`
 

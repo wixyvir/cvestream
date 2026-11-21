@@ -76,6 +76,8 @@ class StoredPublication:
     products: tuple[str, ...]
     labels: frozenset[PassThrough]
     published_at: datetime
+    # `None` on rows older than the `is_fresh` column.
+    is_fresh: bool | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -349,6 +351,7 @@ class Repository:
                 primary_id=decision.primary_id,
                 band=decision.band.value,
                 is_known_exploited=decision.is_known_exploited,
+                is_fresh=decision.is_fresh,
                 products_json=list(decision.products),
                 labels_json=sorted(label.value for label in decision.labels),
                 published_at=published_at,
@@ -372,6 +375,7 @@ class Repository:
                     schema.publication.c.primary_id,
                     schema.publication.c.band,
                     schema.publication.c.is_known_exploited,
+                    schema.publication.c.is_fresh,
                     schema.publication.c.products_json,
                     schema.publication.c.labels_json,
                     schema.publication.c.published_at,
@@ -397,6 +401,7 @@ class Repository:
                         products=tuple(row.products_json),
                         labels=frozenset(PassThrough(v) for v in row.labels_json),
                         published_at=row.published_at,
+                        is_fresh=row.is_fresh,
                     )
                 )
         return found

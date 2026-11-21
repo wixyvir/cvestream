@@ -1,7 +1,8 @@
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import insert, select
 from sqlalchemy.exc import IntegrityError
 
 from cvestream.domain.matcher import PassThrough
@@ -411,3 +412,33 @@ def test_a_failed_transaction_rolls_the_feed_back(state: State) -> None:
         raise RuntimeError("boom")
     with state.transaction() as repo:
         assert repo.feeds() == {}
+
+
+def test_publications_since_round_trips_is_fresh(state: State) -> None:
+    with state.transaction() as repo:
+        one = _vulnerability(repo)
+        two = _vulnerability(repo)
+        three = _vulnerability(repo)
+        repo.add_publication(one, replace(_decision("g-true"), is_fresh=True), NOW)
+        repo.add_publication(two, replace(_decision("g-false"), is_fresh=False), NOW)
+        # a row from before the column existed: NULL
+        repo._connection.execute(
+            insert(schema.publication).values(
+                endpoint_id="e",
+                vulnerability_id=three,
+                kind="new",
+                guid="g-null",
+                primary_id="CVE-2026-1",
+                band="high",
+                is_known_exploited=False,
+                products_json=[],
+                labels_json=[],
+                published_at=NOW,
+            )
+        )
+        stored = {
+            p.guid: p for ps in repo.publications_since(["e"], NOW).values() for p in ps
+        }
+    assert stored["g-true"].is_fresh is True
+    assert stored["g-false"].is_fresh is False
+    assert stored["g-null"].is_fresh is None

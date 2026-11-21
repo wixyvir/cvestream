@@ -151,12 +151,17 @@ async def test_php2shell_goes_from_cert_eu_to_euvd(
         assert _php2shell_vulnerabilities(state) == sorted(CVES)
         titles = _titles(second.feeds["team-php"].xml)
         # The title names a product only from EUVD data, never from CERT-EU prose.
+        # The band-critical updates carry the red circle and the red triangle
+        # (story 5.1 markers); the `new` items got no freshness marker because
+        # the CERT-EU records carry no `published_at`.
         assert sorted(titles) == [
             "CVE-2026-109618 in PHP Group PHP: severity unknown",
             "CVE-2026-109619 in PHP Group PHP: severity unknown",
             "CVE-2026-115560 in php: severity unknown",
-            "[UPDATE] CVE-2026-109618 in PHP Group PHP: severity raised to critical",
-            "[UPDATE] CVE-2026-109619 in PHP Group PHP: severity raised to critical",
+            "\N{LARGE RED CIRCLE}\N{UP-POINTING RED TRIANGLE} [UPDATE]"
+            " CVE-2026-109618 in PHP Group PHP: severity raised to critical",
+            "\N{LARGE RED CIRCLE}\N{UP-POINTING RED TRIANGLE} [UPDATE]"
+            " CVE-2026-109619 in PHP Group PHP: severity raised to critical",
         ]
 
         # Run 3: the same CERT-EU revision again. Its `pubDate` is not newer than
