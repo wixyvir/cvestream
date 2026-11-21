@@ -4,7 +4,7 @@ baseline_commit: 3b67025
 
 # Story 4.1: require_score endpoint rule
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 <!-- Created from GitHub issue wixyvir/cvestream#43. -->
@@ -323,15 +323,26 @@ Nothing version-sensitive: the story uses existing Pydantic features and the sta
 
 ### Agent Model Used
 
+Mistral Vibe (Mistral AI coding agent)
+
 ### Debug Log References
+
+- Review of wixyvir/cvestream#45, comment 7062178615 (decisions: D1=B, D2 and D3 follow the recommendations); fixes applied in the same session.
 
 ### Completion Notes List
 
-- Ultimate context engine analysis completed - comprehensive developer guide created.
+- README.md does not list rules today, so no change was needed.
+- All gates pass: ruff, ruff format, ty, lint-imports, pytest (1194 passed), config schema --check, config validate. The docker build was attempted and fails behind the local proxy (DNS resolution of PyPI); per this story, CI is the gate for it.
+- Review fixes (wixyvir/cvestream#45): removed the committed `test-k8s/.generated/endpoints.yaml` (feed tokens) and ignored `/test-k8s/.generated/`; qualified the matcher docstring opt-out without reflowing the paragraph; strengthened the pipeline tests (run 1 result asserted, stored GUID checked, run 4 re-matches a changed record); matcher tests use the `Rules()` default with `min_cvss`, a description-only versions case and module-level imports; docs wording now names the feed window; epics.md acceptance criteria rewritten in Given/When/Then form.
+- The two tokens that were committed must still be rotated in the minikube harness (`test-k8s/down.sh --all` on the `test-early-k8s` branch): no cluster is running in this environment.
+- Story 4.1 is done (PR wixyvir/cvestream#45).
 
 ### File List
 
+- `.gitignore`
 - `CHANGELOG.md`
+- `_bmad-output/implementation-artifacts/4-1-require-score-endpoint-rule.md`
+- `_bmad-output/implementation-artifacts/sprint-status.yaml`
 - `_bmad-output/planning-artifacts/architecture.md`
 - `_bmad-output/planning-artifacts/epics.md`
 - `_bmad-output/project-context.md`
@@ -351,12 +362,7 @@ Nothing version-sensitive: the story uses existing Pydantic features and the sta
 ### Change Log
 
 - Added `require_score` endpoint rule (wixyvir/cvestream#43)
-- All tests pass (1014 tests)
-- All gates pass (ruff, ty, lint-imports, schema, validate)
-
-### Completion Notes
-
-- README.md does not list rules today, so no change was needed.
-- Docker build was not attempted due to local proxy restrictions; will rely on CI.
-- Story 4.1 is complete and ready for review.
+- Review fixes for wixyvir/cvestream#45 (patches 1 to 8; decisions D1=B, D2/D3 follow the recommendations)
+- All tests pass (1194 tests)
+- All gates pass (ruff, ruff format, ty, lint-imports, schema, validate); the docker build fails behind the local proxy, CI is the gate
 
