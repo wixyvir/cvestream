@@ -785,6 +785,11 @@ def test_a_rerun_past_midnight_keeps_the_xml_the_etag_and_changed_at(
     assert again.xml == first.xml
     assert again.etag == first.etag
     assert again.changed_at == first.changed_at
+    # The rerun must have rendered something: exactly one item, published on
+    # the first run's UTC day, so its title carries the squared-new marker.
+    items = ET.fromstring(again.xml).findall("channel/item")  # noqa: S314
+    assert len(items) == 1
+    assert (items[0].findtext("title") or "").startswith("\N{SQUARED NEW} ")
     with state.transaction() as repo:
         stored = repo.feeds()["team-php"]
     assert stored.xml.encode("utf-8") == first.xml

@@ -30,6 +30,7 @@ from tests.conftest import FakeClock
 
 FIXTURES = Path(__file__).parents[1] / "fixtures"
 NOW = datetime(2026, 10, 26, 20, 0, 0, tzinfo=UTC)
+DOT = " \N{MIDDLE DOT} "
 # Recorded search page: three Chrome records, updated on 2026-10-20.
 CURSOR = "2026-10-20T00:00:00Z"
 CHROME_CVE = "CVE-2026-113279"
@@ -134,7 +135,9 @@ async def test_a_feed_goes_from_recorded_payloads_to_a_served_response(
         lines = description.split("\n")
         # The first block leads with the facts line, Matched and Description.
         first_block = description.split("</p>")[0]
-        assert first_block.startswith("<p>high · CVSS 8.8 · exploited: no · published ")
+        assert first_block.startswith(
+            f"<p>high{DOT}CVSS 8.8{DOT}exploited: no{DOT}published "
+        )
         assert re.search(r"published \d{4}-\d{2}-\d{2}", first_block)
         assert "<b>Matched:</b>" in first_block
         assert "<b>Description:</b>" in first_block

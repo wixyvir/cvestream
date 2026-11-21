@@ -797,8 +797,10 @@ def test_the_kev_detail_line_appears_when_known_exploited() -> None:
 
 
 def test_the_first_paragraph_holds_facts_matched_and_description() -> None:
-    # Slack's RSS app keeps only the first block-level elements (story 5.1,
-    # Task 1 finding): the description must live in the first <p>.
+    # Slack's RSS app appears to keep only the first block-level elements
+    # (story 5.1 Task 1: consistent with H1/H2, inferred from a local replay
+    # and the ~208-character 2026-11-19 posts): the description must live in
+    # the first <p>.
     body = _html(_entry())
     first_block = body.split("</p>")[0]
     assert first_block.startswith("<p>")
