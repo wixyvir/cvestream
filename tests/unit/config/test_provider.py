@@ -186,6 +186,25 @@ def test_error_is_raised_from_none() -> None:
     assert str(excinfo.value).startswith("endpoints.yaml: endpoints[0].token:")
 
 
+def test_duplicate_product_name_error_line() -> None:
+    errors = _errors(_data(_endpoint(products=["php", {"name": "PHP", "exact": True}])))
+    assert errors == (
+        "endpoints[0]: products[1]: duplicate product name 'PHP' (same as products[0])",
+    )
+
+
+def test_duplicate_product_name_error_line_in_second_endpoint() -> None:
+    errors = _errors(
+        _data(
+            _endpoint(),
+            _endpoint(id="other", token=TOKEN_B, products=["php", {"name": "PHP"}]),
+        )
+    )
+    assert errors == (
+        "endpoints[1]: products[1]: duplicate product name 'PHP' (same as products[0])",
+    )
+
+
 def test_protocol_is_structural() -> None:
     class _Fake:
         def revision(self) -> str:

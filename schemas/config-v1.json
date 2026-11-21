@@ -58,7 +58,7 @@
         },
         "products": {
           "default": [],
-          "description": "Products to watch: a shorthand string or a full entry. An endpoint without products matches nothing.",
+          "description": "Products to watch: a shorthand string or a full entry. Names must be unique within the endpoint (case-insensitive). An endpoint without products matches nothing.",
           "items": {
             "oneOf": [
               {
