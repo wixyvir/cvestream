@@ -892,10 +892,15 @@ def test_require_score_drop_with_threshold(
     assert match_outcome(vulnerability, endpoint) is DropReason.REQUIRE_SCORE
 
 
+@pytest.mark.parametrize(
+    "kev_catalog", [KevCatalog.CISA_KEV, KevCatalog.EU_KEV], ids=["cisa-kev", "eu-kev"]
+)
 def test_kev_is_exempt_from_require_score(
-    make_vulnerability: VulnerabilityFactory,
+    make_vulnerability: VulnerabilityFactory, kev_catalog: KevCatalog
 ) -> None:
-    vulnerability = make_vulnerability(description="PHP flaw", scores=[], kev=True)
+    vulnerability = make_vulnerability(
+        description="PHP flaw", scores=[], kev=True, kev_catalog=kev_catalog
+    )
     outcome = match_outcome(vulnerability, _endpoint(PHP, require_score=True))
     assert isinstance(outcome, MatchResult)
 
