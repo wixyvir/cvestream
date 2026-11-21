@@ -1,11 +1,18 @@
 from collections.abc import Callable
+from dataclasses import replace
+from datetime import UTC, datetime
 
 import pytest
 from packaging.version import Version
 
 from cvestream.domain.endpoint import Endpoint, ProductEntry, Rules
 from cvestream.domain.matcher import MatchResult, PassThrough, affected_hits, match
-from cvestream.domain.model import KevCatalog, Vulnerability
+from cvestream.domain.model import (
+    AffectedProduct,
+    KevCatalog,
+    Sourced,
+    Vulnerability,
+)
 
 type VulnerabilityFactory = Callable[..., Vulnerability]
 
@@ -872,22 +879,22 @@ CPYTHON_EXACT = ProductEntry(name="cpython", aliases=("python/cpython",), exact=
 
 
 @pytest.mark.parametrize(
-    ("product", "vendor", "version_text"),
+    ("entry", "product", "vendor", "version_text"),
     [
-        ("PHP", "PHP Group", "8.2.* <8.2.35"),
-        ("CPython", "Python Software Foundation", None),
-        ("python/cpython", None, None),
-        ("  PHP ", "PHP Group", None),
+        (PHP_EXACT, "PHP", "PHP Group", "8.2.* <8.2.35"),
+        (CPYTHON_EXACT, "CPython", "Python Software Foundation", None),
+        (CPYTHON_EXACT, "python/cpython", None, None),
+        (PHP_EXACT, "  PHP ", "PHP Group", None),
     ],
     ids=["php", "cpython", "alias", "whitespace"],
 )
 def test_exact_matches_the_whole_product_name(
     make_vulnerability: VulnerabilityFactory,
+    entry: ProductEntry,
     product: str,
     vendor: str | None,
     version_text: str | None,
 ) -> None:
-    entry = CPYTHON_EXACT if product in ("CPython", "python/cpython") else PHP_EXACT
     vulnerability = make_vulnerability(products=[(product, vendor, version_text)])
     result = match(vulnerability, _endpoint(entry))
     assert result is not None
@@ -956,6 +963,54 @@ def test_exact_ignores_a_description_mention_when_products_exist(
         description="A flaw in PHP 8.3 allows remote code execution",
     )
     assert match(vulnerability, _endpoint(PHP_EXACT)) is None
+
+
+def _with_cert_eu(vulnerability: Vulnerability, *blocks: str) -> Vulnerability:
+    # CERT-EU keeps each affected-products block as one `AffectedProduct` with
+    # source "cert_eu" and no version (sources/cert_eu.py).
+    rows = tuple(
+        Sourced(
+            AffectedProduct(product=block, vendor=None, version_text=None),
+            source="cert_eu",
+            observed_at=datetime(2026, 10, 26, tzinfo=UTC),
+        )
+        for block in blocks
+    )
+    return replace(vulnerability, affected=(*vulnerability.affected, *rows))
+
+
+def test_exact_matches_a_bare_cert_eu_name_bullet(
+    make_vulnerability: VulnerabilityFactory,
+) -> None:
+    # Review decision D1 (wixyvir/cvestream#46): a CERT-EU bullet that is
+    # exactly the product name (`- PHP`) is accepted as a genuine match.
+    vulnerability = _with_cert_eu(make_vulnerability(), "PHP")
+    result = match(vulnerability, _endpoint(PHP_EXACT))
+    assert result is not None
+    assert result.matches[0].structured is True
+
+
+def test_exact_ignores_cert_eu_prose(make_vulnerability: VulnerabilityFactory) -> None:
+    vulnerability = _with_cert_eu(
+        make_vulnerability(), "PHP 8.5 versions prior to 8.5.12"
+    )
+    assert match(vulnerability, _endpoint(PHP)) is not None
+    assert match(vulnerability, _endpoint(PHP_EXACT)) is None
+
+
+def test_exact_cert_eu_bare_name_is_versions_unknown_with_min_version(
+    make_vulnerability: VulnerabilityFactory,
+) -> None:
+    # Accepted trade-off of D1: the bare-name CERT-EU row carries no version,
+    # so it turns a min_version drop into a "versions unknown" match.
+    entry = ProductEntry(name="php", min_version=Version("8.2"), exact=True)
+    vulnerability = _with_cert_eu(
+        make_vulnerability(products=[("PHP", "PHP Group", "7.4.0 <7.4.33")]), "PHP"
+    )
+    result = match(vulnerability, _endpoint(entry))
+    assert result is not None
+    assert result.matches[0].versions_unknown is True
+    assert result.labels == frozenset({PassThrough.VERSIONS_UNKNOWN})
 
 
 def test_exact_with_min_version(make_vulnerability: VulnerabilityFactory) -> None:
