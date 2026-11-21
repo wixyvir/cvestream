@@ -69,7 +69,8 @@ class RunResult:
     touched: int
     # The feed of every enabled endpoint, rendered by this run.
     feeds: Mapping[str, RenderedFeed]
-    # Per enabled endpoint with require_score: vulnerabilities it held back.
+    # Per enabled endpoint with require_score: not-yet-published vulnerabilities
+    # it held back.
     held_back: Mapping[str, int]
 
 
@@ -168,7 +169,11 @@ def run(
                 vulnerability = vulnerabilities[vulnerability_id]
                 outcome = match_outcome(vulnerability, endpoint)
                 if isinstance(outcome, DropReason):
-                    if outcome is DropReason.REQUIRE_SCORE:
+                    # Already published on this endpoint: the rule holds nothing
+                    # back (`decide()` would not republish it anyway).
+                    if outcome is DropReason.REQUIRE_SCORE and not history.get(
+                        (endpoint.id, vulnerability_id)
+                    ):
                         held_back[endpoint.id] += 1
                     continue
                 decision = decide(

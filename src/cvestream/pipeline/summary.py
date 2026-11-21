@@ -40,7 +40,8 @@ class CycleSummary:
     # Decisions let through on an unknown score / unknown versions.
     score_unknown: int
     versions_unknown: int
-    # Per enabled endpoint with require_score: vulnerabilities it held back.
+    # Per enabled endpoint with require_score: not-yet-published vulnerabilities
+    # it held back.
     held_back: Mapping[str, int]
     duration_ms: int
 
