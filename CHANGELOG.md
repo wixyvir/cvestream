@@ -15,6 +15,7 @@ and cvestream adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 ### Changed
 
 - Feed item format (wixyvir/cvestream#51): the body leads with a facts line (severity band, highest CVSS, exploited, published, updated), the matched products and the full description, so what matters fits in the ~495 plain-text characters Slack's RSS app shows; the affected-products line lists each product once with at most 3 version ranges then `(+N more)`; the KEV detail line appears only when the item is known-exploited. Item titles are flagged with emoji (🔥 known-exploited, 🔴 critical, 🔺 severity raised to `medium` or above, 🆕 first published on the UTC day cvestream published the item), built from decision-time values. No GUID changes: no item is posted again; every feed's ETag changes once after deployment. The new nullable `publication.is_fresh` column is applied by Alembic migration `0003` at startup; existing rows stay `NULL` and never show 🆕.
+- Product entry names must be unique within an endpoint, ignoring case and whitespace runs; a shorthand counts by its name, so `php` and `php >= 8.2` collide (wixyvir/cvestream#48). This tightens the v1 configuration contract: a file with duplicate names loaded before and is now rejected. `cvestream config validate` exits 2, the daemon refuses to start with it, and a reload keeps the last valid configuration (`config.rejected`). Before upgrading, rename the second entry (an alias of the first works) and run `cvestream config validate`.
 
 ## [0.1.0] - 2026-11-14
 
