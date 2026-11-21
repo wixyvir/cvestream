@@ -63,6 +63,7 @@ _Versions verified online on 2026-10-26 (architecture.md). Before adding any dep
 
 **Configuration (Valkey / YAML):**
 - `config/models.py` (Pydantic, `extra="forbid"`) is the single source of truth, shared by both providers and the CLI.
+- Product entry names are unique per endpoint (whitespace runs collapsed, case-folded; a shorthand counts by its name), checked by `EndpointConfig` so every provider and the CLI get the rule (story 5.4). Code may look an entry up by its name.
 - Valkey keys only through `config/keys.py`, under `cvestream:v1:*`. Values are plain JSON strings. A new key must fit the ACL patterns in `deploy/valkey/users.acl`. Tokens stay under `cvestream:v1:token:*`, never under a pattern a connector can read.
 - Write protocol: `WATCH cvestream:v1:revision → MULTI → writes → INCR revision → EXEC`, retry on conflict.
 - Read protocol: revision → pipelined read → revision again, at most 3 retries, otherwise keep the last valid config. An invalid snapshot keeps the last valid config and logs `config.rejected`. The daemon never persists config. YAML revision = SHA-256 of the file.
