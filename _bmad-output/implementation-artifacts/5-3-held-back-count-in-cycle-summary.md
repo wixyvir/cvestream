@@ -4,7 +4,7 @@ baseline_commit: 3c08cdd
 
 # Story 5.3: Held-back count in cycle.summary
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 <!-- Created from GitHub issue wixyvir/cvestream#47 (decision D3 in the review of wixyvir/cvestream#45, story 4.1 open question Q2). -->
@@ -22,7 +22,7 @@ Added from GitHub issue wixyvir/cvestream#47 (decision D3 in the review of wixyv
 - **Domain:** `domain/matcher.py` gains a `DropReason` enum (`no_product`, `kev_only`, `require_score`, `min_cvss`) and a pure function `match_outcome(vulnerability, endpoint) -> MatchResult | DropReason`. It holds the current body of `match()`, with each `return None` replaced by its reason. `match()` stays, with the same signature and behaviour, as a thin wrapper. The ~150 matcher tests and the contract tests that call `match()` do not change.
 - **Pipeline:** `pipeline/run.py` calls `match_outcome()`. It counts `DropReason.REQUIRE_SCORE` per endpoint in a new `RunResult.held_back: Mapping[str, int]` and skips every other `DropReason`, as today.
 - **Summary:** `CycleSummary` gets `held_back: Mapping[str, int]`, and `cycle.summary` logs `"held_back": {"team-php": 3}` after `versions_unknown`. Keys: every enabled endpoint with `require_score: true`, in config order, `0` included. A missing key means the rule is off. `{}` when no endpoint uses it. `count` stays the published total.
-- **Semantics:** the count is per cycle. A vulnerability is counted each time a cycle evaluates it and the rule holds it back. A product mismatch, a `kev_only` drop and a known-exploited vulnerability are never counted.
+- **Semantics:** the count is per cycle. A vulnerability is counted each time a cycle evaluates it and the rule holds it back. A product mismatch, a `kev_only` drop, a known-exploited vulnerability and a vulnerability the endpoint has already published are never counted.
 - **No schema, config, state or render change.** No Alembic revision: story 5.1 owns the wave's only migration. No new dependency.
 - **Docs:** `docs/operations.md` (the `cycle.summary` sample and bullets), one sentence in `docs/configuration.md` ("Score rules"), `CHANGELOG.md`. The `matcher.py` line of the source tree in `architecture.md` and the FR-25 counting rule in `project-context.md` also change, because a new domain function is a pattern change.
 - **Parallel wave 13:** stories 5.1 and 5.4 run at the same time. Shared files: `docs/operations.md`, `CHANGELOG.md`, `README.md` and `sprint-status.yaml`.
@@ -114,6 +114,12 @@ Added from GitHub issue wixyvir/cvestream#47 (decision D3 in the review of wixyv
   - [x] 5.1 Run every gate command from `AGENTS.md`: `uv sync --locked`, `uv run ruff check`, `uv run ruff format --check`, `uv run ty check`, `uv run lint-imports`, `uv run pytest`, `uv run cvestream config schema --check`, `uv run cvestream config validate endpoints.example.yaml`, `docker build --target runtime -t cvestream:local .`. The docker build can fail behind the local proxy (ghcr.io x509 or PyPI DNS). If it does, rely on CI and say so in the completion notes.
   - [x] 5.2 Fill the Dev Agent Record and the File List, then set this story and `sprint-status.yaml` to `review`.
 
+- [x] **Task 6: Review fixes (wixyvir/cvestream#49)**
+  - [x] 6.1 **D1, option 1:** `held_back` counts a `require_score` drop only when the endpoint has no publication for the vulnerability (`history` is already loaded in `run()`). Pinned by `test_an_already_published_vulnerability_is_not_held_back`; Q2 below records the choice.
+  - [x] 6.2 **D2, option 1:** the per-cycle count stays; `docs/operations.md` now says to read `held_back` as a per-cycle gauge and not to sum it across cycles or read it as a trend. Q1 below records the choice.
+  - [x] 6.3 **D3, option 1:** the Q3, Q5 and Q6 defaults are accepted as recorded below.
+  - [x] 6.4 **Patches P1 to P7:** key-order test with a second `require_score` endpoint (`team-zeta` listed before `team-strict`), EU KEV parametrized in `test_kev_is_exempt_from_require_score` and in `test_an_unscored_known_exploited_vulnerability_is_not_held_back`, a changed-record run 4 in `test_held_back_is_not_counted_again_for_an_untouched_vulnerability`, `min_cvss` on `team-plain` with the `score_unknown` label asserted, the `docs/operations.md` wording (`kev_only` count is always `0`, already-published items not counted, per-cycle gauge) and the `CHANGELOG.md` "per enabled endpoint" wording, one comment per `DropReason` member as AC 1 words them, and this record corrected (real test counts, template boilerplate line removed).
+
 ## Dev Notes
 
 ### Scope boundaries (read first)
@@ -186,7 +192,8 @@ Listing every enabled endpoint, as `published` does, would show a permanent `0` 
   - a product mismatch;
   - a `kev_only` drop: the check comes first;
   - a known-exploited vulnerability: the rule exempts it;
-  - a scored vulnerability below `min_cvss`.
+  - a scored vulnerability below `min_cvss`;
+  - a vulnerability the endpoint has already published (review wixyvir/cvestream#49, D1 option 1): with history and band `unknown`, `decide()` would not republish it anyway, so the rule held nothing back.
 - **Under `kev_only: true`**, `held_back` is always `0`: every vulnerability that reaches the rule is known-exploited, so exempt.
 - **When a held-back vulnerability is scored later**, it is published as `new` (story 4.1, AC 5) and counted in `published`, not in `held_back`.
 
@@ -305,8 +312,8 @@ Nothing version-sensitive: the story uses stdlib `enum.StrEnum`, `types.MappingP
 
 ### Open questions (recorded instead of asked; defaults chosen)
 
-- **Q1: per-cycle count, not unique.** A held-back vulnerability is counted again in every cycle that re-evaluates it. On an endpoint without any publication, that means every cycle, because the 7-day backfill is re-checked each time. Default: keep the per-cycle count (it is what "held back in each cycle" says, and it needs no state) and document it. Alternative: count each vulnerability once, which would need to store held-back decisions (a new table or column, so an Alembic revision, which wave 13 reserves for 5.1). Reviewer decision.
-- **Q2: vulnerabilities already published on the endpoint.** Example: published as `new` with "severity unknown" before `require_score` was switched on, then touched again while still unscored. It is counted as held back, although `decide()` would not have re-published it (no KEV, band still `unknown`). Default: count it (the AC counts every drop by the rule; the case is rare and transient). Alternative: skip the count when `history` for `(endpoint, vulnerability)` is not empty. That is cheap, since `history` is already loaded in `run()`, but it adds a second rule to explain.
+- **Q1: per-cycle count, not unique.** A held-back vulnerability is counted again in every cycle that re-evaluates it. On an endpoint without any publication, that means every cycle, because the 7-day backfill is re-checked each time. **Decided in review (wixyvir/cvestream#49, D2 option 1):** keep the per-cycle count (it is what "held back in each cycle" says, and it needs no state) and document it; `docs/operations.md` warns not to sum the field across cycles and not to read a falling value as a trend. The alternative (count each vulnerability once) would still need to store held-back decisions (a new table or column, so an Alembic revision, which wave 13 reserves for 5.1).
+- **Q2: vulnerabilities already published on the endpoint.** Example: published as `new` with "severity unknown" before `require_score` was switched on, then touched again while still unscored. **Decided in review (wixyvir/cvestream#49, D1 option 1):** skip the count when `history` for `(endpoint, vulnerability)` is not empty. That is cheap, since `history` is already loaded in `run()`, and it keeps the docs' definition ("not published") true as written; with history and band `unknown`, `decide()` would not republish the item anyway, so the rule held nothing back. Pinned by `test_an_already_published_vulnerability_is_not_held_back`. The previous default (count it) is rejected.
 - **Q3: no per-item log.** The issue notes there is "no log, label or counter". This story adds the counter only. A per-item `debug` event (for example `publish.held_back` with `endpoint_id` and `vuln_id`) would help to find which vulnerability was held back, but it could be noisy on a backfilling endpoint. Default: not added. Easy to add later on top of `DropReason`.
 - **Q4: drop reason versus the rule in the pipeline.** The epic allows either. Default: a drop reason from the domain (`match_outcome()`), because it keeps the rule in one place and leaves `match()` and its ~150 call sites in tests untouched. Rejected: changing `match()` to return `MatchResult | DropReason` (large test churn for no gain), and evaluating `require_score` again in `run.py` (the rule would exist twice).
 - **Q5: which endpoints are keys.** Default: only enabled endpoints with `require_score: true`, `0` included, so a missing key means "rule off". Alternative: every enabled endpoint, like `published`. Reviewer decision; switching is a one-line change in `run.py` plus the tests.
@@ -331,26 +338,26 @@ Mistral Vibe (vibe@mistral.ai), BMAD dev-story workflow, branch `story-5-3-held-
 
 ### Debug Log References
 
-- Red-green-refactor per task: matcher tests failed at collection (`DropReason`/`match_outcome` missing), then passed after the domain change (162 passed in `test_matcher.py`); pipeline/summary/cycle tests failed (18 failures, all `held_back` missing) then passed after `run.py`/`summary.py` (525 passed in `tests/unit/pipeline` + `tests/unit/domain`); full suite 1252 passed, 6 deselected (`live`).
+- Red-green-refactor per task: matcher tests failed at collection (`DropReason`/`match_outcome` missing), then passed after the domain change (160 passed in `test_matcher.py`); pipeline/summary/cycle tests failed (18 failures, all `held_back` missing) then passed after `run.py`/`summary.py` (525 passed in `tests/unit/pipeline` + `tests/unit/domain`); full suite 1252 passed, 6 deselected (`live`).
 - `uv run ruff format` reformatted the two new test blocks in `tests/unit/domain/test_matcher.py` and `tests/unit/pipeline/test_run.py` (line-length joins only); no logic change.
 
 ### Completion Notes List
 
-- Ultimate context engine analysis completed - comprehensive developer guide created.
-- Task 1: `DropReason(StrEnum)` (`NO_PRODUCT`, `KEV_ONLY`, `REQUIRE_SCORE`, `MIN_CVSS`) added after `PassThrough` in `src/cvestream/domain/matcher.py`; the body of `match()` moved to `match_outcome()` returning the reason of the first failing check; `match()` is now a thin wrapper with unchanged signature/behaviour (all ~150 existing matcher tests and the contract tests pass unchanged). One sentence added to the module docstring without reflowing.
+- Task 1: `DropReason(StrEnum)` (`NO_PRODUCT`, `KEV_ONLY`, `REQUIRE_SCORE`, `MIN_CVSS`) added after `PassThrough` in `src/cvestream/domain/matcher.py`, with a one-line comment per member as AC 1 words them (review wixyvir/cvestream#49, P6); the body of `match()` moved to `match_outcome()` returning the reason of the first failing check; `match()` is now a thin wrapper with unchanged signature/behaviour (all ~150 existing matcher tests and the contract tests pass unchanged). One sentence added to the module docstring without reflowing.
 - Task 2: `pipeline/run.py` calls `match_outcome()`, initialises `held_back = {e.id: 0 for e in endpoints if e.rules.require_score}` before the endpoint loop, counts `DropReason.REQUIRE_SCORE` per endpoint and silently skips the other reasons; `RunResult.held_back` is a `MappingProxyType`. `pipeline/summary.py`: `CycleSummary.held_back` after `versions_unknown`, copied from the run by `summarize()`, logged by `log_summary()` as `held_back=dict(...)` right after `versions_unknown` (always present, `{}` when no enabled endpoint uses the rule); `count` unchanged. `pipeline.completed` and `publish.*` untouched; no per-item log (Q3).
-- Task 3: 11 new drop-reason tests in `test_matcher.py` (incl. a parametrized `match()`/`match_outcome()` consistency test), 7 new pipeline tests in `test_run.py` (per-endpoint keys incl. disabled endpoint excluded, other product not counted, kev_only first, KEV exempt, below min_cvss not counted, per-cycle recount on backfill, no recount when untouched) plus `assert result.held_back == {"team-php": 1}` after run 2 in the two existing 4.1 tests; `test_summary.py` gained the `held_back` keyword on `_result()`, the `{"a": 3}` log assertion, a copy test and an empty case; `test_cycle.py` gained the `require_score` keyword on `_yaml()`, `test_held_back_is_counted_in_the_summary` and `assert summary["held_back"] == {}`. `test_restart_no_repost.py` stays green.
+- Task 3: 10 new drop-reason test functions (19 cases) in `test_matcher.py` (incl. a parametrized `match()`/`match_outcome()` consistency test and the KEV exemption over both KEV catalogues), 8 new pipeline tests in `test_run.py` (per-endpoint keys incl. disabled endpoint excluded, other product not counted, kev_only first, KEV exempt, below min_cvss not counted, per-cycle recount on backfill, no recount when untouched, already-published not counted) plus `assert result.held_back == {"team-php": 1}` after run 2 in the two existing 4.1 tests; `test_summary.py` gained the `held_back` keyword on `_result()`, the `{"a": 3}` log assertion, a copy test and an empty case; `test_cycle.py` gained the `require_score` keyword on `_yaml()`, `test_held_back_is_counted_in_the_summary` and `assert summary["held_back"] == {}`. `test_restart_no_repost.py` stays green.
 - Task 4: `docs/operations.md` (`held_back` in the `cycle.summary` sample after `versions_unknown`, the new `held_back` bullet, the `score_unknown` bullet now points to it), `docs/configuration.md` (one sentence at the end of "Score rules"), `CHANGELOG.md` (`### Added` entry referencing wixyvir/cvestream#47), `architecture.md` source-tree `matcher.py` line names `match_outcome`, `project-context.md` FR-25 bullet names `held_back`. README.md checked: it does not describe `cycle.summary` fields, so no change, as expected.
 - Task 5: all AGENTS.md gates pass in the worktree: `uv sync --locked`, `ruff check`, `ruff format --check`, `ty check`, `lint-imports` (7 contracts kept), `pytest` (1252 passed, 6 deselected), `cvestream config schema --check`, `cvestream config validate endpoints.example.yaml` (valid, 2 endpoints), and `docker build --target runtime -t cvestream:local .` succeeded locally (no ghcr.io x509 error behind the proxy this time), so CI is expected to stay green.
+- Task 6 (review of wixyvir/cvestream#49): D1 option 1 applied — `run()` counts a `require_score` drop only when `history` has no publication for `(endpoint, vulnerability)`, pinned by `test_an_already_published_vulnerability_is_not_held_back`; D2 option 1 applied — the per-cycle count stays and `docs/operations.md` says not to sum it across cycles; D3 option 1 — defaults accepted. Patches P1–P4 (test gaps: config-order keys, EU KEV in both the matcher and pipeline tests, changed-record recount, `score_unknown` label on the rule-less endpoint), P5 (`docs/operations.md` kev_only/per-cycle gauge wording, `CHANGELOG.md` "per enabled endpoint"), P6 (one comment per `DropReason` member) and P7 (this record: real test counts, boilerplate line removed) applied. All gates re-run green after the fixes (`pytest` 1255 passed, 6 deselected; docker build included); status set to `done`.
 - No schema, config, state, Alembic, render or publication change; no new dependency; `uv.lock` untouched.
 
 ### File List
 
 - `src/cvestream/domain/matcher.py` (modified: `DropReason`, `match_outcome()`, `match()` wrapper, docstring sentence)
-- `src/cvestream/pipeline/run.py` (modified: `match_outcome()` call, `held_back` counter, `RunResult.held_back`)
+- `src/cvestream/pipeline/run.py` (modified: `match_outcome()` call, `held_back` counter with the history check, `RunResult.held_back`)
 - `src/cvestream/pipeline/summary.py` (modified: `CycleSummary.held_back`, `summarize()`, `log_summary()`, docstring)
-- `tests/unit/domain/test_matcher.py` (modified: import, drop-reasons section, consistency test)
-- `tests/unit/pipeline/test_run.py` (modified: two asserts in the 4.1 tests, seven held_back tests)
+- `tests/unit/domain/test_matcher.py` (modified: import, drop-reasons section with the KEV exemption over both catalogues, consistency test)
+- `tests/unit/pipeline/test_run.py` (modified: two asserts in the 4.1 tests, eight held_back tests)
 - `tests/unit/pipeline/test_summary.py` (modified: `_result()` keyword, log assertion, two new tests)
 - `tests/unit/pipeline/test_cycle.py` (modified: `_yaml()` keyword, `held_back` asserts, one new test)
 - `docs/operations.md` (modified: `cycle.summary` sample and bullets)
@@ -364,3 +371,4 @@ Mistral Vibe (vibe@mistral.ai), BMAD dev-story workflow, branch `story-5-3-held-
 ### Change Log
 
 - 2026-11-21: implemented story 5.3 — `DropReason` + `match_outcome()` in the domain, per-endpoint `held_back` count in `RunResult` and `cycle.summary`, tests (matcher, run, summary, cycle) and docs (operations, configuration, CHANGELOG, architecture, project-context); all AGENTS.md gates green; status set to `review`.
+- 2026-11-21 (review of wixyvir/cvestream#49): D1 option 1 (already-published vulnerabilities are not counted as held back, pinned by `test_an_already_published_vulnerability_is_not_held_back`), D2 option 1 (per-cycle count kept, documented as a gauge not to sum across cycles), D3 option 1 (Q3/Q5/Q6 defaults accepted); patches P1–P7 applied; all gates re-run green; status set to `done`.
