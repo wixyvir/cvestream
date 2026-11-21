@@ -12,7 +12,7 @@ and cvestream adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - `require_score` endpoint rule: holds back vulnerabilities that no source has scored yet, except known-exploited ones, until a source scores them (wixyvir/cvestream#43). Additive change to the v1 configuration contract.
 - `exact` product entries: match only an affected product whose whole name equals the name or an alias, ignoring vendor names and the description (wixyvir/cvestream#44). Additive change to the v1 configuration contract; `exact: true` together with an explicit `match_description: true` is now rejected, also by the published JSON Schema.
 - `group_by_product` endpoint rule (FR-27, wixyvir/cvestream#52): with `true`, 3 or more items of one run that share a matched product and kind (new, or severity raised) are published as one feed item, in near-equal chunks of at most 5 per item, each of at least 3 (6 → 3 + 3, never a trailing 5 + 1); known-exploited vulnerabilities are never grouped. Additive change to the v1 configuration contract. The new nullable `publication.group_guid` column is applied by Alembic migration `0004` at startup; existing rows stay `NULL`, stored groups are never regrouped, and nothing is posted again.
-- `held_back` in the `cycle.summary` log: per endpoint with `require_score`, the vulnerabilities the rule held back in the cycle (wixyvir/cvestream#47).
+- `held_back` in the `cycle.summary` log: per enabled endpoint with `require_score`, the vulnerabilities the rule held back in the cycle (wixyvir/cvestream#47).
 
 ### Changed
 
