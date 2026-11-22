@@ -158,6 +158,7 @@ def run(
                     matched,
                     vulnerability,
                     history.get((endpoint.id, vulnerability_id), []),
+                    now,
                 )
                 if decision is None:
                     continue
@@ -208,6 +209,7 @@ def run(
                     labels=p.labels,
                     published_at=p.published_at,
                     vulnerability=vulnerabilities[p.vulnerability_id],
+                    is_fresh=p.is_fresh,
                 )
                 for p in publications.get(endpoint.id, [])
             ]

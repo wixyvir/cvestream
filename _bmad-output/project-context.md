@@ -123,12 +123,13 @@ _Versions verified online on 2026-10-26 (architecture.md). Before adding any dep
 ### Critical Don't-Miss Rules
 
 **Publish once (NFR-3 / SM-4):**
-- GUID = `cvestream:{endpoint_id}:{primary_id}:{kind}` with `kind` = `new`, `kev` or `band-{band}`. It is computed **once** at decision time, stored in `publication.guid`, and **never recomputed**. The renderer reads stored GUIDs. A CVE ID arriving later changes the primary ID, not the GUID.
+- GUID = `cvestream:{endpoint_id}:{primary_id}:{kind}` with `kind` = `new`, `kev` or `band-{band}`; a group item's GUID is `cvestream:{endpoint_id}:group-{family}:{h}` (story 5.2). Both are computed **once** at decision time, in `domain/publication.py` only, stored (`publication.guid`, `publication.group_guid`), and **never recomputed**. The renderer reads stored GUIDs. A CVE ID arriving later changes the primary ID, not the GUID.
 - The publication decision and its row are written in the same transaction.
 - A GUID is unique across all endpoints and vulnerabilities. `pipeline/run.py` skips a decision whose GUID is already stored (`publish.skipped`, `reason=guid_collision`) rather than letting the unique index abort the run.
 - Re-publish **only** when the vulnerability becomes known-exploited or its severity band rises (including `unknown` → rated, `none` included). Nothing else re-publishes it: not a score change within the band, a new source, a description edit, or an advisory revision. An update is a new item with its own GUID and an `[UPDATE]` title prefix.
 - First match after late data arrives (FR-26) → published as `new`, not as an update. New endpoint → backfill of the last 7 days. Feed window: 14 days.
 - Only vulnerabilities active in the last 14 days are decided; an endpoint without any publication is backfilled with the last 7 days.
+- Title markers come from decision-time values only (🔥 🔴 🔺 🆕, in that order, beside the words; 🔺 only on a `band-*` rise to `medium` or above); never derive a title from the clock or from current merged data. The body leads with the facts Slack's ~495-character window must show, and the facts line, `Matched:` and `Description:` share the first `<p>` because Slack's RSS app appears to keep only the first block-level elements (inferred from a local replay and the ~208-character 2026-11-19 posts, not measured against Slack); source version text is shown verbatim, never reformatted.
 
 **Recall over volume (FR-25): when in doubt, let it through.**
 - No score → never dropped by `min_cvss`. Only the opt-in endpoint rule `require_score` drops an unscored vulnerability, and never a known-exploited one.

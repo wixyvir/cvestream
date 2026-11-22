@@ -12,6 +12,10 @@ and cvestream adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 - `require_score` endpoint rule: holds back vulnerabilities that no source has scored yet, except known-exploited ones, until a source scores them (wixyvir/cvestream#43). Additive change to the v1 configuration contract.
 - `exact` product entries: match only an affected product whose whole name equals the name or an alias, ignoring vendor names and the description (wixyvir/cvestream#44). Additive change to the v1 configuration contract; `exact: true` together with an explicit `match_description: true` is now rejected, also by the published JSON Schema.
 
+### Changed
+
+- Feed item format (wixyvir/cvestream#51): the body leads with a facts line (severity band, highest CVSS, exploited, published, updated), the matched products and the full description, so what matters fits in the ~495 plain-text characters Slack's RSS app shows; the affected-products line lists each product once with at most 3 version ranges then `(+N more)`; the KEV detail line appears only when the item is known-exploited. Item titles are flagged with emoji (🔥 known-exploited, 🔴 critical, 🔺 severity raised to `medium` or above, 🆕 first published on the UTC day cvestream published the item), built from decision-time values. No GUID changes: no item is posted again; every feed's ETag changes once after deployment. The new nullable `publication.is_fresh` column is applied by Alembic migration `0003` at startup; existing rows stay `NULL` and never show 🆕.
+
 ## [0.1.0] - 2026-11-14
 
 First pre-release. The API and configuration format may still change before 1.0.
