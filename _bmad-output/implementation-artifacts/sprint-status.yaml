@@ -1,5 +1,5 @@
 # generated: 2026-10-26
-# last_updated: 2026-11-21
+# last_updated: 2026-11-22
 # project: cvestream
 # project_key: NOKEY
 # tracking_system: file-system
@@ -85,7 +85,7 @@
 #     previous stories than the default "create next after done" flow.
 
 generated: 2026-10-26
-last_updated: 2026-11-21
+last_updated: 2026-11-22
 project: cvestream
 project_key: NOKEY
 tracking_system: file-system
@@ -121,7 +121,7 @@ development_status:
 
   epic-5: in-progress
   5-1-compact-item-body-and-title-markers: review
-  5-2-group-bursts-by-product: backlog
+  5-2-group-bursts-by-product: ready-for-dev
   5-3-held-back-count-in-cycle-summary: backlog
   5-4-reject-duplicate-product-names: review
   epic-5-retrospective: optional
