@@ -342,3 +342,137 @@ def test_duplicate_tokens_rejected_without_printing_the_token() -> None:
     message = _message(data)
     assert "endpoints[1].token: same token as endpoint 'team-php'" in message
     assert TOKEN_A not in message
+
+
+# --- unique product names (wixyvir/cvestream#48) ---
+
+
+@pytest.mark.parametrize(
+    ("products", "expected"),
+    [
+        (
+            [{"name": "php", "exact": True}, {"name": "php"}],
+            "products[1]: duplicate product name 'php' (same as products[0])",
+        ),
+        (
+            ["php", {"name": "PHP"}],
+            "products[1]: duplicate product name 'PHP' (same as products[0])",
+        ),
+        (
+            ["php >= 8.2", "php"],
+            "products[1]: duplicate product name 'php' (same as products[0])",
+        ),
+        (
+            ["apache http server", {"name": "Apache  HTTP\tServer"}],
+            "products[1]: duplicate product name 'Apache  HTTP\\tServer' "
+            "(same as products[0])",
+        ),
+        (
+            ["php", "nodejs", {"name": "PHP"}],
+            "products[2]: duplicate product name 'PHP' (same as products[0])",
+        ),
+    ],
+    ids=["two-entries", "case", "shorthand-version", "whitespace", "third-collides"],
+)
+def test_duplicate_product_names_rejected(products: list[Any], expected: str) -> None:
+    # `_message` keeps pydantic's `Value error, ` prefix; `_format_error` strips it.
+    message = _message(_document(_endpoint(products=products))).removeprefix(
+        "Value error, "
+    )
+    assert message == expected
+
+
+def test_duplicate_product_name_location_is_the_endpoint() -> None:
+    with pytest.raises(ValidationError) as excinfo:
+        _validate(_document(_endpoint(products=["php", "PHP"])))
+    errors = excinfo.value.errors()
+    assert len(errors) == 1
+    assert errors[0]["loc"] == ("endpoints", 0)
+    with pytest.raises(ValidationError) as excinfo:
+        _validate(
+            _document(
+                _endpoint(products=["php"]),
+                _endpoint(id="other", token=TOKEN_B, products=["php", "PHP"]),
+            )
+        )
+    errors = excinfo.value.errors()
+    assert len(errors) == 1
+    assert errors[0]["loc"] == ("endpoints", 1)
+
+
+def test_duplicate_product_names_rejected_on_a_standalone_endpoint() -> None:
+    with pytest.raises(ValidationError) as excinfo:
+        EndpointConfig.model_validate(_endpoint(products=["php", "PHP"]))
+    (error,) = excinfo.value.errors(include_input=False, include_url=False)
+    assert (
+        "products[1]: duplicate product name 'PHP' (same as products[0])"
+        in error["msg"]
+    )
+
+
+@pytest.mark.parametrize(
+    ("products", "entries"),
+    [
+        (
+            [
+                {
+                    "name": "php",
+                    "aliases": ["php-src"],
+                    "min_version": "8.2",
+                    "exact": True,
+                },
+                {"name": "php-src", "match_description": False},
+            ],
+            [
+                ProductEntry(
+                    name="php",
+                    aliases=("php-src",),
+                    min_version=Version("8.2"),
+                    exact=True,
+                ),
+                ProductEntry(name="php-src", match_description=False),
+            ],
+        ),
+        (
+            [{"name": "a", "aliases": ["x"]}, {"name": "b", "aliases": ["x"]}],
+            [
+                ProductEntry(name="a", aliases=("x",)),
+                ProductEntry(name="b", aliases=("x",)),
+            ],
+        ),
+        (
+            ["php", "php-fpm", "phpmyadmin"],
+            [
+                ProductEntry(name="php"),
+                ProductEntry(name="php-fpm"),
+                ProductEntry(name="phpmyadmin"),
+            ],
+        ),
+    ],
+    ids=["alias-as-name", "shared-alias", "near-names"],
+)
+def test_distinct_product_names_accepted(
+    products: list[Any], entries: list[ProductEntry]
+) -> None:
+    domain = _only_endpoint(products=products).to_domain()
+    assert list(domain.products) == entries
+
+
+def test_same_product_name_in_two_endpoints_accepted() -> None:
+    document = _validate(
+        _document(
+            _endpoint(products=["php"]),
+            _endpoint(id="other", token=TOKEN_B, products=["php"]),
+        )
+    )
+    assert [endpoint.id for endpoint in document.endpoints] == ["team-php", "other"]
+    domains = [endpoint.to_domain() for endpoint in document.endpoints]
+    assert [[entry.name for entry in domain.products] for domain in domains] == [
+        ["php"],
+        ["php"],
+    ]
+
+
+def test_disabled_endpoint_is_checked_too() -> None:
+    data = _document(_endpoint(enabled=False, products=["php", "PHP"]))
+    assert "products[1]: duplicate product name 'PHP'" in _message(data)

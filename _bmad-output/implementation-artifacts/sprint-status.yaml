@@ -123,5 +123,5 @@ development_status:
   5-1-compact-item-body-and-title-markers: review
   5-2-group-bursts-by-product: backlog
   5-3-held-back-count-in-cycle-summary: backlog
-  5-4-reject-duplicate-product-names: backlog
+  5-4-reject-duplicate-product-names: review
   epic-5-retrospective: optional

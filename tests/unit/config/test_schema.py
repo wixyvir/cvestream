@@ -48,6 +48,17 @@ def test_schema_path_is_relative() -> None:
     assert SCHEMA_PATH == Path("schemas/config-v1.json")
 
 
+def test_unique_product_names_are_described() -> None:
+    schema = config_schema()
+    description = schema["$defs"]["EndpointConfig"]["properties"]["products"][
+        "description"
+    ]
+    assert (
+        "Names must be unique within the endpoint, ignoring case and "
+        "whitespace runs; a shorthand counts by its name." in description
+    )
+
+
 def test_exact_contradiction_is_published() -> None:
     schema = config_schema()
     clause = schema["$defs"]["ProductEntryConfig"]["not"]

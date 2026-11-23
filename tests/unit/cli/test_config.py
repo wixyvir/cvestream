@@ -69,8 +69,13 @@ def test_validate_valid_file(tmp_path: Path) -> None:
             VALID.replace("    products:", '    min_cvss: "high"\n    products:'),
             "min_cvss",
         ),
+        (
+            VALID + "      - php\n",
+            "endpoints[0]: products[1]: duplicate product name 'php' "
+            "(same as products[0])",
+        ),
     ],
-    ids=["unknown-field", "bad-slug", "min-cvss-high"],
+    ids=["unknown-field", "bad-slug", "min-cvss-high", "duplicate-product-name"],
 )
 def test_validate_invalid_file(tmp_path: Path, content: str, field: str) -> None:
     path = _file(tmp_path, content)
