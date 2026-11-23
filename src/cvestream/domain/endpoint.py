@@ -30,6 +30,8 @@ class Rules:
     kev_only: bool = False
     # Unscored means max_score() is None; known-exploited is exempt.
     require_score: bool = False
+    # Group a same-product burst of one run into one feed item (story 5.2).
+    group_by_product: bool = False
 
 
 @dataclass(frozen=True, slots=True)

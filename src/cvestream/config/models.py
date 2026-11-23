@@ -236,6 +236,14 @@ class EndpointConfig(BaseModel):
             "known-exploited ones (CISA KEV or EU KEV)."
         ),
     )
+    group_by_product: bool = Field(
+        default=False,
+        description=(
+            "Publish 3 or more items of one run that share a matched product "
+            "and kind (new, or severity raised) as one feed item, at most 5 "
+            "per item; known-exploited vulnerabilities are never grouped."
+        ),
+    )
     token: FeedToken = Field(
         repr=False,
         description=(
@@ -281,6 +289,7 @@ class EndpointConfig(BaseModel):
                 min_cvss=self.min_cvss,
                 kev_only=self.kev_only,
                 require_score=self.require_score,
+                group_by_product=self.group_by_product,
             ),
             enabled=self.enabled,
         )
