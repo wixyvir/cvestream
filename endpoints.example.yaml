@@ -42,7 +42,8 @@ endpoints:
     require_score: false
     # Optional, default false. true publishes 3 or more items of one run that
     # share a matched product and kind (new, or severity raised) as one feed
-    # item, at most 5 per item; known-exploited ones are never grouped.
+    # item, in near-equal chunks of at most 5 per item, each of at least 3;
+    # known-exploited ones are never grouped.
     # group_by_product: false
     # Required. 32 to 128 characters from A-Z a-z 0-9 _ -, unique across
     # endpoints. This is a PLACEHOLDER: replace it with your own token.

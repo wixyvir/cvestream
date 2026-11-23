@@ -20,7 +20,7 @@ Built from the team's feedback canvas "CVEStream Retours" (entry 2: "group by pr
 ## TL;DR
 
 - **Config (additive, v1).** `group_by_product: bool = False` on `domain/endpoint.Rules` (last field) and `EndpointConfig` (strict bool, after `require_score`). Regenerate `schemas/config-v1.json` in the same commit; `SCHEMA_VERSION` stays `1`.
-- **Decide, then group (domain, pure).** `decide()` is **unchanged**. A new pure `group_decisions()` in `domain/publication.py` takes one run's decisions for one endpoint and returns groups: same matched entry name (`products[0]`), same kind family (`new` or `band`), not known-exploited, at least **3** members. Members ordered by band descending, then primary ID in natural order (`CVE-2026-9999` before `CVE-2026-10000`); split into chunks of at most **5** (6 → 5 + 1; a chunk of 1 or 2 is still a group).
+- **Decide, then group (domain, pure).** `decide()` is **unchanged**. A new pure `group_decisions()` in `domain/publication.py` takes one run's decisions for one endpoint and returns groups: same matched entry name (`products[0]`), same kind family (`new` or `band`), not known-exploited, at least **3** members. Members ordered by band descending, then primary ID in natural order (`CVE-2026-9999` before `CVE-2026-10000`); split into near-equal chunks of at most **5** (6 → 3 + 3, 11 → 4 + 4 + 3; every chunk keeps at least 3 members — never a trailing 5 + 1).
 - **Group GUID.** `cvestream:{endpoint_id}:group-{family}:{h}`, `h` = first 16 hex of SHA-256 over the sorted member GUIDs joined by `\n`. Built only in `domain/publication.py`. Each member keeps its own `publication` row and GUID and stores the group GUID in a new nullable `publication.group_guid` column (migration `0004`).
 - **Pipeline.** `pipeline/run.py` collects an endpoint's accepted decisions first, groups them when the rule is on, then writes the rows, all inside the same single transaction. The GUID-collision safety net must also check the GUIDs collected earlier in the same run (rows are now written later).
 - **Render.** Rows sharing a `group_guid` become **one** item: group GUID, the members' `pubDate`, the link of the most severe member, a group title (`🔴🆕 Apache Software Foundation Apache Tomcat: 5 new vulnerabilities, worst critical (1 critical, 3 high, 1 medium)`), and a body with one line per member in **one** `<p>` (Slack keeps only the first block-level elements, a story 5.1 finding). `part i of k` is worked out at render time from the stored rows. Render stays pure and clock-free.
@@ -35,7 +35,7 @@ Built from the team's feedback canvas "CVEStream Retours" (entry 2: "group by pr
 
 2. **Grouping.** **Given** an endpoint with `group_by_product: true` and one pipeline run **When** at least 3 of its decisions share the matched entry name (`products[0]`) and the kind family (`new`, or `band-*`), counting only decisions whose vulnerability is not known-exploited **Then** they are grouped by a pure function in `domain/publication.py`, called by `pipeline/run.py` after every `decide()` of the run and inside the run's transaction. It returns the groups with members ordered by band descending, then by primary ID (natural CVE order), and the result does not depend on the order of the input decisions.
 
-3. **Split.** **Given** a group of more than 5 members **When** it is formed **Then** it is split in that order into chunks of at most 5 members (6 → 5 + 1, 11 → 5 + 5 + 1). A chunk below 3 is still published as a group, because the burst reached the threshold.
+3. **Split.** **Given** a group of more than 5 members **When** it is formed **Then** it is split in that order into near-equal chunks of at most 5 members (6 → 3 + 3, 7 → 4 + 3, 11 → 4 + 4 + 3, 16 → 4 + 4 + 4 + 4). Every chunk keeps at least 3 members, so no trailing 1–2 member group is ever published.
 
 4. **GUIDs and storage.** **Given** a group or chunk **When** it is recorded **Then** its GUID `cvestream:{endpoint_id}:group-{family}:{h}` (`family` = `new` or `band`; `h` = first 16 hex characters of the SHA-256 of its sorted member GUIDs) is built only in `domain/publication.py` and stored once. Each member keeps its own `publication` row and GUID and stores the group GUID in a new nullable `publication.group_guid` column (Alembic migration `0004`, upgrade and downgrade tested). Rows written before the migration, and ungrouped rows, are `NULL`.
 
@@ -74,7 +74,7 @@ Built from the team's feedback canvas "CVEStream Retours" (entry 2: "group by pr
       1. Candidates: `kind_family(d.kind) is not None`, `not d.is_known_exploited`, `d.products` not empty.
       2. Bucket by `(d.endpoint_id, d.products[0], family)`. The endpoint ID is part of the key, so nothing needs raising if a caller mixes endpoints (`domain` cannot import `CvestreamError`).
       3. Keep buckets with at least `GROUP_MIN_MEMBERS` members; sort each by `member_order_key(d.band, d.primary_id)`, then by `d.guid` as the final tie-break (two advisory IDs can sort equal on the key).
-      4. Split with `itertools.batched(members, GROUP_MAX_MEMBERS)`. `parts = len(chunks)`.
+      4. Split into balanced chunks: `parts = ceil(len(members) / GROUP_MAX_MEMBERS)` near-equal sizes (6 → 3 + 3, 7 → 4 + 3, 11 → 4 + 4 + 3), keeping the member order so the most severe stay in part 1 and every chunk keeps at least `GROUP_MIN_MEMBERS` members. `parts = len(chunks)`.
       5. GUID per chunk via a private `_group_guid(endpoint_id, family, member_guids)`, the **only** construction site: `h = hashlib.sha256("\n".join(sorted(member_guids)).encode("utf-8")).hexdigest()[:16]` → `f"cvestream:{endpoint_id}:group-{family}:{h}"`. Same comment as the single GUID ("computed once, stored, never recomputed").
       6. Return groups sorted by `(member_order_key of the first member, family, product, part)`. Deterministic whatever the input order.
     - Update the module docstring: grouping is a second, pure step after `decide()`; `decide()` itself does not change.
@@ -84,7 +84,7 @@ Built from the team's feedback canvas "CVEStream Retours" (entry 2: "group by pr
     - `new` and `band-*` of the same product are separate families (3 + 3 → two groups; 2 + 2 → none).
     - Two products of 3 each → two groups; `products[0]` decides (a decision matched by `("php", "tomcat")` counts for `php` only).
     - Order: band descending, then natural ID order (`CVE-2026-9999` before `CVE-2026-10000`, which plain string order gets wrong); `unknown` sorts last.
-    - Split: 6 → parts `(1, 2)` with 5 + 1; 10 → 5 + 5; 11 → 5 + 5 + 1; part 1 holds the most severe.
+    - Split: 6 → parts `(1, 2)` with 3 + 3; 7 → 4 + 3; 10 → 5 + 5; 11 → 4 + 4 + 3; 16 → 4 + 4 + 4 + 4; every chunk keeps at least 3 members; part 1 holds the most severe.
     - GUID: golden value pinned for one fixed set of member GUIDs (compute it once in the test with `hashlib` from the documented recipe and also pin the literal string); `group-new` / `group-band` prefix; 16 lowercase hex characters; same GUID for any permutation of the input (use `itertools.permutations` on a 4-member set or a few shuffles with a fixed `random.Random(0)`); different chunks → different GUIDs.
     - Result order independent of input order (whole tuple equal after shuffling).
   - [x] 2.5 `tests/unit/domain/test_identity.py`: add one test pinning `alias_sort_key` natural order (no test references `_sort_key` today).
@@ -115,7 +115,7 @@ Built from the team's feedback canvas "CVEStream Retours" (entry 2: "group by pr
     - 3 EUVD records matching one entry, rule on → 3 rows with the same non-null `group_guid`, 3 `decisions`, the feed has **one** item whose GUID starts with `cvestream:<endpoint>:group-new:`; `publish.grouped` logged once.
     - Same with the rule off → 3 items, `group_guid` all `NULL` (AC 6).
     - 2 records → 2 single items; 3 records with one known-exploited (add a KEV record) → 3 single items (2 left, below the threshold).
-    - 6 records → two group items (`part 1 of 2`, `part 2 of 2`), feed item count 2.
+    - 6 records → two group items of 3 + 3 (`part 1 of 2`, `part 2 of 2`), feed item count 2.
     - Replay of the same batches → no decision, same XML, same ETag (AC 8).
     - Band rise of all 3 members in a later run → one `group-band` item; then one member becomes known-exploited → a single `kev` item, the two earlier group items unchanged (AC 7).
     - Rule switched off after grouping → same XML and ETag on the next run (AC 9).
@@ -131,7 +131,7 @@ Built from the team's feedback canvas "CVEStream Retours" (entry 2: "group by pr
     - Part numbering, worked out from stored values only: the sibling chunks of a burst are the groups of the same endpoint feed with the same `kind_family` of their members, the same `products[0]` and the same `published_at` (one run = one `Clock` value). Order the siblings by the order key of their first member; `part` = 1-based position, `parts` = number of siblings. One sibling → no `part` suffix.
     - `count_items(entries) -> int`: `len(_items(entries))`, public, used by `run.py` (Task 4.2).
     - `_group_title(group, endpoint)`: as AC 5. The product label is `_title_product(first member, endpoint)`. Counts per band from the members' **stored** bands, worst first, e.g. `(1 critical, 3 high, 1 medium)`. `new` family: `<label>: <n> new vulnerabilities, worst <band> (<counts>)`. `band` family: `[UPDATE] <label>: <n> vulnerabilities raised (<counts>)`. `vulnerability` when `n == 1`. Then `, part i of k` when `parts > 1`. Markers via a `_group_markers()` that mirrors `_markers()` (escapes `\N{LARGE RED CIRCLE}`, `\N{UP-POINTING RED TRIANGLE}`, `\N{SQUARED NEW}`; ruff RUF001 forbids literal emoji in code).
-    - `_member_line(entry)`: `<primary ID> · <band> <score> · exploited: <yes|no> · <versions>`. The primary ID is the stored `primary_id` (as in the title). Band and score come from current merged data (`band_of(max_score(...))`, score with one decimal; when the score is unknown the part reads just `unknown`). Exploited from current data. `<versions>` is the first version text of the affected label that the title product names (reuse the `_affected()` grouping: factor out a helper that returns `[(label, rows)]` so both use one implementation), then ` (+N more)` when that label has more rows; `versions unknown` when it has none or the vulnerability has no structured affected data. The ID is an `_anchor()` to the member's `_link(_ordered_records(...))` when `_safe_url()` accepts it, otherwise escaped text. Every value goes through `_h()`.
+    - `_member_line(entry, endpoint)`: `<primary ID> · <band> <score> · exploited: <yes|no> · <versions>`. The primary ID is the stored `primary_id` (as in the title). Band and score come from current merged data (`band_of(max_score(...))`, score with one decimal; when the score is unknown the part reads just `unknown`, never `unknown unknown`). Exploited from current data. `<versions>` is the first version text of the affected label that **the member's own** title product names (`_title_product(member, endpoint)` — the group title keeps the first member's label only; members share the matched entry name, not the source's vendor/product spelling, so looking every member up under the first member's label would read `versions unknown`), capped at 60 characters plus `…` in group member lines only (single items stay verbatim), then ` (+N more)` when that label has more rows; `versions unknown` when it has none or the vulnerability has no structured affected data. Reuse the `_affected()` grouping: factor out a helper that returns `[(label, rows)]` so both use one implementation. The ID is an `_anchor()` to the member's `_link(_ordered_records(...))` when `_safe_url()` accepts it, otherwise escaped text. Every value goes through `_h()`.
     - `_group_description(group)`: one `<p>` holding every member line joined by `<br/>\n`. Nothing else is required; do not add a second `<p>` before the lines (Slack keeps only the first block-level elements).
     - `_group_item(channel, group, endpoint)`: `title`, `link` (the most severe member's link, omitted when it has none), `description`, `guid` = group GUID with `isPermaLink="false"`, `pubDate` = the members' `published_at`.
     - `render_feed()`: iterate `_items(entries)`. `lastBuildDate` stays the newest `published_at` over all entries.
@@ -143,7 +143,7 @@ Built from the team's feedback canvas "CVEStream Retours" (entry 2: "group by pr
     - Members given in any order render in the same order and the same XML (shuffle the entries' order; same bytes).
     - Mixed feed: a group between two single items keeps its position, single items unchanged; `count_items` counts the group once.
     - Two bursts of the same product in two runs (different `published_at`) never number each other's parts.
-    - Member line: unknown score reads `unknown`; no affected data reads `versions unknown`; a label with 5 rows reads `<first> (+4 more)`; markup in a version text or an ID is escaped; a non-http link is not an anchor.
+    - Member line: unknown score reads `unknown` (never `unknown unknown`); no affected data reads `versions unknown`; a label with 5 rows reads `<first> (+4 more)`; labels that differ between members still resolve each member's own versions (also when the first member has no structured hit); a version text longer than 60 characters reads `<first 60>…` in a group line and verbatim in a single item; markup in a version text or an ID is escaped; a non-http link is not an anchor.
     - Budget: for the 5-member golden group, the first `SLACK_PREVIEW_CHARS` plain-text characters contain all 5 primary IDs.
     - All existing single-item tests stay green unchanged (`group_guid` defaults to `None`).
 
@@ -210,7 +210,14 @@ def group_decisions(
         if len(members) < GROUP_MIN_MEMBERS:
             continue
         members.sort(key=lambda d: (member_order_key(d.band, d.primary_id), d.guid))
-        chunks = list(batched(members, GROUP_MAX_MEMBERS))
+        # balanced split: ceil(n / GROUP_MAX_MEMBERS) near-equal chunks
+        parts = -(-len(members) // GROUP_MAX_MEMBERS)
+        base, extra = divmod(len(members), parts)
+        chunks = []
+        start = 0
+        for size in [base + 1] * extra + [base] * (parts - extra):
+            chunks.append(tuple(members[start : start + size]))
+            start += size
         groups.extend(
             PublicationGroup(
                 guid=_group_guid(endpoint_id, family, (m.guid for m in chunk)),
