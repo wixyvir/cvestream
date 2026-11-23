@@ -247,7 +247,8 @@ class EndpointConfig(BaseModel):
         default=[],
         description=(
             "Products to watch: a shorthand string or a full entry. "
-            "Names must be unique within the endpoint (case-insensitive). "
+            "Names must be unique within the endpoint, ignoring case and "
+            "whitespace runs; a shorthand counts by its name. "
             "An endpoint without products matches nothing."
         ),
     )

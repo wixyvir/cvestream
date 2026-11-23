@@ -53,7 +53,10 @@ def test_unique_product_names_are_described() -> None:
     description = schema["$defs"]["EndpointConfig"]["properties"]["products"][
         "description"
     ]
-    assert "unique" in description
+    assert (
+        "Names must be unique within the endpoint, ignoring case and "
+        "whitespace runs; a shorthand counts by its name." in description
+    )
 
 
 def test_exact_contradiction_is_published() -> None:
