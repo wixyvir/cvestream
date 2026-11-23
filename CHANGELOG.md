@@ -7,6 +7,10 @@ and cvestream adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-23
+
+Second pre-release. The API and configuration format may still change before 1.0.
+
 ### Added
 
 - `require_score` endpoint rule: holds back vulnerabilities that no source has scored yet, except known-exploited ones, until a source scores them (wixyvir/cvestream#43). Additive change to the v1 configuration contract.
