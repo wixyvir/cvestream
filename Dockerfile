@@ -13,7 +13,7 @@ ENV UV_NO_DEV=0 PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked
 CMD ["watchfiles", "cvestream run", "src"]
 
-FROM python:3.14-slim-trixie AS runtime
+FROM python:3.15-slim-trixie AS runtime
 RUN groupadd --system --gid 999 cvestream \
  && useradd --system --uid 999 --gid 999 --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin cvestream \
  && mkdir /data && chown 999:999 /data
