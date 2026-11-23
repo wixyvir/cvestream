@@ -1003,6 +1003,25 @@ def test_switching_the_rule_off_never_regroups_stored_items(
     assert second.feeds["team-php"].item_count == 1
 
 
+def test_switching_the_rule_on_never_regroups_stored_items(
+    state: State, fake_clock: FakeClock
+) -> None:
+    # AC 9, symmetric case: single items published with the rule off stay
+    # single items when the rule is switched on.
+    off = _snapshot(_endpoint())
+    first = run(state, off, [_batch(*_euvd_records(fake_clock, 3))], fake_clock)
+    assert len(first.decisions) == 3
+    assert {group for _, group in _group_rows(state)} == {None}
+    assert first.feeds["team-php"].item_count == 3
+    fake_clock.advance(timedelta(minutes=15))
+    on = _snapshot(_endpoint(group_by_product=True))
+    second = run(state, on, [_batch()], fake_clock)
+    assert second.decisions == ()
+    assert second.feeds["team-php"].xml == first.feeds["team-php"].xml
+    assert second.feeds["team-php"].etag == first.feeds["team-php"].etag
+    assert second.feeds["team-php"].item_count == 3
+
+
 def test_the_group_guid_does_not_depend_on_the_batch_order(
     state: State, fake_clock: FakeClock, tmp_path: Path
 ) -> None:
