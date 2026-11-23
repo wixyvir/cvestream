@@ -923,8 +923,9 @@ def test_six_members_split_into_two_group_items(
     assert len(guids) == 2
     assert all(guid.startswith("cvestream:team-php:group-new:") for guid in guids)
     titles = _titles(feed.xml)
-    assert any("5 new vulnerabilities" in t and "part 1 of 2" in t for t in titles)
-    assert any("1 new vulnerability" in t and "part 2 of 2" in t for t in titles)
+    # balanced split: 6 members → 3 + 3, never 5 + 1
+    assert any("3 new vulnerabilities" in t and "part 1 of 2" in t for t in titles)
+    assert any("3 new vulnerabilities" in t and "part 2 of 2" in t for t in titles)
 
 
 def test_replaying_the_same_batches_keeps_the_group_the_xml_and_the_etag(

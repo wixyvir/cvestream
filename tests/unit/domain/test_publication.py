@@ -463,11 +463,13 @@ def test_members_are_ordered_by_band_then_natural_id() -> None:
     ]
 
 
-def test_a_group_splits_into_chunks_of_at_most_five() -> None:
+def test_a_group_splits_into_balanced_chunks() -> None:
     assert GROUP_MIN_MEMBERS == 3
     assert GROUP_MAX_MEMBERS == 5
     six = group_decisions(_cves(*range(1, 7)))
-    assert [(g.part, g.parts, len(g.members)) for g in six] == [(1, 2, 5), (2, 2, 1)]
+    assert [(g.part, g.parts, len(g.members)) for g in six] == [(1, 2, 3), (2, 2, 3)]
+    seven = group_decisions(_cves(*range(1, 8)))
+    assert [(g.part, g.parts, len(g.members)) for g in seven] == [(1, 2, 4), (2, 2, 3)]
     ten = group_decisions(_cves(*range(1, 11)))
     assert [(g.part, g.parts, len(g.members)) for g in ten] == [
         (1, 2, 5),
@@ -475,10 +477,25 @@ def test_a_group_splits_into_chunks_of_at_most_five() -> None:
     ]
     eleven = group_decisions(_cves(*range(1, 12)))
     assert [(g.part, g.parts, len(g.members)) for g in eleven] == [
-        (1, 3, 5),
-        (2, 3, 5),
-        (3, 3, 1),
+        (1, 3, 4),
+        (2, 3, 4),
+        (3, 3, 3),
     ]
+    sixteen = group_decisions(_cves(*range(1, 17)))
+    assert [(g.part, g.parts, len(g.members)) for g in sixteen] == [
+        (1, 4, 4),
+        (2, 4, 4),
+        (3, 4, 4),
+        (4, 4, 4),
+    ]
+
+
+def test_every_chunk_of_a_burst_keeps_at_least_three_members() -> None:
+    for count in range(GROUP_MIN_MEMBERS, 21):
+        groups = group_decisions(_cves(*range(1, count + 1)))
+        assert groups
+        for group in groups:
+            assert GROUP_MIN_MEMBERS <= len(group.members) <= GROUP_MAX_MEMBERS
 
 
 def test_part_one_holds_the_most_severe_members() -> None:

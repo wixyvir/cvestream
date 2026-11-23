@@ -8,7 +8,9 @@ band, a new source, a description edit or a band drop.
 Grouping is a second, pure step over the decisions of one run:
 `group_decisions()` buckets the accepted decisions by matched entry name and
 kind family and returns the groups (at least `GROUP_MIN_MEMBERS`, split into
-chunks of at most `GROUP_MAX_MEMBERS`). `decide()` itself does not change.
+balanced chunks of at most `GROUP_MAX_MEMBERS`, so every chunk keeps at least
+`GROUP_MIN_MEMBERS` members: 6 splits 3 + 3, never 5 + 1). `decide()` itself
+does not change.
 
 The GUID is built here, once, at decision time. The caller stores it and never
 recomputes it. Pure: no clock, no I/O, no logging — the decision time is an
@@ -19,7 +21,6 @@ import hashlib
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from itertools import batched
 
 from cvestream.domain.identity import alias_sort_key
 from cvestream.domain.matcher import MatchResult, PassThrough
@@ -172,6 +173,18 @@ def _group_guid(endpoint_id: str, family: str, member_guids: Iterable[str]) -> s
     return f"cvestream:{endpoint_id}:group-{family}:{digest.hexdigest()[:16]}"
 
 
+def _chunk_sizes(member_count: int) -> list[int]:
+    """Balanced chunk sizes: `ceil(n / GROUP_MAX_MEMBERS)` near-equal chunks.
+
+    6 → [3, 3], 7 → [4, 3], 11 → [4, 4, 3], 16 → [4, 4, 4, 4]. A burst of at
+    least `GROUP_MIN_MEMBERS` members therefore never leaves a trailing chunk
+    of 1 or 2: every chunk keeps at least `GROUP_MIN_MEMBERS` members.
+    """
+    parts = -(-member_count // GROUP_MAX_MEMBERS)  # ceil division
+    base, extra = divmod(member_count, parts)
+    return [base + 1] * extra + [base] * (parts - extra)
+
+
 def group_decisions(
     decisions: Sequence[PublicationDecision],
 ) -> tuple[PublicationGroup, ...]:
@@ -180,9 +193,11 @@ def group_decisions(
     Candidates share the matched entry name (`products[0]`) and the kind
     family, and are not known-exploited. Buckets below `GROUP_MIN_MEMBERS`
     stay single items. Members are ordered by band descending, then primary ID
-    in natural order (then GUID as the final tie-break), and split into chunks
-    of at most `GROUP_MAX_MEMBERS`. The result does not depend on the order of
-    the input decisions.
+    in natural order (then GUID as the final tie-break), and split into
+    balanced chunks of at most `GROUP_MAX_MEMBERS` (`_chunk_sizes`), keeping
+    the member order, so the most severe members stay in part 1 and every
+    chunk keeps at least `GROUP_MIN_MEMBERS` members. The result does not
+    depend on the order of the input decisions.
     """
     buckets: dict[tuple[str, str, str], list[PublicationDecision]] = {}
     for decision in decisions:
@@ -197,7 +212,11 @@ def group_decisions(
         if len(members) < GROUP_MIN_MEMBERS:
             continue
         members.sort(key=lambda d: (member_order_key(d.band, d.primary_id), d.guid))
-        chunks = list(batched(members, GROUP_MAX_MEMBERS, strict=False))
+        chunks: list[tuple[PublicationDecision, ...]] = []
+        start = 0
+        for size in _chunk_sizes(len(members)):
+            chunks.append(tuple(members[start : start + size]))
+            start += size
         groups.extend(
             PublicationGroup(
                 guid=_group_guid(endpoint_id, family, (m.guid for m in chunk)),
