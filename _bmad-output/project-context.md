@@ -125,6 +125,7 @@ _Versions verified online on 2026-10-26 (architecture.md). Before adding any dep
 
 **Publish once (NFR-3 / SM-4):**
 - GUID = `cvestream:{endpoint_id}:{primary_id}:{kind}` with `kind` = `new`, `kev` or `band-{band}`; a group item's GUID is `cvestream:{endpoint_id}:group-{family}:{h}` (story 5.2). Both are computed **once** at decision time, in `domain/publication.py` only, stored (`publication.guid`, `publication.group_guid`), and **never recomputed**. The renderer reads stored GUIDs. A CVE ID arriving later changes the primary ID, not the GUID.
+- Grouping is a pure step after `decide()` (`group_decisions()` in `domain/publication.py`); stored groups always render as groups, never regrouped at render time or when the rule changes.
 - The publication decision and its row are written in the same transaction.
 - A GUID is unique across all endpoints and vulnerabilities. `pipeline/run.py` skips a decision whose GUID is already stored (`publish.skipped`, `reason=guid_collision`) rather than letting the unique index abort the run.
 - Re-publish **only** when the vulnerability becomes known-exploited or its severity band rises (including `unknown` → rated, `none` included). Nothing else re-publishes it: not a score change within the band, a new source, a description edit, or an advisory revision. An update is a new item with its own GUID and an `[UPDATE]` title prefix.
