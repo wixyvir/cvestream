@@ -4,7 +4,7 @@ baseline_commit: cf57527
 
 # Story 5.2: Group bursts by product
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 <!-- Created from the sprint change proposal 2026-11-21 (epic 5, readable bursts), canvas entry 2. -->
@@ -56,16 +56,16 @@ Built from the team's feedback canvas "CVEStream Retours" (entry 2: "group by pr
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: config contract (AC 1)**
-  - [ ] 1.1 `src/cvestream/domain/endpoint.py`: add `group_by_product: bool = False` as the **last** field of `Rules`, with a one-line comment (group a same-product burst of one run into one item; story 5.2).
-  - [ ] 1.2 `src/cvestream/config/models.py`: add `group_by_product: bool = Field(default=False, description=...)` to `EndpointConfig` right after `require_score`. Suggested description: "Publish 3 or more items of one run that share a matched product and kind (new, or severity raised) as one feed item, at most 5 per item; known-exploited vulnerabilities are never grouped." Map it in `to_domain()` (`Rules(..., group_by_product=self.group_by_product)`). Strictness comes from `_CONFIG = ConfigDict(extra="forbid", strict=True)`: nothing else to add.
-  - [ ] 1.3 Regenerate `uv run cvestream config schema` and commit `schemas/config-v1.json` in the **same commit** as `models.py` (AGENTS.md). Check that `SCHEMA_VERSION` stays `1`.
-  - [ ] 1.4 `endpoints.example.yaml`: add a commented `group_by_product: false` after `require_score` on the first endpoint (same style: "Optional, default false. true …"). Same commit (it is a companion of `models.py`), and `uv run cvestream config validate endpoints.example.yaml` stays valid.
-  - [ ] 1.5 Tests in `tests/unit/config/test_models.py`, next to the `require_score` ones: default `False`; `test_group_by_product_maps_to_the_domain` (`Rules(group_by_product=True)`); add `group_by_product="yes"` and `group_by_product=1` to the parametrized rejection test (the one with `(_document(_endpoint(require_score="yes")), "endpoints.0.require_score")`). In `tests/unit/domain/`, if a test pins `Rules()` defaults, extend it.
+- [x] **Task 1: config contract (AC 1)**
+  - [x] 1.1 `src/cvestream/domain/endpoint.py`: add `group_by_product: bool = False` as the **last** field of `Rules`, with a one-line comment (group a same-product burst of one run into one item; story 5.2).
+  - [x] 1.2 `src/cvestream/config/models.py`: add `group_by_product: bool = Field(default=False, description=...)` to `EndpointConfig` right after `require_score`. Suggested description: "Publish 3 or more items of one run that share a matched product and kind (new, or severity raised) as one feed item, at most 5 per item; known-exploited vulnerabilities are never grouped." Map it in `to_domain()` (`Rules(..., group_by_product=self.group_by_product)`). Strictness comes from `_CONFIG = ConfigDict(extra="forbid", strict=True)`: nothing else to add.
+  - [x] 1.3 Regenerate `uv run cvestream config schema` and commit `schemas/config-v1.json` in the **same commit** as `models.py` (AGENTS.md). Check that `SCHEMA_VERSION` stays `1`.
+  - [x] 1.4 `endpoints.example.yaml`: add a commented `group_by_product: false` after `require_score` on the first endpoint (same style: "Optional, default false. true …"). Same commit (it is a companion of `models.py`), and `uv run cvestream config validate endpoints.example.yaml` stays valid.
+  - [x] 1.5 Tests in `tests/unit/config/test_models.py`, next to the `require_score` ones: default `False`; `test_group_by_product_maps_to_the_domain` (`Rules(group_by_product=True)`); add `group_by_product="yes"` and `group_by_product=1` to the parametrized rejection test (the one with `(_document(_endpoint(require_score="yes")), "endpoints.0.require_score")`). In `tests/unit/domain/`, if a test pins `Rules()` defaults, extend it.
 
-- [ ] **Task 2: grouping in the domain (AC 2, 3, 4)**
-  - [ ] 2.1 `src/cvestream/domain/identity.py`: make the natural order public. Rename `_sort_key` to `alias_sort_key` (keep its behaviour: `(year, number, alias)` for CVE and EUVD, `(0, 0, alias)` for advisories) and use it in `primary_id()`. No behaviour change for `primary_id()`.
-  - [ ] 2.2 `src/cvestream/domain/publication.py`, add:
+- [x] **Task 2: grouping in the domain (AC 2, 3, 4)**
+  - [x] 2.1 `src/cvestream/domain/identity.py`: make the natural order public. Rename `_sort_key` to `alias_sort_key` (keep its behaviour: `(year, number, alias)` for CVE and EUVD, `(0, 0, alias)` for advisories) and use it in `primary_id()`. No behaviour change for `primary_id()`.
+  - [x] 2.2 `src/cvestream/domain/publication.py`, add:
     - `GROUP_MIN_MEMBERS = 3`, `GROUP_MAX_MEMBERS = 5` (FR-27), and `FAMILY_NEW = "new"`, `FAMILY_BAND = "band"`.
     - `kind_family(kind: str) -> str | None`: `new` → `"new"`, `band-*` → `"band"`, anything else (`kev`) → `None`.
     - `member_order_key(band: Band, primary_id: str) -> tuple[...]`: `(-band.rank, alias_sort_key(primary_id))`. Public, because the renderer reuses it to order members and chunks exactly as the split did.
@@ -78,8 +78,8 @@ Built from the team's feedback canvas "CVEStream Retours" (entry 2: "group by pr
       5. GUID per chunk via a private `_group_guid(endpoint_id, family, member_guids)`, the **only** construction site: `h = hashlib.sha256("\n".join(sorted(member_guids)).encode("utf-8")).hexdigest()[:16]` → `f"cvestream:{endpoint_id}:group-{family}:{h}"`. Same comment as the single GUID ("computed once, stored, never recomputed").
       6. Return groups sorted by `(member_order_key of the first member, family, product, part)`. Deterministic whatever the input order.
     - Update the module docstring: grouping is a second, pure step after `decide()`; `decide()` itself does not change.
-  - [ ] 2.3 `hashlib` and `itertools` are stdlib: the "domain is pure" import-linter contract allows them. `tests/unit/domain/test_purity.py` must stay green.
-  - [ ] 2.4 Tests in `tests/unit/domain/test_publication.py` (pure: build `PublicationDecision` values directly with a small `_decision(primary_id, band, kind="new", product="tomcat", known=False, fresh=False, endpoint="team")` helper; GUIDs as `decide()` builds them):
+  - [x] 2.3 `hashlib` and `itertools` are stdlib: the "domain is pure" import-linter contract allows them. `tests/unit/domain/test_purity.py` must stay green.
+  - [x] 2.4 Tests in `tests/unit/domain/test_publication.py` (pure: build `PublicationDecision` values directly with a small `_decision(primary_id, band, kind="new", product="tomcat", known=False, fresh=False, endpoint="team")` helper; GUIDs as `decide()` builds them):
     - 3 same-product `new` decisions → one group of 3; 2 → none; 3 with one known-exploited → none (2 left); a `kev` decision never joins.
     - `new` and `band-*` of the same product are separate families (3 + 3 → two groups; 2 + 2 → none).
     - Two products of 3 each → two groups; `products[0]` decides (a decision matched by `("php", "tomcat")` counts for `php` only).
@@ -87,31 +87,31 @@ Built from the team's feedback canvas "CVEStream Retours" (entry 2: "group by pr
     - Split: 6 → parts `(1, 2)` with 5 + 1; 10 → 5 + 5; 11 → 5 + 5 + 1; part 1 holds the most severe.
     - GUID: golden value pinned for one fixed set of member GUIDs (compute it once in the test with `hashlib` from the documented recipe and also pin the literal string); `group-new` / `group-band` prefix; 16 lowercase hex characters; same GUID for any permutation of the input (use `itertools.permutations` on a 4-member set or a few shuffles with a fixed `random.Random(0)`); different chunks → different GUIDs.
     - Result order independent of input order (whole tuple equal after shuffling).
-  - [ ] 2.5 `tests/unit/domain/test_identity.py`: add one test pinning `alias_sort_key` natural order (no test references `_sort_key` today).
+  - [x] 2.5 `tests/unit/domain/test_identity.py`: add one test pinning `alias_sort_key` natural order (no test references `_sort_key` today).
 
-- [ ] **Task 3: state (AC 4, 9)**
-  - [ ] 3.1 `src/cvestream/state/schema.py`: add `Column("group_guid", Text, nullable=True)` to `publication` after `is_fresh`, with a comment: "Group item GUID (story 5.2), built once at decision time; NULL when the row is published on its own or older than this column." No unique constraint (members share it), no index (the feed query is by endpoint and `published_at`).
-  - [ ] 3.2 New migration `src/cvestream/state/migrations/versions/0004_add_publication_group_guid.py`: copy the shape of `0003_add_publication_is_fresh.py` (`revision = "0004"`, `down_revision = "0003"`, `op.batch_alter_table("publication")`, `add_column(sa.Column("group_guid", sa.Text(), nullable=True))`, downgrade `drop_column`). Never edit `0001` to `0003`.
-  - [ ] 3.3 `src/cvestream/state/repository.py`:
+- [x] **Task 3: state (AC 4, 9)**
+  - [x] 3.1 `src/cvestream/state/schema.py`: add `Column("group_guid", Text, nullable=True)` to `publication` after `is_fresh`, with a comment: "Group item GUID (story 5.2), built once at decision time; NULL when the row is published on its own or older than this column." No unique constraint (members share it), no index (the feed query is by endpoint and `published_at`).
+  - [x] 3.2 New migration `src/cvestream/state/migrations/versions/0004_add_publication_group_guid.py`: copy the shape of `0003_add_publication_is_fresh.py` (`revision = "0004"`, `down_revision = "0003"`, `op.batch_alter_table("publication")`, `add_column(sa.Column("group_guid", sa.Text(), nullable=True))`, downgrade `drop_column`). Never edit `0001` to `0003`.
+  - [x] 3.3 `src/cvestream/state/repository.py`:
     - `add_publication(self, vulnerability_id, decision, published_at, *, group_guid: str | None = None)`: writes `group_guid`. A keyword argument rather than a `PublicationDecision` field: the decision stays what `decide()` returns, and the group is a separate fact.
     - `StoredPublication.group_guid: str | None` as the **last** field (it has no default today; add it after `is_fresh` and update every constructor call, there are only the repository and tests).
     - `publications_since()`: select and map `group_guid`.
     - `publication_history()` / `PastPublication`: **unchanged** (AC 7: a group never changes later decisions).
-  - [ ] 3.4 Tests:
+  - [x] 3.4 Tests:
     - `tests/unit/state/test_db.py`: every hard-coded head `"0003"` becomes `"0004"` (`test_migrate_creates_the_schema_at_head`, `test_second_migrate_is_a_no_op`, the `0001` and `is_fresh` migration tests). Add `test_the_group_guid_migration_keeps_rows_and_can_be_downgraded` next to `test_the_is_fresh_migration_keeps_rows_and_can_be_downgraded`, with the `_upgrade_to(state, revision)` helper: migrate to `0003`, insert a publication row, upgrade to head, read `group_guid` as `None`, downgrade to `0003`, check the column is gone and the row is kept.
     - `tests/unit/cli/test_db.py`: `"at revision 0003"` and `("0003",)` become `0004`.
     - `tests/unit/state/test_repository.py`: `group_guid` round trip (a value and `NULL`), next to the `is_fresh` one.
 
-- [ ] **Task 4: pipeline (AC 2, 6, 7, 8)**
-  - [ ] 4.1 `src/cvestream/pipeline/run.py`, inside the existing per-endpoint loop (same transaction, no new one):
+- [x] **Task 4: pipeline (AC 2, 6, 7, 8)**
+  - [x] 4.1 `src/cvestream/pipeline/run.py`, inside the existing per-endpoint loop (same transaction, no new one):
     - Collect `accepted: list[tuple[int, PublicationDecision]]` instead of writing each decision at once.
     - Safety net: skip (with the existing `publish.skipped`, `reason=guid_collision` warning) a decision whose GUID is already stored **or already in a run-local `set` of GUIDs accepted earlier in this run**. Today the second check is implicit, because the row is inserted before the next decision is checked; with deferred writes, two advisory-only vulnerabilities sharing a primary ID in one run would hit the unique index and roll back this run and every next one. `test_a_guid_collision_in_one_run_is_skipped_and_logged` pins this and must stay green unchanged.
     - When `endpoint.rules.group_by_product`: `groups = group_decisions([d for _, d in accepted])`; map each member GUID to its group GUID.
     - Write each accepted decision with `repository.add_publication(vulnerability_id, decision, now, group_guid=...)` in the same order as today (vulnerability ID order), append it to `decided`, log `publish.decided` as today (add `group_guid=` only when it is not `None`).
     - Log one `publish.grouped` (info) per group: `endpoint_id`, `family`, `count` (members), `part`, `parts`, `group_guid`. Never a token or a feed path.
-  - [ ] 4.2 Rendering in `run()`: pass `group_guid=p.group_guid` to `FeedEntry`. The stored item count (`StoredFeed.item_count`, `RenderedFeed.item_count`, `/status` `item_count`) becomes the number of **rendered items** (a group counts once): use the render helper of Task 5 (`count_items(entries)`), not `len(entries)`.
-  - [ ] 4.3 `RunResult.decisions` keeps one entry per member (`cycle.summary` `published`, `score_unknown`, `versions_unknown` keep counting vulnerabilities; see open question 4). `pipeline/summary.py` needs no change.
-  - [ ] 4.4 Tests in `tests/unit/pipeline/test_run.py` (helpers `_endpoint`, `_euvd`, `_batch`, `_guids`, `FakeClock`). Add a `group_by_product` parameter to `_endpoint()` or build `Rules` directly:
+  - [x] 4.2 Rendering in `run()`: pass `group_guid=p.group_guid` to `FeedEntry`. The stored item count (`StoredFeed.item_count`, `RenderedFeed.item_count`, `/status` `item_count`) becomes the number of **rendered items** (a group counts once): use the render helper of Task 5 (`count_items(entries)`), not `len(entries)`.
+  - [x] 4.3 `RunResult.decisions` keeps one entry per member (`cycle.summary` `published`, `score_unknown`, `versions_unknown` keep counting vulnerabilities; see open question 4). `pipeline/summary.py` needs no change.
+  - [x] 4.4 Tests in `tests/unit/pipeline/test_run.py` (helpers `_endpoint`, `_euvd`, `_batch`, `_guids`, `FakeClock`). Add a `group_by_product` parameter to `_endpoint()` or build `Rules` directly:
     - 3 EUVD records matching one entry, rule on → 3 rows with the same non-null `group_guid`, 3 `decisions`, the feed has **one** item whose GUID starts with `cvestream:<endpoint>:group-new:`; `publish.grouped` logged once.
     - Same with the rule off → 3 items, `group_guid` all `NULL` (AC 6).
     - 2 records → 2 single items; 3 records with one known-exploited (add a KEV record) → 3 single items (2 left, below the threshold).
@@ -121,10 +121,10 @@ Built from the team's feedback canvas "CVEStream Retours" (entry 2: "group by pr
     - Rule switched off after grouping → same XML and ETag on the next run (AC 9).
     - Input order: the same 3 records in reversed batch order on a fresh state → the same group GUID (AC 8).
     - A GUID collision inside one run with the rule on is still skipped (reuse `_advisory_revision`).
-  - [ ] 4.5 `tests/integration/test_restart_no_repost.py`: keep the existing test **unchanged**, add `test_nothing_is_posted_twice_across_restarts_when_grouped` with `ENDPOINT` + `Rules(group_by_product=True)`. The recorded EUVD search page yields three Chrome records, which is exactly the threshold. Assert one group item after the first run; then restart, replay, and the KEV escalation, with the same GUID set as before plus the single `kev` item.
+  - [x] 4.5 `tests/integration/test_restart_no_repost.py`: keep the existing test **unchanged**, add `test_nothing_is_posted_twice_across_restarts_when_grouped` with `ENDPOINT` + `Rules(group_by_product=True)`. The recorded EUVD search page yields three Chrome records, which is exactly the threshold. Assert one group item after the first run; then restart, replay, and the KEV escalation, with the same GUID set as before plus the single `kev` item.
 
-- [ ] **Task 5: render (AC 5, 8, 9)**
-  - [ ] 5.1 `src/cvestream/pipeline/render.py`:
+- [x] **Task 5: render (AC 5, 8, 9)**
+  - [x] 5.1 `src/cvestream/pipeline/render.py`:
     - `FeedEntry.group_guid: str | None = None` as the **last** field.
     - A private `_Group` (frozen dataclass): `guid`, `members: tuple[FeedEntry, ...]` (ordered with `member_order_key(e.band, e.primary_id)` then `e.guid`), `part`, `parts`.
     - `_items(entries) -> list[FeedEntry | _Group]`: entries without `group_guid` stay as they are; entries sharing a `group_guid` collapse into one `_Group` placed at the position of its first entry (entries come newest first; all members share `published_at`).
@@ -136,7 +136,7 @@ Built from the team's feedback canvas "CVEStream Retours" (entry 2: "group by pr
     - `_group_item(channel, group, endpoint)`: `title`, `link` (the most severe member's link, omitted when it has none), `description`, `guid` = group GUID with `isPermaLink="false"`, `pubDate` = the members' `published_at`.
     - `render_feed()`: iterate `_items(entries)`. `lastBuildDate` stays the newest `published_at` over all entries.
     - Module docstring: one paragraph on group items (stored groups always render as groups, whatever the current rule).
-  - [ ] 5.2 Tests in `tests/unit/pipeline/test_render.py` (helper `_entry(**changes)`, plain-text reduction helper from story 5.1):
+  - [x] 5.2 Tests in `tests/unit/pipeline/test_render.py` (helper `_entry(**changes)`, plain-text reduction helper from story 5.1):
     - Golden group title and body for a 5-member Tomcat burst (1 critical fresh, 3 high, 1 medium): `🔴🆕 Apache Software Foundation Apache Tomcat: 5 new vulnerabilities, worst critical (1 critical, 3 high, 1 medium)`; body lines in order, first `<p>` only, each ID linked.
     - Golden update title: `🔴🔺 [UPDATE] Apache Software Foundation Apache Tomcat: 4 vulnerabilities raised (2 critical, 2 high), part 2 of 2` (and part 1).
     - No marker → no leading space (`Apache Tomcat: 3 new vulnerabilities, worst high (3 high)`); 🆕 when **one** member is fresh; `is_fresh=None` members give no 🆕; a chunk of 1 reads `1 new vulnerability`.
@@ -147,22 +147,22 @@ Built from the team's feedback canvas "CVEStream Retours" (entry 2: "group by pr
     - Budget: for the 5-member golden group, the first `SLACK_PREVIEW_CHARS` plain-text characters contain all 5 primary IDs.
     - All existing single-item tests stay green unchanged (`group_guid` defaults to `None`).
 
-- [ ] **Task 6: user documentation (same PR)**
-  - [ ] 6.1 `docs/configuration.md`: `group_by_product: false` in the YAML example after `require_score`; a table row `endpoints[].group_by_product | no | default false; publish 3 or more items of one run that share a matched product and kind as one item (at most 5 per item)`; a **Grouping** paragraph after "Score rules": the key (the first matched entry name, unique per endpoint since story 5.4), the families (`new`; severity raised), the threshold and the 5-member split, known-exploited never grouped, the order inside an item, that a later KEV or severity update of a member comes on its own, that switching the rule on or off never changes items already published, and that a new endpoint's 7-day backfill is grouped too. Add `group_by_product: "yes"` to the strict-contract list in "YAML pitfalls".
-  - [ ] 6.2 `docs/operations.md`, "Feeds": a bullet for group items (title format with the golden examples, member lines, `part i of k`, GUID `…:group-new:<16 hex>` / `group-band`, members keep their own rows). `/status` `item_count` counts a group as one item; `cycle.summary` `published` counts each member (adjust the `published` bullet wording in "Logs"). Add a `publish.grouped` row to the Logs events table (after `publish.decided`: info, a group item was published, fields `endpoint_id`, `family`, `count`, `part`, `parts`, `group_guid`), and add `group_guid` to the `publish.decided` fields when present.
-  - [ ] 6.3 `README.md`: one clause where the intro describes the feed (optional grouping of same-product bursts).
-  - [ ] 6.4 `CHANGELOG.md` `[Unreleased]` → `### Added`: `group_by_product` endpoint rule (FR-27), additive change to the v1 contract, the new nullable `publication.group_guid` column applied by Alembic migration `0004` at startup, existing rows `NULL`, nothing posted again.
+- [x] **Task 6: user documentation (same PR)**
+  - [x] 6.1 `docs/configuration.md`: `group_by_product: false` in the YAML example after `require_score`; a table row `endpoints[].group_by_product | no | default false; publish 3 or more items of one run that share a matched product and kind as one item (at most 5 per item)`; a **Grouping** paragraph after "Score rules": the key (the first matched entry name, unique per endpoint since story 5.4), the families (`new`; severity raised), the threshold and the 5-member split, known-exploited never grouped, the order inside an item, that a later KEV or severity update of a member comes on its own, that switching the rule on or off never changes items already published, and that a new endpoint's 7-day backfill is grouped too. Add `group_by_product: "yes"` to the strict-contract list in "YAML pitfalls".
+  - [x] 6.2 `docs/operations.md`, "Feeds": a bullet for group items (title format with the golden examples, member lines, `part i of k`, GUID `…:group-new:<16 hex>` / `group-band`, members keep their own rows). `/status` `item_count` counts a group as one item; `cycle.summary` `published` counts each member (adjust the `published` bullet wording in "Logs"). Add a `publish.grouped` row to the Logs events table (after `publish.decided`: info, a group item was published, fields `endpoint_id`, `family`, `count`, `part`, `parts`, `group_guid`), and add `group_guid` to the `publish.decided` fields when present.
+  - [x] 6.3 `README.md`: one clause where the intro describes the feed (optional grouping of same-product bursts).
+  - [x] 6.4 `CHANGELOG.md` `[Unreleased]` → `### Added`: `group_by_product` endpoint rule (FR-27), additive change to the v1 contract, the new nullable `publication.group_guid` column applied by Alembic migration `0004` at startup, existing rows `NULL`, nothing posted again.
 
-- [ ] **Task 7: planning docs (same PR, "changing a pattern means amending architecture.md")**
-  - [ ] 7.1 `architecture.md`, "Naming Patterns" identifiers table, RSS GUID row: replace it with the NEW row of the sprint change proposal (section 4.3), which was **not** applied yet: `… ; a group item (story 5.2): cvestream:{endpoint_id}:group-{family}:{h} with family = new or band, h = 16 hex of SHA-256 over the sorted member GUIDs` and the example `cvestream:team-gitlab:group-new:3f9c0a17b2d4e851`. In the paragraph under the table, add `publication.group_guid` next to `publication.guid`.
-  - [ ] 7.2 `architecture.md`, "Feed cache" rules (story 1.6): add the group item rules (one item per stored `group_guid`, group title and member lines, part numbering from stored values, a stored group always renders as a group whatever the current rule).
-  - [ ] 7.3 `architecture.md`, "Correlation and publication rules": the grouping bullet (story 5.2) is already there. Amend it only for what the implementation decides (the `\n` join of the hash input, the known-exploited filter applied before the threshold).
-  - [ ] 7.4 `project-context.md`, "Publish once": the GUID rule is already amended. Add: "Grouping is a pure step after `decide()` (`group_decisions()`); stored groups always render as groups, never regrouped at render time or when the rule changes."
-  - [ ] 7.5 `sprint-status.yaml`: `5-2-group-bursts-by-product: in-progress` at start, `review` at the end.
+- [x] **Task 7: planning docs (same PR, "changing a pattern means amending architecture.md")**
+  - [x] 7.1 `architecture.md`, "Naming Patterns" identifiers table, RSS GUID row: replace it with the NEW row of the sprint change proposal (section 4.3), which was **not** applied yet: `… ; a group item (story 5.2): cvestream:{endpoint_id}:group-{family}:{h} with family = new or band, h = 16 hex of SHA-256 over the sorted member GUIDs` and the example `cvestream:team-gitlab:group-new:3f9c0a17b2d4e851`. In the paragraph under the table, add `publication.group_guid` next to `publication.guid`.
+  - [x] 7.2 `architecture.md`, "Feed cache" rules (story 1.6): add the group item rules (one item per stored `group_guid`, group title and member lines, part numbering from stored values, a stored group always renders as a group whatever the current rule).
+  - [x] 7.3 `architecture.md`, "Correlation and publication rules": the grouping bullet (story 5.2) is already there. Amend it only for what the implementation decides (the `\n` join of the hash input, the known-exploited filter applied before the threshold).
+  - [x] 7.4 `project-context.md`, "Publish once": the GUID rule is already amended. Add: "Grouping is a pure step after `decide()` (`group_decisions()`); stored groups always render as groups, never regrouped at render time or when the rule changes."
+  - [x] 7.5 `sprint-status.yaml`: `5-2-group-bursts-by-product: in-progress` at start, `review` at the end.
 
-- [ ] **Task 8: gates and record**
-  - [ ] 8.1 Run every gate command of AGENTS.md (the docker build may fail locally on the ghcr.io x509 proxy error: CI is authoritative, say so in the record).
-  - [ ] 8.2 Fill the Dev Agent Record with real commit hashes. Commits (Conventional Commits, `story-5.2`, one concern each, never squashed), suggested: `feat(story-5.2): add the group_by_product endpoint rule` (models + schema + example yaml + config tests) · `feat(story-5.2): group a run's same-product decisions in the domain` · `feat(story-5.2): store each member's group guid` (schema, migration 0004, repository) · `feat(story-5.2): group decisions in the pipeline run` · `feat(story-5.2): render a stored group as one feed item` · `docs(story-5.2): document group_by_product and group items` · `docs(story-5.2): amend the architecture for group items` · `chore(story-5.2): mark story ready for review`.
+- [x] **Task 8: gates and record**
+  - [x] 8.1 Run every gate command of AGENTS.md (the docker build may fail locally on the ghcr.io x509 proxy error: CI is authoritative, say so in the record).
+  - [x] 8.2 Fill the Dev Agent Record with real commit hashes. Commits (Conventional Commits, `story-5.2`, one concern each, never squashed), suggested: `feat(story-5.2): add the group_by_product endpoint rule` (models + schema + example yaml + config tests) · `feat(story-5.2): group a run's same-product decisions in the domain` · `feat(story-5.2): store each member's group guid` (schema, migration 0004, repository) · `feat(story-5.2): group decisions in the pipeline run` · `feat(story-5.2): render a stored group as one feed item` · `docs(story-5.2): document group_by_product and group items` · `docs(story-5.2): amend the architecture for group items` · `chore(story-5.2): mark story ready for review`.
 
 ## Dev Notes
 
@@ -351,14 +351,37 @@ No external API or library change is involved. `hashlib.sha256(...).hexdigest()`
 
 ### Agent Model Used
 
+- Mistral Vibe (Mistral AI), 2026-11-23, branch `story-5-2-group-bursts-by-product` based on `story-5-4-reject-duplicate-product-names` (`cf57527`).
+
 ### Debug Log References
+
+- All gates run locally on 2026-11-23 and green: `uv sync --locked`, `ruff check`, `ruff format --check`, `ty check`, `lint-imports` (7 contracts kept), `pytest` (1316 passed, 6 deselected), `cvestream config schema --check`, `cvestream config validate endpoints.example.yaml`, and `docker build --target runtime -t cvestream:local .` (succeeded locally here; CI stays authoritative).
+- GUID golden value pinned in `tests/unit/domain/test_publication.py` (`cvestream:team:group-new:f92dff6898666ea1` for the four fixed member GUIDs).
+- One test-design fix during the run: the group body follows current merged data (like single items), so AC 7 is asserted on GUID and decision-time title stability, not on byte-identical items when a member's score changed.
 
 ### Completion Notes List
 
 - Story context created by the create-story workflow (2026-11-22): ultimate context engine analysis completed, comprehensive developer guide created from epic 5, the sprint change proposal of 2026-11-21, the PRD (FR-27), the architecture, the project context, stories 5.1 and 5.4, and the current code.
+- 2026-11-23: implemented all 8 tasks; every AC covered by tests (config contract, grouping/split/GUID purity, migration 0004 upgrade+downgrade, pipeline collect-group-write with the run-local GUID safety net, group render with part numbering from stored values, unchanged-path/replay/no-regroup guardrails, restart integration test). Commits: `9a54cc3` rule · `de6bf49` domain · `7879903` state · `afd0248` render · `a9a0353` pipeline · `99eca1a` user docs · `885578a` architecture. All 40 task checkboxes checked; status review.
 
 ### File List
+
+- `src/cvestream/domain/endpoint.py` (Rules.group_by_product)
+- `src/cvestream/domain/identity.py` (public `alias_sort_key`)
+- `src/cvestream/domain/publication.py` (`group_decisions`, `PublicationGroup`, `kind_family`, `member_order_key`, `_group_guid`)
+- `src/cvestream/config/models.py` (`EndpointConfig.group_by_product` + `to_domain()`)
+- `schemas/config-v1.json` (regenerated, SCHEMA_VERSION stays 1)
+- `endpoints.example.yaml` (commented key)
+- `src/cvestream/state/schema.py` (`publication.group_guid`)
+- `src/cvestream/state/migrations/versions/0004_add_publication_group_guid.py` (new)
+- `src/cvestream/state/repository.py` (`add_publication(group_guid=...)`, `StoredPublication.group_guid`, `publications_since`)
+- `src/cvestream/pipeline/run.py` (collect → group → write, run-local GUID set, `publish.grouped`, `count_items`)
+- `src/cvestream/pipeline/render.py` (`FeedEntry.group_guid`, `_Group`, `_items`, `count_items`, group title/body/item)
+- `tests/unit/config/test_models.py`, `tests/unit/domain/test_endpoint.py`, `tests/unit/domain/test_identity.py`, `tests/unit/domain/test_publication.py`, `tests/unit/state/test_db.py`, `tests/unit/state/test_repository.py`, `tests/unit/cli/test_db.py`, `tests/unit/pipeline/test_run.py`, `tests/unit/pipeline/test_render.py`, `tests/integration/test_restart_no_repost.py`
+- `docs/configuration.md`, `docs/operations.md`, `README.md`, `CHANGELOG.md`
+- `_bmad-output/planning-artifacts/architecture.md`, `_bmad-output/project-context.md`, `_bmad-output/implementation-artifacts/sprint-status.yaml`
 
 ## Change Log
 
 - 2026-11-22: story created (ready-for-dev), based on the story 5.4 branch rebased on `main`.
+- 2026-11-23: implemented (commits `9a54cc3` … `885578a`), all gates green locally, status review.
