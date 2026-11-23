@@ -25,6 +25,7 @@ from cvestream.pipeline.correlate import build_vulnerability
 from cvestream.pipeline.normalize import normalize
 from cvestream.pipeline.render import (
     CHANNEL_LINK,
+    GROUP_MEMBER_VERSION_CHARS,
     SLACK_PREVIEW_CHARS,
     FeedEntry,
     count_items,
@@ -1102,6 +1103,39 @@ def _five_member_burst() -> list[FeedEntry]:
     ]
 
 
+def _member_with_affected(
+    primary_id: str,
+    band: Band,
+    score: float | None,
+    affected: tuple[Sourced[AffectedProduct], ...],
+    group_guid: str = GROUP_GUID,
+) -> FeedEntry:
+    """A group member whose affected label is not the Tomcat fixture's."""
+    return FeedEntry(
+        guid=f"cvestream:team-tomcat:{primary_id}:new",
+        kind="new",
+        primary_id=primary_id,
+        band=band,
+        is_known_exploited=False,
+        products=("tomcat",),
+        labels=frozenset(),
+        published_at=NOW,
+        vulnerability=Vulnerability(
+            primary_id=primary_id,
+            aliases=frozenset({primary_id}),
+            records=(
+                RecordRef(
+                    "euvd", f"EUVD-{primary_id}", f"https://euvd.test/{primary_id}"
+                ),
+            ),
+            scores=() if score is None else (_sourced(CvssScore(score)),),
+            affected=affected,
+        ),
+        is_fresh=False,
+        group_guid=group_guid,
+    )
+
+
 def _group_item(
     entries: list[FeedEntry], endpoint: Endpoint = TOMCAT_ENDPOINT
 ) -> ET.Element:
@@ -1273,8 +1307,8 @@ def test_member_line_unknown_score_versions_and_escaping() -> None:
     assert "CVE-2026-3 · high 7.0 · exploited: no · versions unknown" in lines
     # markup in an ID or a version text shows literally to a reader
     assert "CVE-2026-<b>4 · high 7.0 · exploited: no · < 9.0 & more" in lines
-    # an unknown score reads "unknown"
-    assert "CVE-2026-1 · unknown unknown · exploited: no · 10.1.0-M1 ≤10.1.61" in lines
+    # an unknown score reads just "unknown"
+    assert "CVE-2026-1 · unknown · exploited: no · 10.1.0-M1 ≤10.1.61" in lines
     # the raw HTML escapes the markup (the ID is an anchor's text, escaped)
     description = item.findtext("description") or ""
     assert "<b>4</b>" not in description
@@ -1284,6 +1318,66 @@ def test_member_line_unknown_score_versions_and_escaping() -> None:
     assert "https://euvd.test/CVE-2026-5" not in description
     assert ">CVE-2026-5</a>" not in description
     assert "CVE-2026-5 · high 7.0 · exploited: no · 10.1.0-M1 ≤10.1.61" in lines
+
+
+def test_each_member_line_resolves_versions_under_its_own_label() -> None:
+    # Members share the matched entry name, not the source's vendor/product
+    # spelling: the first member's label must not hide the others' versions.
+    members = [
+        _member("CVE-2026-1", Band.HIGH, 7.5, versions=("9.0.0 ≤9.0.10",)),
+        _member_with_affected(
+            "CVE-2026-2",
+            Band.HIGH,
+            7.4,
+            (_sourced(AffectedProduct("tomcat", None, "8.0.0")),),
+        ),
+        _member_with_affected(
+            "CVE-2026-3",
+            Band.HIGH,
+            7.3,
+            (_sourced(AffectedProduct("Apache Tomcat", None, "7.0.0")),),
+        ),
+    ]
+    lines = _group_lines(_group_item(members))
+    assert "CVE-2026-1 · high 7.5 · exploited: no · 9.0.0 ≤9.0.10" in lines
+    assert "CVE-2026-2 · high 7.4 · exploited: no · 8.0.0" in lines
+    assert "CVE-2026-3 · high 7.3 · exploited: no · 7.0.0" in lines
+
+
+def test_member_lines_when_the_first_member_has_no_structured_hit() -> None:
+    # The title falls back to the entry name; the other members still resolve
+    # their versions under their own labels, not under the entry name.
+    members = [
+        _member_with_affected(
+            "CVE-2026-1",
+            Band.HIGH,
+            7.5,
+            (_sourced(AffectedProduct("Tomcat 9", "Apache", "9.0.0"), "cert_eu"),),
+        ),
+        _member("CVE-2026-2", Band.HIGH, 7.4, versions=("8.0.0",)),
+        _member("CVE-2026-3", Band.HIGH, 7.3, versions=("7.0.0",)),
+    ]
+    lines = _group_lines(_group_item(members))
+    assert "CVE-2026-1 · high 7.5 · exploited: no · versions unknown" in lines
+    assert "CVE-2026-2 · high 7.4 · exploited: no · 8.0.0" in lines
+    assert "CVE-2026-3 · high 7.3 · exploited: no · 7.0.0" in lines
+
+
+def test_a_long_version_text_is_capped_in_a_group_member_line_only() -> None:
+    long_version = "x" * 100
+    members = [
+        _member("CVE-2026-1", Band.HIGH, 7.5, versions=(long_version, "< 9.0")),
+        _member("CVE-2026-2", Band.HIGH, 7.4),
+        _member("CVE-2026-3", Band.HIGH, 7.3),
+    ]
+    lines = _group_lines(_group_item(members))
+    capped = "x" * GROUP_MEMBER_VERSION_CHARS + "\N{HORIZONTAL ELLIPSIS}"
+    # the cap keeps the (+N more) suffix after the ellipsis
+    assert f"CVE-2026-1 · high 7.5 · exploited: no · {capped} (+1 more)" in lines
+    # a single item shows the same source text verbatim
+    assert long_version in "\n".join(
+        _lines(_entry(vulnerability=members[0].vulnerability))
+    )
 
 
 def test_a_label_with_five_rows_reads_first_plus_four_more() -> None:
