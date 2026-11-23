@@ -1,8 +1,9 @@
 """The `cycle.summary` event: what one pipeline cycle did (NFR-4).
 
 One per cycle: the result of every source of the cycle, the number published
-per enabled endpoint (zero included) and how many published items were let
-through on unknown data (recall over volume, FR-25).
+per enabled endpoint (zero included), how many published items were let
+through on unknown data (recall over volume, FR-25), and what an endpoint's
+`require_score` held back.
 """
 
 from collections.abc import Mapping, Sequence
@@ -39,6 +40,9 @@ class CycleSummary:
     # Decisions let through on an unknown score / unknown versions.
     score_unknown: int
     versions_unknown: int
+    # Per enabled endpoint with require_score: not-yet-published vulnerabilities
+    # it held back.
+    held_back: Mapping[str, int]
     duration_ms: int
 
 
@@ -73,6 +77,7 @@ def summarize(
         versions_unknown=sum(
             PassThrough.VERSIONS_UNKNOWN in d.labels for d in result.decisions
         ),
+        held_back=result.held_back,
         duration_ms=duration_ms,
     )
 
@@ -96,6 +101,7 @@ def log_summary(summary: CycleSummary) -> None:
         published=dict(summary.published),
         score_unknown=summary.score_unknown,
         versions_unknown=summary.versions_unknown,
+        held_back=dict(summary.held_back),
         count=sum(summary.published.values()),
         duration_ms=summary.duration_ms,
     )

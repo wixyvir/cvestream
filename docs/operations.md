@@ -118,12 +118,13 @@ One JSON object per line on stdout (`CVESTREAM_LOG__FORMAT=console` for humans).
 `cycle.summary` (info) is logged once per cycle:
 
 ```json
-{"event": "cycle.summary", "sources": {"euvd": {"result": "ok", "records": 8, "skipped": 0}, "cisa_kev": {"result": "failed", "error_type": "SourceTransportError"}}, "published": {"team-php": 0, "team-go": 2}, "score_unknown": 1, "versions_unknown": 0, "count": 2, "duration_ms": 740}
+{"event": "cycle.summary", "sources": {"euvd": {"result": "ok", "records": 8, "skipped": 0}, "cisa_kev": {"result": "failed", "error_type": "SourceTransportError"}}, "published": {"team-php": 0, "team-go": 2}, "score_unknown": 1, "versions_unknown": 0, "held_back": {"team-php": 3}, "count": 2, "duration_ms": 740}
 ```
 
 - `sources`: each source of the cycle, `ok` with `records` (what the adapter returned) and `skipped` (records the adapter dropped), or `failed` with `error_type`.
 - `published`: items published per enabled endpoint, `0` included — each group member counts, so a burst of 5 renders as one feed item but counts 5 here. A permanent `0` for every endpoint is worth a look.
-- `score_unknown` and `versions_unknown`: published items let through because their score or their versions are unknown (recall over volume). Items held back by an endpoint's `require_score` are not published, so they are not counted.
+- `score_unknown` and `versions_unknown`: published items let through because their score or their versions are unknown (recall over volume). Items held back by an endpoint's `require_score` are not published: they are counted in `held_back`, not here.
+- `held_back`: per enabled endpoint with `require_score: true` (`0` included; an endpoint without the rule is not listed), the vulnerabilities that matched its products but were not published because no source has scored them yet. Known-exploited ones are never held back, so under `kev_only: true` the count is always `0` (everything past that check is known-exploited and exempt). A vulnerability the endpoint has already published is not counted either: the rule held nothing back from its feed. It is a count per cycle: a vulnerability is counted again in every cycle that evaluates it again, that is when one of its records changes, or at every cycle while the endpoint has published nothing yet (it re-checks its 7-day backfill each time). Read it as a per-cycle gauge, not a trend: do not sum `held_back` across cycles, and a falling value does not mean fewer items are hidden. It is not part of `count`. A `held_back` that stays high while `published` stays at `0` means the rule hides most of that endpoint's items, typically CERT-EU-only or freshly published ones.
 
 A fetch outcome, failed ones included, triggers a cycle: a failed source still reloads the configuration, slides the 14-day window and appears in the summary. The cvestream logs never contain a token or a feed path.
 

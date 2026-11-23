@@ -10,6 +10,7 @@ from structlog.testing import capture_logs
 
 from cvestream.config.provider import ConfigSnapshot
 from cvestream.domain.endpoint import Endpoint, ProductEntry, Rules
+from cvestream.domain.matcher import PassThrough
 from cvestream.domain.model import (
     AffectedProduct,
     CvssScore,
@@ -90,18 +91,20 @@ def _kev(
     cve: str = CVE,
     name: str | None = None,
     description: str | None = None,
+    catalog: KevCatalog = KevCatalog.CISA_KEV,
 ) -> SourceRecord:
+    source = "cisa_kev" if catalog is KevCatalog.CISA_KEV else "eu_kev"
     now = clock.now()
     return SourceRecord(
-        source="cisa_kev",
+        source=source,
         record_id=cve,
         observed_at=now,
-        title=Sourced(name, "cisa_kev", now) if name else None,
-        description=Sourced(description, "cisa_kev", now) if description else None,
+        title=Sourced(name, source, now) if name else None,
+        description=Sourced(description, source, now) if description else None,
         kev=(
             Sourced(
-                KevEntry(KevCatalog.CISA_KEV, added_at=now - timedelta(minutes=5)),
-                "cisa_kev",
+                KevEntry(catalog, added_at=now - timedelta(minutes=5)),
+                source,
                 now,
             ),
         ),
@@ -671,6 +674,7 @@ def test_an_unscored_vulnerability_held_back_by_require_score_is_new_once_scored
         fake_clock,
     )
     assert result.decisions == ()
+    assert result.held_back == {"team-php": 1}
     # Run 3: the same record with a score is published as new
     fake_clock.advance(timedelta(minutes=15))
     result = run(
@@ -748,6 +752,7 @@ def test_an_unscored_vulnerability_held_back_by_require_score_is_new_once_exploi
         fake_clock,
     )
     assert result.decisions == ()
+    assert result.held_back == {"team-php": 1}
     # Run 3: the same vulnerability becomes KEV and is published as new
     fake_clock.advance(timedelta(minutes=15))
     result = run(
@@ -1053,3 +1058,180 @@ def test_a_guid_collision_in_one_run_is_still_skipped_when_grouping(
     assert skipped[0]["reason"] == "guid_collision"
     assert {group for _, group in _group_rows(state)} == {None}
     assert result.feeds["team-php"].item_count == 1
+
+
+# --- held back by require_score (NFR-4, story 5.3) --------------------------------
+
+
+def test_held_back_is_counted_per_endpoint_with_require_score(
+    state: State, fake_clock: FakeClock
+) -> None:
+    zeta = replace(_endpoint("team-zeta"), rules=Rules(require_score=True))
+    strict = replace(_endpoint("team-strict"), rules=Rules(require_score=True))
+    plain = replace(_endpoint("team-plain"), rules=Rules(min_cvss=7.0))
+    off = replace(_endpoint("off", enabled=False), rules=Rules(require_score=True))
+    snapshot = _snapshot(zeta, strict, plain, off)
+    result = run(state, snapshot, [_batch(_euvd(fake_clock, score=None))], fake_clock)
+    assert result.held_back == {"team-zeta": 1, "team-strict": 1}
+    # Keys follow config order, not alphabetical order.
+    assert list(result.held_back) == ["team-zeta", "team-strict"]
+    assert _kinds(result) == [("team-plain", "new")]
+    # The endpoint without the rule publishes the unscored item labelled.
+    assert result.decisions[0].labels == frozenset({PassThrough.SCORE_UNKNOWN})
+
+
+def test_a_vulnerability_of_another_product_is_not_held_back(
+    state: State, fake_clock: FakeClock
+) -> None:
+    snapshot = _snapshot(replace(_endpoint(), rules=Rules(require_score=True)))
+    result = run(
+        state,
+        snapshot,
+        [_batch(_euvd(fake_clock, score=None, product="go"))],
+        fake_clock,
+    )
+    assert result.held_back == {"team-php": 0}
+    assert result.decisions == ()
+
+
+def test_kev_only_drops_before_require_score(
+    state: State, fake_clock: FakeClock
+) -> None:
+    rules = Rules(kev_only=True, require_score=True)
+    snapshot = _snapshot(replace(_endpoint(), rules=rules))
+    result = run(state, snapshot, [_batch(_euvd(fake_clock, score=None))], fake_clock)
+    assert result.held_back == {"team-php": 0}
+    assert result.decisions == ()
+
+
+@pytest.mark.parametrize(
+    "catalog", [KevCatalog.CISA_KEV, KevCatalog.EU_KEV], ids=["cisa-kev", "eu-kev"]
+)
+def test_an_unscored_known_exploited_vulnerability_is_not_held_back(
+    state: State, fake_clock: FakeClock, catalog: KevCatalog
+) -> None:
+    snapshot = _snapshot(replace(_endpoint(), rules=Rules(require_score=True)))
+    result = run(
+        state,
+        snapshot,
+        [_batch(_euvd(fake_clock, score=None), _kev(fake_clock, catalog=catalog))],
+        fake_clock,
+    )
+    assert result.held_back == {"team-php": 0}
+    assert _kinds(result) == [("team-php", "new")]
+
+
+def test_a_score_below_min_cvss_is_not_held_back(
+    state: State, fake_clock: FakeClock
+) -> None:
+    rules = Rules(require_score=True, min_cvss=7.0)
+    snapshot = _snapshot(replace(_endpoint(), rules=rules))
+    result = run(state, snapshot, [_batch(_euvd(fake_clock, score=5.0))], fake_clock)
+    assert result.held_back == {"team-php": 0}
+    assert result.decisions == ()
+
+
+def test_held_back_is_counted_again_while_an_endpoint_has_no_publication(
+    state: State, fake_clock: FakeClock
+) -> None:
+    snapshot = _snapshot(replace(_endpoint(), rules=Rules(require_score=True)))
+    first = run(state, snapshot, [_batch(_euvd(fake_clock, score=None))], fake_clock)
+    assert first.held_back == {"team-php": 1}
+    fake_clock.advance(timedelta(minutes=15))
+    second = run(state, snapshot, [_batch(_euvd(fake_clock, score=None))], fake_clock)
+    assert second.held_back == {"team-php": 1}
+
+
+def test_held_back_is_not_counted_again_for_an_untouched_vulnerability(
+    state: State, fake_clock: FakeClock
+) -> None:
+    snapshot = _snapshot(replace(_endpoint(), rules=Rules(require_score=True)))
+    # Run 1: a first, scored vulnerability is published as new (history exists)
+    first = run(
+        state,
+        snapshot,
+        [
+            _batch(
+                _euvd(
+                    fake_clock, record_id="EUVD-2026-0", cve="CVE-2026-1000", score=9.8
+                )
+            )
+        ],
+        fake_clock,
+    )
+    assert _kinds(first) == [("team-php", "new")]
+    # Run 2: an unscored vulnerability is held back
+    fake_clock.advance(timedelta(minutes=15))
+    second = run(
+        state,
+        snapshot,
+        [
+            _batch(
+                _euvd(
+                    fake_clock, record_id="EUVD-2026-1", cve="CVE-2026-1001", score=None
+                )
+            )
+        ],
+        fake_clock,
+    )
+    assert second.held_back == {"team-php": 1}
+    # Run 3: the same batch unchanged is not touched, so not re-evaluated
+    fake_clock.advance(timedelta(minutes=15))
+    third = run(
+        state,
+        snapshot,
+        [
+            _batch(
+                _euvd(
+                    fake_clock, record_id="EUVD-2026-1", cve="CVE-2026-1001", score=None
+                )
+            )
+        ],
+        fake_clock,
+    )
+    assert third.held_back == {"team-php": 0}
+    # Run 4: the same held-back record changes while still unscored -> counted again
+    fake_clock.advance(timedelta(minutes=15))
+    fourth = run(
+        state,
+        snapshot,
+        [
+            _batch(
+                _euvd(
+                    fake_clock,
+                    record_id="EUVD-2026-1",
+                    cve="CVE-2026-1001",
+                    score=None,
+                    description="A flaw, revised",
+                )
+            )
+        ],
+        fake_clock,
+    )
+    assert fourth.held_back == {"team-php": 1}
+
+
+def test_an_already_published_vulnerability_is_not_held_back(
+    state: State, fake_clock: FakeClock
+) -> None:
+    # Run 1: published unscored while the rule is off
+    first = run(
+        state,
+        _snapshot(_endpoint()),
+        [_batch(_euvd(fake_clock, score=None))],
+        fake_clock,
+    )
+    assert _kinds(first) == [("team-php", "new")]
+    # Run 2: the rule is switched on and the record changes, still unscored
+    fake_clock.advance(timedelta(minutes=15))
+    snapshot = _snapshot(replace(_endpoint(), rules=Rules(require_score=True)))
+    second = run(
+        state,
+        snapshot,
+        [_batch(_euvd(fake_clock, score=None, description="A flaw, updated"))],
+        fake_clock,
+    )
+    assert second.decisions == ()
+    assert second.held_back == {"team-php": 0}
+    # The item is still in the feed: the rule held nothing back.
+    assert second.feeds["team-php"].item_count == 1
