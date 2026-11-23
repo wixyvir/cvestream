@@ -78,6 +78,8 @@ class StoredPublication:
     published_at: datetime
     # `None` on rows older than the `is_fresh` column.
     is_fresh: bool | None
+    # `None` when the row is published on its own, or older than the column.
+    group_guid: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -341,6 +343,8 @@ class Repository:
         vulnerability_id: int,
         decision: PublicationDecision,
         published_at: datetime,
+        *,
+        group_guid: str | None = None,
     ) -> None:
         self._connection.execute(
             insert(schema.publication).values(
@@ -352,6 +356,7 @@ class Repository:
                 band=decision.band.value,
                 is_known_exploited=decision.is_known_exploited,
                 is_fresh=decision.is_fresh,
+                group_guid=group_guid,
                 products_json=list(decision.products),
                 labels_json=sorted(label.value for label in decision.labels),
                 published_at=published_at,
@@ -376,6 +381,7 @@ class Repository:
                     schema.publication.c.band,
                     schema.publication.c.is_known_exploited,
                     schema.publication.c.is_fresh,
+                    schema.publication.c.group_guid,
                     schema.publication.c.products_json,
                     schema.publication.c.labels_json,
                     schema.publication.c.published_at,
@@ -402,6 +408,7 @@ class Repository:
                         labels=frozenset(PassThrough(v) for v in row.labels_json),
                         published_at=row.published_at,
                         is_fresh=row.is_fresh,
+                        group_guid=row.group_guid,
                     )
                 )
         return found

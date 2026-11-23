@@ -10,6 +10,8 @@ matches its own stack, so a Slack RSS integration only posts what is relevant
 to them — with CVSS score, known-exploited status, and affected versions in
 each item, and an emoji-flagged title (🔥 exploited, 🔴 critical, 🔺 severity
 raised, 🆕 new that day) so the ones that matter stand out while scrolling.
+A burst of several vulnerabilities of the same product in one poll can be
+grouped into a single message (`group_by_product`).
 
 **Status:** v0.x — early development. The API and configuration format may
 change between releases.

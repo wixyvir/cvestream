@@ -1,6 +1,12 @@
 import pytest
 
-from cvestream.domain.identity import AliasKind, alias_kind, normalize_alias, primary_id
+from cvestream.domain.identity import (
+    AliasKind,
+    alias_kind,
+    alias_sort_key,
+    normalize_alias,
+    primary_id,
+)
 
 
 @pytest.mark.parametrize(
@@ -81,3 +87,13 @@ def test_primary_id_without_usable_alias_is_a_programming_error(
 ) -> None:
     with pytest.raises(ValueError, match="alias"):
         primary_id(aliases)
+
+
+def test_alias_sort_key_is_numeric_for_cve_and_euvd() -> None:
+    # Public since story 5.2: the group member order reuses it.
+    assert alias_sort_key("CVE-2026-9999") < alias_sort_key("CVE-2026-10000")
+    assert alias_sort_key("EUVD-2026-20") < alias_sort_key("EUVD-2026-100")
+    assert alias_sort_key("CVE-2026-9999") < alias_sort_key("CVE-2027-1000")
+    # advisories sort lexicographically, before CVEs of the same band
+    assert alias_sort_key("CERTFR-2026-ALE-012") < alias_sort_key("CVE-2026-1")
+    assert alias_sort_key("GHSA-AAAA") == (0, 0, "GHSA-AAAA")

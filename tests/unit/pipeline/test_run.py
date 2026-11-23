@@ -1,6 +1,7 @@
 import xml.etree.ElementTree as ET
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from types import MappingProxyType
 
 import pytest
@@ -37,12 +38,17 @@ START = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 def _endpoint(
-    endpoint_id: str = "team-php", product: str = "php", *, enabled: bool = True
+    endpoint_id: str = "team-php",
+    product: str = "php",
+    *,
+    enabled: bool = True,
+    group_by_product: bool = False,
 ) -> Endpoint:
     return Endpoint(
         id=endpoint_id,
         name=endpoint_id,
         products=(ProductEntry(name=product),),
+        rules=Rules(group_by_product=group_by_product),
         enabled=enabled,
     )
 
@@ -371,11 +377,13 @@ def test_a_failure_rolls_everything_back(
         vulnerability_id: int,
         decision: PublicationDecision,
         published_at: datetime,
+        *,
+        group_guid: str | None = None,
     ) -> None:
         calls.append(decision.endpoint_id)
         if len(calls) == 2:
             raise RuntimeError("disk full")
-        original(self, vulnerability_id, decision, published_at)
+        original(self, vulnerability_id, decision, published_at, group_guid=group_guid)
 
     monkeypatch.setattr(Repository, "add_publication", flaky)
     with pytest.raises(RuntimeError, match="disk full"):
@@ -460,6 +468,30 @@ def test_decisions_and_completion_are_logged(
 def _guids(xml: bytes) -> list[str]:
     root = ET.fromstring(xml)  # noqa: S314 - our own output
     return [item.findtext("guid") or "" for item in root.findall("channel/item")]
+
+
+def _titles(xml: bytes) -> list[str]:
+    root = ET.fromstring(xml)  # noqa: S314 - our own output
+    return [item.findtext("title") or "" for item in root.findall("channel/item")]
+
+
+def _euvd_records(
+    clock: FakeClock,
+    count: int,
+    *,
+    score: float | None = 5.0,
+    product: str | None = "php",
+) -> list[SourceRecord]:
+    return [
+        _euvd(
+            clock,
+            record_id=f"EUVD-2026-{i}",
+            cve=f"CVE-2026-{1000 + i}",
+            score=score,
+            product=product,
+        )
+        for i in range(1, count + 1)
+    ]
 
 
 def test_every_enabled_endpoint_gets_a_stored_feed(
@@ -794,3 +826,230 @@ def test_a_rerun_past_midnight_keeps_the_xml_the_etag_and_changed_at(
         stored = repo.feeds()["team-php"]
     assert stored.xml.encode("utf-8") == first.xml
     assert stored.changed_at == first.changed_at
+
+
+# --- story 5.2: group a run's same-product burst into one item (FR-27) ---
+
+
+def _group_rows(state: State) -> list[tuple[str, str | None]]:
+    with state.transaction() as repo:
+        return [
+            (row.guid, row.group_guid)
+            for row in repo._connection.execute(select(schema.publication)).all()
+        ]
+
+
+def test_three_same_product_decisions_form_one_group_item(
+    state: State, fake_clock: FakeClock
+) -> None:
+    snapshot = _snapshot(_endpoint(group_by_product=True))
+    with capture_logs() as logs:
+        result = run(
+            state, snapshot, [_batch(*_euvd_records(fake_clock, 3))], fake_clock
+        )
+    # `cycle.summary` counts members: 3 decisions, one rendered item
+    assert _kinds(result) == [("team-php", "new")] * 3
+    rows = _group_rows(state)
+    assert len(rows) == 3
+    (group_guid,) = {group for _, group in rows}
+    assert group_guid is not None
+    assert group_guid.startswith("cvestream:team-php:group-new:")
+    feed = result.feeds["team-php"]
+    assert feed.item_count == 1
+    assert _guids(feed.xml) == [group_guid]
+    grouped = [entry for entry in logs if entry["event"] == "publish.grouped"]
+    assert grouped == [
+        {
+            "event": "publish.grouped",
+            "log_level": "info",
+            "endpoint_id": "team-php",
+            "family": "new",
+            "count": 3,
+            "part": 1,
+            "parts": 1,
+            "group_guid": group_guid,
+        }
+    ]
+    decided = [entry for entry in logs if entry["event"] == "publish.decided"]
+    assert len(decided) == 3
+    assert all(entry["group_guid"] == group_guid for entry in decided)
+
+
+def test_the_rule_off_publishes_single_items_with_a_null_group_guid(
+    state: State, fake_clock: FakeClock
+) -> None:
+    snapshot = _snapshot(_endpoint())
+    result = run(state, snapshot, [_batch(*_euvd_records(fake_clock, 3))], fake_clock)
+    assert len(result.decisions) == 3
+    assert {group for _, group in _group_rows(state)} == {None}
+    feed = result.feeds["team-php"]
+    assert feed.item_count == 3
+    assert len(_guids(feed.xml)) == 3
+
+
+def test_two_decisions_stay_single_items(state: State, fake_clock: FakeClock) -> None:
+    snapshot = _snapshot(_endpoint(group_by_product=True))
+    result = run(state, snapshot, [_batch(*_euvd_records(fake_clock, 2))], fake_clock)
+    assert len(result.decisions) == 2
+    assert {group for _, group in _group_rows(state)} == {None}
+    assert result.feeds["team-php"].item_count == 2
+
+
+def test_a_known_exploited_member_is_removed_before_the_threshold(
+    state: State, fake_clock: FakeClock
+) -> None:
+    snapshot = _snapshot(_endpoint(group_by_product=True))
+    kev = _kev(fake_clock, cve="CVE-2026-1003")
+    result = run(
+        state, snapshot, [_batch(*_euvd_records(fake_clock, 3), kev)], fake_clock
+    )
+    # 3 decisions, but the exploited one cannot join: 2 left, no group
+    assert len(result.decisions) == 3
+    assert {group for _, group in _group_rows(state)} == {None}
+    assert result.feeds["team-php"].item_count == 3
+
+
+def test_six_members_split_into_two_group_items(
+    state: State, fake_clock: FakeClock
+) -> None:
+    snapshot = _snapshot(_endpoint(group_by_product=True))
+    result = run(state, snapshot, [_batch(*_euvd_records(fake_clock, 6))], fake_clock)
+    assert len(result.decisions) == 6
+    rows = _group_rows(state)
+    assert len({group for _, group in rows}) == 2
+    feed = result.feeds["team-php"]
+    assert feed.item_count == 2
+    guids = _guids(feed.xml)
+    assert len(guids) == 2
+    assert all(guid.startswith("cvestream:team-php:group-new:") for guid in guids)
+    titles = _titles(feed.xml)
+    # balanced split: 6 members → 3 + 3, never 5 + 1
+    assert any("3 new vulnerabilities" in t and "part 1 of 2" in t for t in titles)
+    assert any("3 new vulnerabilities" in t and "part 2 of 2" in t for t in titles)
+
+
+def test_replaying_the_same_batches_keeps_the_group_the_xml_and_the_etag(
+    state: State, fake_clock: FakeClock
+) -> None:
+    snapshot = _snapshot(_endpoint(group_by_product=True))
+    batches = [_batch(*_euvd_records(fake_clock, 3))]
+    first = run(state, snapshot, batches, fake_clock)
+    fake_clock.advance(timedelta(minutes=15))
+    again = run(state, snapshot, batches, fake_clock)
+    assert again.decisions == ()
+    assert again.feeds["team-php"].xml == first.feeds["team-php"].xml
+    assert again.feeds["team-php"].etag == first.feeds["team-php"].etag
+    assert _guids(again.feeds["team-php"].xml) == _guids(first.feeds["team-php"].xml)
+
+
+def test_a_band_rise_groups_again_and_a_later_kev_is_a_single_item(
+    state: State, fake_clock: FakeClock
+) -> None:
+    snapshot = _snapshot(_endpoint(group_by_product=True))
+    first = run(
+        state, snapshot, [_batch(*_euvd_records(fake_clock, 3, score=5.0))], fake_clock
+    )
+    (new_group,) = _guids(first.feeds["team-php"].xml)
+    assert new_group.startswith("cvestream:team-php:group-new:")
+
+    fake_clock.advance(timedelta(minutes=15))
+    second = run(
+        state, snapshot, [_batch(*_euvd_records(fake_clock, 3, score=9.8))], fake_clock
+    )
+    assert _kinds(second) == [("team-php", "band-critical")] * 3
+    guids = _guids(second.feeds["team-php"].xml)
+    assert len(guids) == 2
+    assert guids[0].startswith("cvestream:team-php:group-band:")
+    assert guids[1] == new_group
+    assert second.feeds["team-php"].item_count == 2
+    # the earlier group item keeps its GUID and its decision-time title
+    first_titles = dict(
+        zip(
+            _guids(first.feeds["team-php"].xml),
+            _titles(first.feeds["team-php"].xml),
+            strict=True,
+        )
+    )
+    second_titles = dict(zip(guids, _titles(second.feeds["team-php"].xml), strict=True))
+    assert second_titles[new_group] == first_titles[new_group]
+
+    # one member becomes known-exploited: a single kev item, groups unchanged
+    fake_clock.advance(timedelta(minutes=15))
+    third = run(
+        state, snapshot, [_batch(_kev(fake_clock, cve="CVE-2026-1003"))], fake_clock
+    )
+    assert _kinds(third) == [("team-php", "kev")]
+    guids = _guids(third.feeds["team-php"].xml)
+    assert guids[0] == "cvestream:team-php:CVE-2026-1003:kev"
+    assert guids[1].startswith("cvestream:team-php:group-band:")
+    assert guids[2] == new_group
+    third_titles = dict(zip(guids, _titles(third.feeds["team-php"].xml), strict=True))
+    assert third_titles[new_group] == first_titles[new_group]
+    assert third_titles[guids[1]] == second_titles[guids[1]]
+    assert third.feeds["team-php"].item_count == 3
+
+
+def test_switching_the_rule_off_never_regroups_stored_items(
+    state: State, fake_clock: FakeClock
+) -> None:
+    on = _snapshot(_endpoint(group_by_product=True))
+    first = run(state, on, [_batch(*_euvd_records(fake_clock, 3))], fake_clock)
+    fake_clock.advance(timedelta(minutes=15))
+    off = _snapshot(_endpoint())
+    second = run(state, off, [_batch()], fake_clock)
+    assert second.decisions == ()
+    assert second.feeds["team-php"].xml == first.feeds["team-php"].xml
+    assert second.feeds["team-php"].etag == first.feeds["team-php"].etag
+    assert second.feeds["team-php"].item_count == 1
+
+
+def test_switching_the_rule_on_never_regroups_stored_items(
+    state: State, fake_clock: FakeClock
+) -> None:
+    # AC 9, symmetric case: single items published with the rule off stay
+    # single items when the rule is switched on.
+    off = _snapshot(_endpoint())
+    first = run(state, off, [_batch(*_euvd_records(fake_clock, 3))], fake_clock)
+    assert len(first.decisions) == 3
+    assert {group for _, group in _group_rows(state)} == {None}
+    assert first.feeds["team-php"].item_count == 3
+    fake_clock.advance(timedelta(minutes=15))
+    on = _snapshot(_endpoint(group_by_product=True))
+    second = run(state, on, [_batch()], fake_clock)
+    assert second.decisions == ()
+    assert second.feeds["team-php"].xml == first.feeds["team-php"].xml
+    assert second.feeds["team-php"].etag == first.feeds["team-php"].etag
+    assert second.feeds["team-php"].item_count == 3
+
+
+def test_the_group_guid_does_not_depend_on_the_batch_order(
+    state: State, fake_clock: FakeClock, tmp_path: Path
+) -> None:
+    records = _euvd_records(fake_clock, 3)
+    snapshot = _snapshot(_endpoint(group_by_product=True))
+    forward = run(state, snapshot, [_batch(*records)], fake_clock)
+    other = State(f"sqlite:///{tmp_path / 'other.db'}")
+    other.migrate()
+    try:
+        backward = run(other, snapshot, [_batch(*reversed(records))], fake_clock)
+    finally:
+        other.dispose()
+    assert _guids(forward.feeds["team-php"].xml) == _guids(
+        backward.feeds["team-php"].xml
+    )
+
+
+def test_a_guid_collision_in_one_run_is_still_skipped_when_grouping(
+    state: State, fake_clock: FakeClock
+) -> None:
+    batch = _batch(_advisory_revision(fake_clock, 1), _advisory_revision(fake_clock, 2))
+    with capture_logs() as logs:
+        result = run(
+            state, _snapshot(_endpoint(group_by_product=True)), [batch], fake_clock
+        )
+    assert _kinds(result) == [("team-php", "new")]
+    skipped = [entry for entry in logs if entry["event"] == "publish.skipped"]
+    assert len(skipped) == 1
+    assert skipped[0]["reason"] == "guid_collision"
+    assert {group for _, group in _group_rows(state)} == {None}
+    assert result.feeds["team-php"].item_count == 1

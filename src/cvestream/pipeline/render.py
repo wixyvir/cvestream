@@ -22,6 +22,16 @@ line hypotheses, inferred from a local replay and the ~208-character posts of
 2026-11-19, not measured against Slack), so the first `<p>` holds the facts
 line, the matched products and the full description. Unknown is `unknown`,
 never `0`, `n/a` or an empty string.
+
+Group items (story 5.2, FR-27): rows sharing a stored `group_guid` collapse
+into one item. Grouping happened at decision time and is never redone here:
+a stored group always renders as a group, whatever the endpoint's current
+`group_by_product` rule, so switching the rule never changes published GUIDs.
+The item carries the group GUID, the members' `pubDate`, a group title and a
+body with one line per member in the first `<p>` (each line resolves its
+versions under the member's own title-product label, and caps the version
+text at `GROUP_MEMBER_VERSION_CHARS`); `part i of k` is worked out from the
+stored rows only.
 """
 
 import hashlib
@@ -38,7 +48,13 @@ from cvestream.domain.endpoint import Endpoint, ProductEntry
 from cvestream.domain.identity import AliasKind, alias_kind
 from cvestream.domain.matcher import PassThrough, affected_hits
 from cvestream.domain.model import KevCatalog, KevEntry, RecordRef, Vulnerability
-from cvestream.domain.publication import KEV, NEW
+from cvestream.domain.publication import (
+    FAMILY_BAND,
+    KEV,
+    NEW,
+    kind_family,
+    member_order_key,
+)
 from cvestream.domain.severity import Band, band_of, max_score
 
 # RSS 2.0 requires a channel link; the daemon does not know its public base URL.
@@ -51,6 +67,10 @@ UNKNOWN = "unknown"
 # not documented by Slack). The body leads with what must fit in this window;
 # a later change is a one-line fix here.
 SLACK_PREVIEW_CHARS = 495
+# Group member lines only: the first version text is capped at this many
+# characters (then an ellipsis), so one long prose version cannot push the
+# other members out of Slack's preview window. Single items stay verbatim.
+GROUP_MEMBER_VERSION_CHARS = 60
 _MAX_REFERENCES = 10
 _LINK_SCHEMES = frozenset({"http", "https"})
 _UPDATE_PREFIX = "[UPDATE] "
@@ -84,6 +104,8 @@ class FeedEntry:
     vulnerability: Vulnerability
     # Decision-time freshness (`None` on rows from before the column).
     is_fresh: bool | None = None
+    # Group item GUID (story 5.2); `None` when published on its own.
+    group_guid: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -281,19 +303,19 @@ def _kev(vulnerability: Vulnerability) -> str:
     return ", ".join(parts)
 
 
-def _affected(vulnerability: Vulnerability) -> str:
-    """One label per product (grouped case-insensitively), its version texts
-    verbatim, at most 3 (+N more)."""
+def _affected_rows(vulnerability: Vulnerability) -> list[tuple[str, list[str]]]:
+    """One `(label, version texts)` pair per product, grouped case-insensitively.
+
+    The title rule: the vendor is dropped when the product name already
+    contains it. The version text is source text, never parsed here. Review
+    decision D3 of wixyvir/cvestream#51: `apache tomcat` and `Apache Tomcat`
+    are one product; the first-seen spelling is the one displayed.
+    """
     labels: list[str] = []
     versions: dict[str, list[str]] = {}
     for sourced in vulnerability.affected:
         affected = sourced.value
-        # The title rule: the vendor is dropped when the product name already
-        # contains it. The version text is source text, never parsed here.
         label = _product_label(affected.product, affected.vendor)
-        # Group on the case-folded label (review decision D3 of
-        # wixyvir/cvestream#51): `apache tomcat` and `Apache Tomcat` are one
-        # product; the first-seen spelling is the one displayed.
         key = _one_line(label).casefold()
         if key not in versions:
             labels.append(label)
@@ -301,9 +323,14 @@ def _affected(vulnerability: Vulnerability) -> str:
         text = _one_line(affected.version_text or "")
         if text and text not in versions[key]:
             versions[key].append(text)
+    return [(label, versions[_one_line(label).casefold()]) for label in labels]
+
+
+def _affected(vulnerability: Vulnerability) -> str:
+    """One label per product (grouped case-insensitively), its version texts
+    verbatim, at most 3 (+N more)."""
     parts: list[str] = []
-    for label in labels:
-        rows = versions[_one_line(label).casefold()]
+    for label, rows in _affected_rows(vulnerability):
         if not rows:
             parts.append(f"{label} versions unknown")
         elif len(rows) > 3:
@@ -438,6 +465,199 @@ def _item(channel: ET.Element, entry: FeedEntry, endpoint: Endpoint) -> None:
     _text(item, "pubDate", _rfc822(entry.published_at))
 
 
+# --- group items (story 5.2, FR-27): stored groups render as groups ---
+
+
+@dataclass(frozen=True, slots=True)
+class _Group:
+    """One feed item collapsed from the rows sharing a stored `group_guid`."""
+
+    guid: str
+    # Ordered with `member_order_key(band, primary_id)`, then `guid`.
+    members: tuple[FeedEntry, ...]
+    # 1-based chunk position among the burst's siblings, from stored values.
+    part: int
+    parts: int
+
+
+def _entry_order_key(entry: FeedEntry) -> tuple[tuple[int, tuple[int, int, str]], str]:
+    return member_order_key(entry.band, entry.primary_id), entry.guid
+
+
+def _burst_key(entry: FeedEntry) -> tuple[str, str, datetime]:
+    # The sibling chunks of one burst share the kind family of their members,
+    # the first matched entry name and the `published_at` (one run = one value).
+    family = kind_family(entry.kind) or ""
+    product = entry.products[0] if entry.products else ""
+    return family, product, entry.published_at
+
+
+def _items(entries: Sequence[FeedEntry]) -> list[FeedEntry | _Group]:
+    """Collapse the entries sharing a `group_guid` into one `_Group` each.
+
+    A group takes the position of its first entry (entries come newest
+    first; all members of a burst share `published_at`). Part numbering is
+    worked out from stored values only: the siblings of a burst are the
+    groups with the same burst key, ordered by their first member's order
+    key, so chunk 1 (the most severe) is part 1.
+    """
+    members_of: dict[str, list[FeedEntry]] = {}
+    for entry in entries:
+        if entry.group_guid is not None:
+            members_of.setdefault(entry.group_guid, []).append(entry)
+    siblings: dict[tuple[str, str, datetime], list[str]] = {}
+    for guid, members in members_of.items():
+        siblings.setdefault(_burst_key(members[0]), []).append(guid)
+    sibling_order: dict[str, tuple[int, int]] = {}
+    for guids in siblings.values():
+        ordered = sorted(
+            guids,
+            key=lambda g: _entry_order_key(min(members_of[g], key=_entry_order_key)),
+        )
+        for position, guid in enumerate(ordered, start=1):
+            sibling_order[guid] = position, len(ordered)
+    items: list[FeedEntry | _Group] = []
+    seen: set[str] = set()
+    for entry in entries:
+        if entry.group_guid is None:
+            items.append(entry)
+        elif entry.group_guid not in seen:
+            seen.add(entry.group_guid)
+            members = sorted(members_of[entry.group_guid], key=_entry_order_key)
+            part, parts = sibling_order[entry.group_guid]
+            items.append(
+                _Group(
+                    guid=entry.group_guid,
+                    members=tuple(members),
+                    part=part,
+                    parts=parts,
+                )
+            )
+    return items
+
+
+def count_items(entries: Sequence[FeedEntry]) -> int:
+    """The number of rendered items: a group counts once."""
+    return len(_items(entries))
+
+
+def _group_markers(group: _Group) -> str:
+    """The group title's emoji, in order, all that apply: stored values only.
+
+    🔴 when any member's stored band is `critical`; 🔺 for the `band` family
+    when the chunk's worst band is `medium` or above (review decision D1 of
+    wixyvir/cvestream#51, applied to groups); 🆕 when any member's stored
+    `is_fresh` is true. 🔥 never appears: known-exploited is never grouped.
+    Escapes, not literal characters (ruff RUF001).
+    """
+    markers = ""
+    if any(member.band is Band.CRITICAL for member in group.members):
+        markers += "\N{LARGE RED CIRCLE}"
+    worst = group.members[0].band
+    family = kind_family(group.members[0].kind)
+    if family == FAMILY_BAND and worst.rank >= Band.MEDIUM.rank:
+        markers += "\N{UP-POINTING RED TRIANGLE}"
+    if any(member.is_fresh is True for member in group.members):
+        markers += "\N{SQUARED NEW}"
+    return markers
+
+
+def _band_counts(members: Sequence[FeedEntry]) -> str:
+    """Non-zero member counts per stored band, worst first: `1 critical, 3 high`."""
+    counts: dict[Band, int] = {}
+    for member in members:
+        counts[member.band] = counts.get(member.band, 0) + 1
+    ordered = sorted(counts.items(), key=lambda item: -item[0].rank)
+    return ", ".join(f"{count} {band.value}" for band, count in ordered)
+
+
+def _group_title(group: _Group, endpoint: Endpoint) -> str:
+    members = group.members
+    label = _title_product(members[0], endpoint)
+    noun = "vulnerability" if len(members) == 1 else "vulnerabilities"
+    counts = _band_counts(members)
+    if kind_family(members[0].kind) == FAMILY_BAND:
+        text = f"{_UPDATE_PREFIX}{label}: {len(members)} {noun} raised ({counts})"
+    else:
+        text = (
+            f"{label}: {len(members)} new {noun}, "
+            f"worst {members[0].band.value} ({counts})"
+        )
+    if group.parts > 1:
+        text += f", part {group.part} of {group.parts}"
+    markers = _group_markers(group)
+    return f"{markers} {text}" if markers else text
+
+
+def _member_versions(vulnerability: Vulnerability, title_product: str) -> str:
+    """The first version text of the affected label the title product names.
+
+    Group member lines only: the text is capped at `GROUP_MEMBER_VERSION_CHARS`
+    characters plus an ellipsis (the `(+N more)` suffix comes after it), the
+    one place where a source version text is not shown verbatim.
+    """
+    key = _one_line(title_product).casefold()
+    for label, rows in _affected_rows(vulnerability):
+        if _one_line(label).casefold() == key:
+            if not rows:
+                return "versions unknown"
+            first = rows[0]
+            if len(first) > GROUP_MEMBER_VERSION_CHARS:
+                first = f"{first[:GROUP_MEMBER_VERSION_CHARS]}\N{HORIZONTAL ELLIPSIS}"
+            if len(rows) > 1:
+                return f"{first} (+{len(rows) - 1} more)"
+            return first
+    return "versions unknown"
+
+
+def _member_line(entry: FeedEntry, endpoint: Endpoint) -> str:
+    """One story-5.1-style line: ID · band score · exploited · versions.
+
+    The versions are looked up under the member's own title product
+    (`_title_product(entry, endpoint)`): members share the matched entry name,
+    not the source's vendor/product spelling, so another member's label would
+    read `versions unknown`. An unknown score reads just `unknown`.
+    """
+    vulnerability = entry.vulnerability
+    score = max_score(vulnerability.scores)
+    band_score = f"{band_of(score).value} {score:.1f}" if score is not None else UNKNOWN
+    exploited = "yes" if vulnerability.is_known_exploited else "no"
+    records = _ordered_records(vulnerability)
+    url = _link(records)
+    safe = _safe_url(url) if url is not None else None
+    if safe is not None:
+        id_html = _anchor(safe, entry.primary_id)
+    else:
+        id_html = _h(entry.primary_id)
+    dot = " \N{MIDDLE DOT} "
+    rest = (
+        f"{band_score}{dot}"
+        f"exploited: {exploited}{dot}"
+        f"{_member_versions(vulnerability, _title_product(entry, endpoint))}"
+    )
+    return f"{id_html}{dot}{_h(rest)}"
+
+
+def _group_description(group: _Group, endpoint: Endpoint) -> str:
+    """One `<p>` holding every member line, most severe first (Slack keeps
+    only the first block-level elements). The title keeps the first member's
+    label; each line resolves its versions under its own member's label."""
+    lines = [_member_line(member, endpoint) for member in group.members]
+    return "<p>" + "<br/>\n".join(lines) + "</p>"
+
+
+def _group_item(channel: ET.Element, group: _Group, endpoint: Endpoint) -> None:
+    item = ET.SubElement(channel, "item")
+    _text(item, "title", _group_title(group, endpoint))
+    link = _link(_ordered_records(group.members[0].vulnerability))
+    if link is not None:
+        _text(item, "link", link)
+    _text(item, "description", _group_description(group, endpoint))
+    guid = _text(item, "guid", group.guid)
+    guid.set("isPermaLink", "false")
+    _text(item, "pubDate", _rfc822(group.members[0].published_at))
+
+
 def render_feed(endpoint: Endpoint, entries: Sequence[FeedEntry]) -> bytes:
     """The RSS 2.0 document of `endpoint`; `entries` come newest first."""
     root = ET.Element("rss", version="2.0")
@@ -454,6 +674,9 @@ def render_feed(endpoint: Endpoint, entries: Sequence[FeedEntry]) -> bytes:
         # The newest item, never the render time: that would change the ETag
         # at every run.
         _text(channel, "lastBuildDate", _rfc822(max(e.published_at for e in entries)))
-    for entry in entries:
-        _item(channel, entry, endpoint)
+    for item in _items(entries):
+        if isinstance(item, _Group):
+            _group_item(channel, item, endpoint)
+        else:
+            _item(channel, item, endpoint)
     return ET.tostring(root, encoding="utf-8", xml_declaration=True)

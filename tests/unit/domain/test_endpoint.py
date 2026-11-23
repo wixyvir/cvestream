@@ -20,6 +20,7 @@ def test_rules_default_to_no_filtering() -> None:
     assert rules.min_cvss is None
     assert rules.kev_only is False
     assert rules.require_score is False
+    assert rules.group_by_product is False
 
 
 def test_endpoint_defaults_and_nesting() -> None:
