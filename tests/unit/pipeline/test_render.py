@@ -27,6 +27,7 @@ from cvestream.pipeline.render import (
     CHANNEL_LINK,
     SLACK_PREVIEW_CHARS,
     FeedEntry,
+    count_items,
     etag_of,
     render_feed,
 )
@@ -1010,3 +1011,302 @@ def test_is_fresh_none_or_false_gives_no_marker_and_no_leading_space() -> None:
         title = _title_of(_entry(band=Band.UNKNOWN, is_fresh=fresh))
         assert title == "CVE-2026-1234 in php: severity unknown"
         assert not title.startswith(" ")
+
+
+# --- story 5.2: group items (stored group_guid rows collapse into one item) ---
+
+TOMCAT_ENDPOINT = replace(
+    ENDPOINT, id="team-tomcat", name="Tomcat team", products=(ProductEntry("tomcat"),)
+)
+GROUP_GUID = "cvestream:team-tomcat:group-new:0123456789abcdef"
+
+
+def _tomcat_vulnerability(
+    primary_id: str,
+    score: float | None,
+    versions: tuple[str, ...] = ("10.1.0-M1 ≤10.1.61",),
+    *,
+    kev: bool = False,
+    with_record: bool = True,
+    url: str | None = None,
+) -> Vulnerability:
+    records = (
+        (
+            RecordRef(
+                "euvd", f"EUVD-{primary_id}", url or f"https://euvd.test/{primary_id}"
+            ),
+        )
+        if with_record
+        else ()
+    )
+    return Vulnerability(
+        primary_id=primary_id,
+        aliases=frozenset({primary_id}),
+        records=records,
+        scores=() if score is None else (_sourced(CvssScore(score)),),
+        kev=(_sourced(KevEntry(KevCatalog.CISA_KEV)),) if kev else (),
+        affected=tuple(
+            _sourced(AffectedProduct("Apache Tomcat", "Apache Software Foundation", v))
+            for v in versions
+        ),
+    )
+
+
+def _member(
+    primary_id: str,
+    band: Band,
+    score: float | None,
+    group_guid: str = GROUP_GUID,
+    *,
+    kind: str = "new",
+    fresh: bool | None = False,
+    versions: tuple[str, ...] = ("10.1.0-M1 ≤10.1.61",),
+    published_at: datetime = NOW,
+    with_record: bool = True,
+) -> FeedEntry:
+    return FeedEntry(
+        guid=f"cvestream:team-tomcat:{primary_id}:{kind}",
+        kind=kind,
+        primary_id=primary_id,
+        band=band,
+        is_known_exploited=False,
+        products=("tomcat",),
+        labels=frozenset(),
+        published_at=published_at,
+        vulnerability=_tomcat_vulnerability(
+            primary_id, score, versions, with_record=with_record
+        ),
+        is_fresh=fresh,
+        group_guid=group_guid,
+    )
+
+
+def _five_member_burst() -> list[FeedEntry]:
+    return [
+        _member(
+            "CVE-2026-95517",
+            Band.CRITICAL,
+            9.1,
+            fresh=True,
+            versions=tuple(f"≤10.1.{i}" for i in range(61, 66)),
+        ),
+        _member(
+            "CVE-2026-95518",
+            Band.HIGH,
+            7.5,
+            versions=("11.0.0-M1 ≤11.0.27", "≤ 9.0.100"),
+        ),
+        _member("CVE-2026-95519", Band.HIGH, 7.4),
+        _member("CVE-2026-95520", Band.HIGH, 7.0),
+        _member("CVE-2026-95521", Band.MEDIUM, 5.0),
+    ]
+
+
+def _group_item(
+    entries: list[FeedEntry], endpoint: Endpoint = TOMCAT_ENDPOINT
+) -> ET.Element:
+    items = _parse(render_feed(endpoint, entries)).findall("channel/item")
+    assert len(items) == 1
+    return items[0]
+
+
+def _group_lines(item: ET.Element) -> list[str]:
+    description = item.findtext("description")
+    assert description is not None
+    text = html.unescape(_TAG.sub("", description))
+    return [line for line in text.split("\n") if line]
+
+
+def test_the_golden_group_title_and_body() -> None:
+    item = _group_item(_five_member_burst())
+    assert item.findtext("title") == (
+        f"{RED_CIRCLE}{SQUARED_NEW} Apache Software Foundation Apache Tomcat: "
+        "5 new vulnerabilities, worst critical (1 critical, 3 high, 1 medium)"
+    )
+    assert _group_lines(item) == [
+        "CVE-2026-95517 · critical 9.1 · exploited: no · ≤10.1.61 (+4 more)",
+        "CVE-2026-95518 · high 7.5 · exploited: no · 11.0.0-M1 ≤11.0.27 (+1 more)",
+        "CVE-2026-95519 · high 7.4 · exploited: no · 10.1.0-M1 ≤10.1.61",
+        "CVE-2026-95520 · high 7.0 · exploited: no · 10.1.0-M1 ≤10.1.61",
+        "CVE-2026-95521 · medium 5.0 · exploited: no · 10.1.0-M1 ≤10.1.61",
+    ]
+    description = item.findtext("description")
+    assert description is not None
+    # one <p> only, each ID linked to its member's first source link
+    assert description.count("<p>") == 1
+    assert description.startswith("<p>")
+    for member in _five_member_burst():
+        assert (
+            f'<a href="https://euvd.test/{member.primary_id}">{member.primary_id}</a>'
+        ) in description
+    assert description.endswith("</p>")
+
+
+def test_the_group_item_carries_the_group_guid_and_the_members_pubdate() -> None:
+    item = _group_item(_five_member_burst())
+    guid = item.find("guid")
+    assert guid is not None
+    assert guid.text == GROUP_GUID
+    assert guid.attrib == {"isPermaLink": "false"}
+    assert item.findtext("pubDate") == "Mon, 26 Oct 2026 20:00:00 GMT"
+    assert item.findtext("link") == "https://euvd.test/CVE-2026-95517"
+
+
+def test_the_golden_update_titles_with_part_numbering() -> None:
+    # a burst of 9 band members (7 critical, 2 high) splits 5 + 4
+    part1 = "cvestream:team-tomcat:group-band:aaaaaaaaaaaaaaaa"
+    part2 = "cvestream:team-tomcat:group-band:bbbbbbbbbbbbbbbb"
+    members = [
+        *[
+            _member(f"CVE-2026-{n}", Band.CRITICAL, 9.5, part1, kind="band-critical")
+            for n in range(1, 6)
+        ],
+        *[
+            _member(f"CVE-2026-{n}", Band.CRITICAL, 9.5, part2, kind="band-critical")
+            for n in (6, 7)
+        ],
+        *[
+            _member(f"CVE-2026-{n}", Band.HIGH, 8.0, part2, kind="band-high")
+            for n in (8, 9)
+        ],
+    ]
+    items = _parse(render_feed(TOMCAT_ENDPOINT, members)).findall("channel/item")
+    assert len(items) == 2
+    assert items[0].findtext("title") == (
+        f"{RED_CIRCLE}{TRIANGLE} [UPDATE] Apache Software Foundation Apache Tomcat: "
+        "5 vulnerabilities raised (5 critical), part 1 of 2"
+    )
+    assert items[1].findtext("title") == (
+        f"{RED_CIRCLE}{TRIANGLE} [UPDATE] Apache Software Foundation Apache Tomcat: "
+        "4 vulnerabilities raised (2 critical, 2 high), part 2 of 2"
+    )
+    assert [i.findtext("guid") for i in items] == [part1, part2]
+
+
+def test_no_marker_gives_no_leading_space_and_one_fresh_member_gives_squared_new() -> (
+    None
+):
+    members = [_member(f"CVE-2026-{n}", Band.HIGH, 7.0, fresh=None) for n in (1, 2, 3)]
+    title = _group_item(members).findtext("title")
+    assert title == (
+        "Apache Software Foundation Apache Tomcat: "
+        "3 new vulnerabilities, worst high (3 high)"
+    )
+    assert not title.startswith(" ")
+    members[1] = replace(members[1], is_fresh=True)
+    title = _group_item(members).findtext("title")
+    assert title is not None
+    assert title.startswith(f"{SQUARED_NEW} ")
+
+
+def test_a_chunk_of_one_reads_singular() -> None:
+    other = "cvestream:team-tomcat:group-new:cccccccccccccccc"
+    members = [
+        *[_member(f"CVE-2026-{n}", Band.HIGH, 7.0) for n in (1, 2, 3, 4, 5)],
+        _member("CVE-2026-9", Band.LOW, 3.0, other),
+    ]
+    items = _parse(render_feed(TOMCAT_ENDPOINT, members)).findall("channel/item")
+    assert len(items) == 2
+    assert items[1].findtext("title") == (
+        "Apache Software Foundation Apache Tomcat: "
+        "1 new vulnerability, worst low (1 low), part 2 of 2"
+    )
+
+
+def test_members_given_in_any_order_render_the_same_xml() -> None:
+    members = _five_member_burst()
+    reference = render_feed(TOMCAT_ENDPOINT, members)
+    for permuted in (list(reversed(members)), members[2:] + members[:2]):
+        assert render_feed(TOMCAT_ENDPOINT, permuted) == reference
+
+
+def test_a_group_between_two_single_items_keeps_its_position_and_counts_once() -> None:
+    single_new = _entry(guid="single-new", published_at=NOW)
+    single_old = _entry(guid="single-old", published_at=NOW - timedelta(days=2))
+    burst = [
+        replace(m, published_at=NOW - timedelta(hours=1))
+        for m in _five_member_burst()[:3]
+    ]
+    entries = [single_new, *burst, single_old]
+    assert count_items(entries) == 3
+    channel = _parse(render_feed(ENDPOINT, entries)).find("channel")
+    assert channel is not None
+    items = channel.findall("item")
+    assert [i.findtext("guid") for i in items] == [
+        "single-new",
+        GROUP_GUID,
+        "single-old",
+    ]
+    # the single items are unchanged
+    assert items[0].findtext("title") == "CVE-2026-1234 in php: severity high"
+
+
+def test_two_bursts_of_one_product_in_two_runs_never_number_each_others_parts() -> None:
+    first = _five_member_burst()[:3]
+    second_guid = "cvestream:team-tomcat:group-new:dddddddddddddddd"
+    second = [
+        replace(m, published_at=NOW - timedelta(days=1), group_guid=second_guid)
+        for m in _five_member_burst()[:3]
+    ]
+    items = _parse(render_feed(TOMCAT_ENDPOINT, [*first, *second])).findall(
+        "channel/item"
+    )
+    assert len(items) == 2
+    for item in items:
+        title = item.findtext("title") or ""
+        assert "part" not in title
+        assert title.endswith("(1 critical, 2 high)")
+
+
+def test_member_line_unknown_score_versions_and_escaping() -> None:
+    members = [
+        _member("CVE-2026-1", Band.UNKNOWN, None),
+        _member("CVE-2026-2", Band.HIGH, 7.0),
+        _member("CVE-2026-3", Band.HIGH, 7.0, versions=()),
+        _member("CVE-2026-<b>4", Band.HIGH, 7.0, versions=("< 9.0 & more",)),
+        _member("CVE-2026-5", Band.HIGH, 7.0, with_record=False),
+    ]
+    item = _group_item(members)
+    lines = _group_lines(item)
+    assert "CVE-2026-2 · high 7.0 · exploited: no · 10.1.0-M1 ≤10.1.61" in lines
+    # no structured affected data reads "versions unknown"
+    assert "CVE-2026-3 · high 7.0 · exploited: no · versions unknown" in lines
+    # markup in an ID or a version text shows literally to a reader
+    assert "CVE-2026-<b>4 · high 7.0 · exploited: no · < 9.0 & more" in lines
+    # an unknown score reads "unknown"
+    assert "CVE-2026-1 · unknown unknown · exploited: no · 10.1.0-M1 ≤10.1.61" in lines
+    # the raw HTML escapes the markup (the ID is an anchor's text, escaped)
+    description = item.findtext("description") or ""
+    assert "<b>4</b>" not in description
+    assert "CVE-2026-&lt;b&gt;4" in description
+    assert "&lt; 9.0 &amp; more" in description
+    # a member without a source URL is not an anchor
+    assert "https://euvd.test/CVE-2026-5" not in description
+    assert ">CVE-2026-5</a>" not in description
+    assert "CVE-2026-5 · high 7.0 · exploited: no · 10.1.0-M1 ≤10.1.61" in lines
+
+
+def test_a_label_with_five_rows_reads_first_plus_four_more() -> None:
+    member = _member(
+        "CVE-2026-1",
+        Band.HIGH,
+        7.0,
+        versions=tuple(f"≤ 9.{i}" for i in range(5)),
+    )
+    members = [
+        member,
+        _member("CVE-2026-2", Band.HIGH, 7.0),
+        _member("CVE-2026-3", Band.HIGH, 7.0),
+    ]
+    lines = _group_lines(_group_item(members))
+    assert lines[0].endswith("· ≤ 9.0 (+4 more)")
+
+
+def test_the_five_member_golden_group_fits_the_slack_preview_window() -> None:
+    item = _group_item(_five_member_burst())
+    description = item.findtext("description")
+    assert description is not None
+    text = html.unescape(_TAG.sub("", description))
+    preview = text[:SLACK_PREVIEW_CHARS]
+    for member in _five_member_burst():
+        assert member.primary_id in preview
