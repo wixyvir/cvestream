@@ -31,9 +31,16 @@ from cvestream.domain.publication import (
     PUBLICATION_WINDOW,
     PublicationDecision,
     decide,
+    group_decisions,
 )
 from cvestream.pipeline.correlate import build_vulnerability, correlate, normalize_all
-from cvestream.pipeline.render import FeedEntry, RenderedFeed, etag_of, render_feed
+from cvestream.pipeline.render import (
+    FeedEntry,
+    RenderedFeed,
+    count_items,
+    etag_of,
+    render_feed,
+)
 from cvestream.pipeline.summary import log_summary, summarize
 from cvestream.sources.base import FetchResult
 from cvestream.state.db import State
@@ -149,6 +156,11 @@ def run(
         )
         for endpoint in endpoints:
             candidates = recent if endpoint.id in with_history else backfill
+            # Decide and check every candidate first, then write: grouping
+            # (story 5.2) needs the whole run's accepted decisions of this
+            # endpoint before any row is written, all in this one transaction.
+            accepted: list[tuple[int, PublicationDecision]] = []
+            run_guids: set[str] = set()
             for vulnerability_id in sorted(candidates):
                 vulnerability = vulnerabilities[vulnerability_id]
                 matched = match(vulnerability, endpoint)
@@ -165,8 +177,13 @@ def run(
                 # Safety net: `decide()` checks the GUID against the history of
                 # this vulnerability only. Two vulnerabilities sharing an
                 # advisory-only primary ID build the same GUID, and inserting it
-                # twice would roll back this run and every next one. Skip it.
-                if repository.publication_guid_exists(decision.guid):
+                # twice would roll back this run and every next one. Skip it,
+                # whether the GUID is already stored or accepted earlier in
+                # this run (rows are written below, after the grouping).
+                if (
+                    repository.publication_guid_exists(decision.guid)
+                    or decision.guid in run_guids
+                ):
                     log.warning(
                         "publish.skipped",
                         reason="guid_collision",
@@ -175,14 +192,36 @@ def run(
                         kind=decision.kind,
                     )
                     continue
-                repository.add_publication(vulnerability_id, decision, now)
-                decided.append(decision)
-                log.info(
-                    "publish.decided",
-                    endpoint_id=decision.endpoint_id,
-                    vuln_id=decision.primary_id,
-                    kind=decision.kind,
+                run_guids.add(decision.guid)
+                accepted.append((vulnerability_id, decision))
+            group_of: dict[str, str] = {}
+            if endpoint.rules.group_by_product:
+                for group in group_decisions([d for _, d in accepted]):
+                    for member in group.members:
+                        group_of[member.guid] = group.guid
+                    log.info(
+                        "publish.grouped",
+                        endpoint_id=group.endpoint_id,
+                        family=group.family,
+                        count=len(group.members),
+                        part=group.part,
+                        parts=group.parts,
+                        group_guid=group.guid,
+                    )
+            for vulnerability_id, decision in accepted:
+                group_guid = group_of.get(decision.guid)
+                repository.add_publication(
+                    vulnerability_id, decision, now, group_guid=group_guid
                 )
+                decided.append(decision)
+                fields: dict[str, object] = {
+                    "endpoint_id": decision.endpoint_id,
+                    "vuln_id": decision.primary_id,
+                    "kind": decision.kind,
+                }
+                if group_guid is not None:
+                    fields["group_guid"] = group_guid
+                log.info("publish.decided", **fields)
 
         # Every enabled endpoint is rendered at every run: the 14-day window
         # slides even when nothing is published, and a rename shows at once.
@@ -210,6 +249,7 @@ def run(
                     published_at=p.published_at,
                     vulnerability=vulnerabilities[p.vulnerability_id],
                     is_fresh=p.is_fresh,
+                    group_guid=p.group_guid,
                 )
                 for p in publications.get(endpoint.id, [])
             ]
@@ -217,18 +257,20 @@ def run(
             etag = etag_of(xml)
             old = previous.get(endpoint.id)
             changed_at = old.changed_at if old is not None and old.etag == etag else now
+            # A group counts as one rendered item, not one per member.
+            item_count = count_items(entries)
             repository.save_feed(
                 StoredFeed(
                     endpoint.id,
                     xml.decode("utf-8"),
                     etag,
-                    len(entries),
+                    item_count,
                     now,
                     changed_at,
                 )
             )
             feeds[endpoint.id] = RenderedFeed(
-                endpoint.id, xml, etag, len(entries), now, changed_at
+                endpoint.id, xml, etag, item_count, now, changed_at
             )
     result = RunResult(
         decisions=tuple(decided),

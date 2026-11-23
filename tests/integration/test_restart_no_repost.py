@@ -4,6 +4,8 @@ The batches come from the real adapters run against the recorded EUVD and CISA
 KEV fixtures; the state is a SQLite file that survives each simulated restart.
 """
 
+import xml.etree.ElementTree as ET
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import MappingProxyType
@@ -13,7 +15,7 @@ import respx
 from sqlalchemy import select
 
 from cvestream.config.provider import ConfigSnapshot
-from cvestream.domain.endpoint import Endpoint, ProductEntry
+from cvestream.domain.endpoint import Endpoint, ProductEntry, Rules
 from cvestream.domain.model import KevCatalog, KevEntry, Sourced, SourceRecord
 from cvestream.http import HttpClient
 from cvestream.pipeline.run import RunResult, SourceBatch, run
@@ -34,6 +36,10 @@ ENDPOINT = Endpoint(
 )
 SNAPSHOT = ConfigSnapshot(
     revision="r", endpoints=(ENDPOINT,), tokens=MappingProxyType({})
+)
+GROUPED_ENDPOINT = replace(ENDPOINT, rules=Rules(group_by_product=True))
+GROUPED_SNAPSHOT = ConfigSnapshot(
+    revision="r", endpoints=(GROUPED_ENDPOINT,), tokens=MappingProxyType({})
 )
 
 
@@ -65,6 +71,21 @@ def _publications(state: State) -> set[tuple[str, str]]:
             select(schema.publication.c.guid, schema.publication.c.kind)
         ).all()
     return {(row.guid, row.kind) for row in rows}
+
+
+def _group_guids(state: State) -> set[str]:
+    with state.transaction() as repository:
+        rows = repository._connection.execute(
+            select(schema.publication.c.group_guid).where(
+                schema.publication.c.group_guid.is_not(None)
+            )
+        ).all()
+    return {row.group_guid for row in rows}
+
+
+def _feed_guids(result: RunResult) -> list[str]:
+    root = ET.fromstring(result.feeds["team-browser"].xml)  # noqa: S314
+    return [item.findtext("guid") or "" for item in root.findall("channel/item")]
 
 
 def _kinds(result: RunResult) -> list[str]:
@@ -140,4 +161,76 @@ async def test_nothing_is_posted_twice_across_restarts(
     for batches in ([kev_batch], [euvd, cisa], [euvd, cisa, kev_batch]):
         assert run(state, SNAPSHOT, batches, fake_clock).decisions == ()
     assert _publications(state) == published
+    state.dispose()
+
+
+@pytest.mark.anyio
+async def test_nothing_is_posted_twice_across_restarts_when_grouped(
+    respx_mock: respx.MockRouter, fake_clock: FakeClock, tmp_path: Path
+) -> None:
+    fake_clock.set(NOW)
+    url = f"sqlite:///{tmp_path / 'grouped.db'}"
+    state = State(url)
+    state.migrate()
+    euvd, cisa = await _fetch(respx_mock, fake_clock)
+
+    # run 1: the three Chrome records of the recorded page are exactly the
+    # threshold, so they publish as one group item (each member keeps its row)
+    first = run(state, GROUPED_SNAPSHOT, [euvd, cisa], fake_clock)
+    assert set(_kinds(first)) == {"new"}
+    assert len(first.decisions) == 3
+    published = _publications(state)
+    assert len(published) == 3
+    (group_guid,) = _group_guids(state)
+    assert group_guid.startswith("cvestream:team-browser:group-new:")
+    assert _feed_guids(first) == [group_guid]
+    assert first.feeds["team-browser"].item_count == 1
+
+    # restart, then the very same input: nothing new, same feed bytes
+    state = _restart(state, url)
+    state.migrate()
+    again = run(state, GROUPED_SNAPSHOT, [euvd, cisa], fake_clock)
+    assert again.decisions == ()
+    assert _publications(state) == published
+    assert again.feeds["team-browser"].xml == first.feeds["team-browser"].xml
+    assert again.feeds["team-browser"].etag == first.feeds["team-browser"].etag
+
+    # A published CVE becomes known-exploited: a single kev item on its own,
+    # the stored group is not regrouped.
+    fake_clock.advance(timedelta(minutes=15))
+    exploited = SourceRecord(
+        source="cisa_kev",
+        record_id=CHROME_CVE,
+        observed_at=fake_clock.now(),
+        aliases=(CHROME_CVE,),
+        kev=(
+            Sourced(
+                KevEntry(KevCatalog.CISA_KEV, added_at=fake_clock.now()),
+                "cisa_kev",
+                fake_clock.now(),
+            ),
+        ),
+    )
+    kev_batch = SourceBatch(
+        "cisa_kev", FetchResult(records=(exploited,), next_cursor=None)
+    )
+    escalated = run(state, GROUPED_SNAPSHOT, [kev_batch], fake_clock)
+    assert _kinds(escalated) == ["kev"]
+    assert escalated.decisions[0].guid == f"cvestream:team-browser:{CHROME_CVE}:kev"
+    published = _publications(state)
+    assert len(published) == 4
+    assert _group_guids(state) == {group_guid}
+    assert _feed_guids(escalated) == [
+        f"cvestream:team-browser:{CHROME_CVE}:kev",
+        group_guid,
+    ]
+    assert escalated.feeds["team-browser"].item_count == 2
+
+    # restart again and rerun everything: exactly once means once
+    state = _restart(state, url)
+    fake_clock.advance(timedelta(minutes=15))
+    for batches in ([kev_batch], [euvd, cisa], [euvd, cisa, kev_batch]):
+        assert run(state, GROUPED_SNAPSHOT, batches, fake_clock).decisions == ()
+    assert _publications(state) == published
+    assert _group_guids(state) == {group_guid}
     state.dispose()
