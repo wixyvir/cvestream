@@ -34,9 +34,9 @@ def alias_kind(alias: str) -> AliasKind:
     return AliasKind.ADVISORY
 
 
-def _sort_key(alias: str) -> tuple[int, int, str]:
-    # Numeric (year, number) for CVE and EUVD so CVE-2026-9999 < CVE-2026-10000;
-    # advisories sort lexicographically.
+def alias_sort_key(alias: str) -> tuple[int, int, str]:
+    """Natural order of an alias: numeric (year, number) for CVE and EUVD so
+    CVE-2026-9999 < CVE-2026-10000; advisories sort lexicographically."""
     found = _CVE.fullmatch(alias) or _EUVD.fullmatch(alias)
     if found:
         return int(found[1]), int(found[2]), alias
@@ -52,5 +52,5 @@ def primary_id(aliases: Iterable[str]) -> str:
     for kind in _PRIORITY:
         candidates = [a for a in usable if alias_kind(a) is kind]
         if candidates:
-            return min(candidates, key=_sort_key)
+            return min(candidates, key=alias_sort_key)
     raise ValueError("no usable alias to pick a primary ID from")
