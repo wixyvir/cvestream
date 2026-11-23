@@ -160,6 +160,9 @@ publication = Table(
     Column("is_known_exploited", Boolean, nullable=False),
     # NULL on rows older than this column: no freshness marker.
     Column("is_fresh", Boolean, nullable=True),
+    # Group item GUID (story 5.2), built once at decision time; NULL when the
+    # row is published on its own or older than this column.
+    Column("group_guid", Text, nullable=True),
     Column("products_json", JSON, nullable=False),
     Column("labels_json", JSON, nullable=False),
     Column("published_at", UTCDateTime, nullable=False),

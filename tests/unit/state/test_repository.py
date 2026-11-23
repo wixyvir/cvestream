@@ -442,3 +442,40 @@ def test_publications_since_round_trips_is_fresh(state: State) -> None:
     assert stored["g-true"].is_fresh is True
     assert stored["g-false"].is_fresh is False
     assert stored["g-null"].is_fresh is None
+
+
+def test_publications_since_round_trips_the_group_guid(state: State) -> None:
+    with state.transaction() as repo:
+        one = _vulnerability(repo)
+        two = _vulnerability(repo)
+        three = _vulnerability(repo)
+        group_guid = "cvestream:e:group-new:0123456789abcdef"
+        repo.add_publication(
+            one,
+            replace(_decision("g-grouped"), endpoint_id="e"),
+            NOW,
+            group_guid=group_guid,
+        )
+        repo.add_publication(two, _decision("g-single"), NOW)
+        # a row from before the column existed: NULL
+        repo._connection.execute(
+            insert(schema.publication).values(
+                endpoint_id="e",
+                vulnerability_id=three,
+                kind="new",
+                guid="g-null",
+                primary_id="CVE-2026-1",
+                band="high",
+                is_known_exploited=False,
+                is_fresh=True,
+                products_json=[],
+                labels_json=[],
+                published_at=NOW,
+            )
+        )
+        stored = {
+            p.guid: p for ps in repo.publications_since(["e"], NOW).values() for p in ps
+        }
+    assert stored["g-grouped"].group_guid == group_guid
+    assert stored["g-single"].group_guid is None
+    assert stored["g-null"].group_guid is None
