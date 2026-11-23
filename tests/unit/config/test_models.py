@@ -411,26 +411,51 @@ def test_duplicate_product_names_rejected_on_a_standalone_endpoint() -> None:
 
 
 @pytest.mark.parametrize(
-    ("products", "names"),
+    ("products", "entries"),
     [
         (
             [
-                {"name": "php", "aliases": ["php-src"], "exact": True},
+                {
+                    "name": "php",
+                    "aliases": ["php-src"],
+                    "min_version": "8.2",
+                    "exact": True,
+                },
                 {"name": "php-src", "match_description": False},
             ],
-            ["php", "php-src"],
+            [
+                ProductEntry(
+                    name="php",
+                    aliases=("php-src",),
+                    min_version=Version("8.2"),
+                    exact=True,
+                ),
+                ProductEntry(name="php-src", match_description=False),
+            ],
         ),
         (
             [{"name": "a", "aliases": ["x"]}, {"name": "b", "aliases": ["x"]}],
-            ["a", "b"],
+            [
+                ProductEntry(name="a", aliases=("x",)),
+                ProductEntry(name="b", aliases=("x",)),
+            ],
         ),
-        (["php", "php-fpm", "phpmyadmin"], ["php", "php-fpm", "phpmyadmin"]),
+        (
+            ["php", "php-fpm", "phpmyadmin"],
+            [
+                ProductEntry(name="php"),
+                ProductEntry(name="php-fpm"),
+                ProductEntry(name="phpmyadmin"),
+            ],
+        ),
     ],
     ids=["alias-as-name", "shared-alias", "near-names"],
 )
-def test_distinct_product_names_accepted(products: list[Any], names: list[str]) -> None:
+def test_distinct_product_names_accepted(
+    products: list[Any], entries: list[ProductEntry]
+) -> None:
     domain = _only_endpoint(products=products).to_domain()
-    assert [entry.name for entry in domain.products] == names
+    assert list(domain.products) == entries
 
 
 def test_same_product_name_in_two_endpoints_accepted() -> None:
@@ -441,6 +466,11 @@ def test_same_product_name_in_two_endpoints_accepted() -> None:
         )
     )
     assert [endpoint.id for endpoint in document.endpoints] == ["team-php", "other"]
+    domains = [endpoint.to_domain() for endpoint in document.endpoints]
+    assert [[entry.name for entry in domain.products] for domain in domains] == [
+        ["php"],
+        ["php"],
+    ]
 
 
 def test_disabled_endpoint_is_checked_too() -> None:
